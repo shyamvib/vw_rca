@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/tokens/fig-tokens.css">
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/tokens/colors.css">
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/tokens/typography.css">
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/styles.css">
+<script src="_ds/design-system-316cce91-9d4e-4f3e-9ce1-4a23b84b9efd/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; background: var(--surface-page); }
+  a { color: var(--vw-blue); text-decoration: none; }
+  a:hover { color: var(--vw-blue-hover); text-decoration: underline; }
+</style>
+</helmet>
+
+<div style="font-family: var(--font-sans); color: var(--text-primary); background: var(--surface-page); min-height: 100vh; padding-bottom: 80px;">
+
+  <div style="background: var(--vw-ink); color: var(--vw-white); padding: 18px 40px; display: flex; align-items: center; justify-content: space-between;">
+    <x-import component-from-global-scope="DesignSystem_316cce.Logo" variant="lockup" tone="white" height="{{ 18 }}" hint-size="122px,18px"></x-import>
+    <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-gray-40);">Revenue root cause · May 1 – Aug 13 2026</div>
+  </div>
+
+  <div style="padding: 40px 40px 0; max-width: 1440px; margin: 0 auto;">
+
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 48px; flex-wrap: wrap;">
+      <div style="max-width: 620px;">
+        <h1 style="font-family: var(--font-sans); font-weight: 500; font-size: 46px; line-height: 0.9; letter-spacing: -0.03em; margin: 0 0 14px;">The whole hole is the top 20% of existing clinics.</h1>
+        <p style="font-family: var(--font-sans); font-size: 15px; line-height: 1.45; color: var(--text-secondary); margin: 0; text-wrap: pretty;">Baseline is the Jan 16 – Apr 30 run rate, applied per weekday and weekend day so partial and holiday-heavy weeks are comparable. Each lens below is a different cut of the same shortfall, not additive to the others.</p>
+      </div>
+      <div style="display: flex; gap: 40px; align-items: flex-end; padding-bottom: 4px;">
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px;">Expected</div>
+          <div style="font-family: var(--font-mono); font-size: 22px;">$36.08M</div>
+        </div>
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px;">Actual</div>
+          <div style="font-family: var(--font-mono); font-size: 22px;">$35.05M</div>
+        </div>
+        <div style="border-left: 1px solid var(--border-default); padding-left: 40px;">
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px;">Shortfall</div>
+          <div style="font-family: var(--font-mono); font-size: 34px; line-height: 1; color: var(--vw-error);">-$1.027M</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 40px; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); padding: 22px 26px 18px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 8px; flex-wrap: wrap;">
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary);">Weekly delta vs run rate</div>
+          <div style="font-size: 13px; color: var(--text-secondary); margin-top: 5px;">Click a week or a month to re-cut the tree below.</div>
+        </div>
+        <x-import component-from-global-scope="DesignSystem_316cce.Tabs" variant="segmented" mono="{{ true }}" tabs="{{ scopeTabs }}" value="{{ activeTab }}" onChange="{{ setScope }}" hint-size="360px,38px"></x-import>
+      </div>
+
+      <div style="display: flex; align-items: stretch; gap: 6px; height: 320px; position: relative; margin-top: 14px;">
+        <div style="position: absolute; left: 0; right: 0; top: 80px; height: 1px; background: var(--border-default);"></div>
+        <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="15">
+          <div onClick="{{ w.select }}" style="flex: 1; position: relative; cursor: pointer; border-radius: 4px; background: {{ w.wash }};" style-hover="background: var(--vw-blue-tint);">
+            <div style="position: absolute; left: 14%; right: 14%; top: {{ w.top }}; height: {{ w.height }}; background: {{ w.color }}; border-radius: 2px;"></div>
+            <div style="position: absolute; left: 0; right: 0; top: {{ w.labelTop }}; text-align: center; font-family: var(--font-mono); font-size: 10px; color: {{ w.labelColor }};">{{ w.deltaShort }}</div>
+            <div style="position: absolute; left: 0; right: 0; bottom: 22px; text-align: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--text-tertiary); text-transform: uppercase;">{{ w.label }}</div>
+            <div style="position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; color: var(--vw-warning); text-transform: uppercase;">{{ w.flag }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="margin-top: 44px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary);">Executive readout</div>
+    <div style="margin-top: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+      <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-blue);">Q1</div>
+        <div style="font-size: 16px; font-weight: 500; line-height: 1.2;">How big is the hole?</div>
+        <div style="font-family: var(--font-mono); font-size: 26px; line-height: 1; color: var(--vw-error);">-$1.027M</div>
+        <div style="font-size: 13px; line-height: 1.45; color: var(--text-secondary); text-wrap: pretty;">2.8% below the Jan–Apr run rate over 15 weeks. $35.05M actual against $36.08M expected.</div>
+      </div>
+      <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-blue);">Q2</div>
+        <div style="font-size: 16px; font-weight: 500; line-height: 1.2;">Price or volume?</div>
+        <div style="font-family: var(--font-mono); font-size: 26px; line-height: 1;">Volume</div>
+        <div style="font-size: 13px; line-height: 1.45; color: var(--text-secondary); text-wrap: pretty;">3,856 orders never came in, worth -$2.22M. A +$20 AOV lift clawed back $1.19M of it.</div>
+      </div>
+      <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-blue);">Q3</div>
+        <div style="font-size: 16px; font-weight: 500; line-height: 1.2;">Which clinics?</div>
+        <div style="font-family: var(--font-mono); font-size: 26px; line-height: 1; color: var(--vw-error);">Top 20%</div>
+        <div style="font-size: 13px; line-height: 1.45; color: var(--text-secondary); text-wrap: pretty;">716 retained clinics ordering less: -$1.84M, 179% of the shortfall. Churn and new logos net to +$131K.</div>
+      </div>
+      <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); padding: 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-blue);">Q4</div>
+        <div style="font-size: 16px; font-weight: 500; line-height: 1.2;">Where, and what now?</div>
+        <div style="font-family: var(--font-mono); font-size: 26px; line-height: 1; color: var(--vw-error);">CA AZ MO FL</div>
+        <div style="font-size: 13px; line-height: 1.45; color: var(--text-secondary); text-wrap: pretty;">Four states carry -$1.12M. August is the live risk: damage is almost all bundles and the AOV cushion has gone.</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 44px; display: flex; align-items: baseline; gap: 14px;">
+      <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary);">Shortfall tree</div>
+      <div style="font-size: 13px; color: var(--text-secondary);">{{ scopeCaption }}</div>
+    </div>
+
+    <div style="margin-top: 18px;">
+      <div style="width: 360px; margin: 0 auto; background: var(--vw-ink); color: var(--vw-white); border-radius: 8px; padding: 20px 24px; text-align: center;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vw-gray-40);">{{ rootLabel }}</div>
+        <div style="font-family: var(--font-mono); font-size: 40px; line-height: 1.1; margin-top: 8px; color: {{ rootColor }};">{{ rootValue }}</div>
+        <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vw-gray-40); margin-top: 6px;">{{ rootSub }}</div>
+      </div>
+      <div style="width: 2px; height: 26px; background: var(--vw-ink); margin: 0 auto;"></div>
+      <div style="margin: 0 calc(12.5% - 7.5px); height: 2px; background: var(--vw-ink);"></div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+        <sc-for list="{{ lenses }}" as="lens" hint-placeholder-count="4">
+          <div>
+            <div style="width: 2px; height: 26px; background: var(--vw-ink); margin: 0 auto;"></div>
+            <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 1px 2px rgba(138,138,138,0.10); overflow: hidden;">
+              <div style="padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 10px; align-items: baseline;">
+                <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--vw-blue);">{{ lens.letter }}</div>
+                <div>
+                  <div style="font-size: 15px; font-weight: 500;">{{ lens.title }}</div>
+                  <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 3px;">{{ lens.question }}</div>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column;">
+                <sc-for list="{{ lens.rows }}" as="row" hint-placeholder-count="3">
+                  <div style="padding: 13px 16px; border-bottom: 1px solid var(--vw-gray-05);" style-hover="background: var(--vw-gray-02);">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+                      <div style="font-size: 13px; color: var(--text-primary);">{{ row.label }}</div>
+                      <div style="font-family: var(--font-mono); font-size: 14px; white-space: nowrap; color: {{ row.color }};">{{ row.valueText }}</div>
+                    </div>
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 3px;">
+                      <div style="font-size: 11px; color: var(--text-tertiary);">{{ row.sub }}</div>
+                      <div style="font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary);">{{ row.pctText }}</div>
+                    </div>
+                    <div style="position: relative; height: 6px; background: var(--vw-gray-10); border-radius: 2px; margin-top: 9px;">
+                      <div style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--vw-gray-30);"></div>
+                      <div style="position: absolute; top: 0; bottom: 0; border-radius: 2px; left: {{ row.barLeft }}; width: {{ row.barWidth }}; background: {{ row.color }};"></div>
+                    </div>
+                  </div>
+                </sc-for>
+                <div style="padding: 11px 16px; font-size: 11px; line-height: 1.4; color: var(--text-tertiary); background: var(--vw-gray-02);">{{ lens.note }}</div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="margin-top: 44px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 24px;">
+      <div style="background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 22px 26px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 12px;">Read</div>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0 0 12px; text-wrap: pretty;">We lost 3,856 orders worth $2.22M and clawed back $1.19M through higher AOV. Churn and new-logo acquisition net to roughly zero. The whole hole is the top 20% of retained clinics (-$1.84M, 179% of the shortfall, since every other cohort nets positive), and CA / AZ / MO / FL carry ~109% of it.</p>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--text-secondary); text-wrap: pretty;">The four months are evenly spread: 29% / 12% / 36% / 23%. July is the largest single month but no longer the dominant driver, and its mid-month weeks turn flat-to-positive — only the July 4 week and the last week of July are genuinely soft. August is the worrying month, because the damage there is almost entirely bundle orders (-$231K of -$240K) and the AOV cushion has gone.</p>
+      </div>
+      <div style="background: var(--vw-white); border: 1px solid var(--border-subtle); border-left: 2px solid var(--vw-warning); border-radius: 8px; padding: 22px 26px;">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 12px;">Caveats</div>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0 0 12px; text-wrap: pretty;">The two worst weeks (May 25, Jun 29) are the Memorial Day and July 4 weeks, and the baseline window contains no comparable holiday. Roughly $400–500K of the gap is calendar, not demand. Strip those out and the underlying run-rate loss is roughly $0.5–0.6M, still entirely volume and still entirely the top-20% cohort.</p>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--text-secondary); text-wrap: pretty;">The AOV cushion (+$55–120K/week through July) has collapsed in August (+$9–15K/week), which is why daily revenue now feels worse than the monthly numbers suggested.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;highlightHolidayWeeks&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Analysis&quot;},&quot;barBasis&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Shared scale&quot;,&quot;Per-lens scale&quot;],&quot;default&quot;:&quot;Shared scale&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Analysis&quot;},&quot;showPercents&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Analysis&quot;}}">
+const K = 1000;
+
+const FULL = {
+  id: 'all', label: 'May 1 – Aug 13', kind: 'period',
+  caption: 'Full window · expected $36.08M, actual $35.05M',
+  delta: -1026954,
+  A: [['Order volume', '-3,856 orders vs expected', -2218714], ['AOV / price-mix', '+$20 AOV', 1191760]],
+  B: [['Bundle orders', '', -511344], ['Non-bundle orders', '', -515733]],
+  C: [['Churned clinics', '1,797 clinics', -1883287], ['New clinics', '1,577 clinics', 2014526],
+      ['Retained — top 20%', '716 clinics', -1843175], ['Retained — remaining 80%', '2,866 clinics', 684861]],
+  D: [['CA / AZ / MO / FL', 'four worst states', -1123846], ['All other states', 'net', 96892]],
+  noteD: 'Four states carry ~109% of the shortfall; every other state nets positive.'
+};
+
+const MONTHS = [
+  ['may', 'May', '$10.01M actual vs $10.31M expected', -298, -656, 358, -41, -261, -546, 531, -515, 227, [['CA', -121], ['MO', -82], ['WI', -52]]],
+  ['jun', 'Jun', '$10.56M actual vs $10.68M expected', -119, -488, 370, -35, -82, -554, 610, -447, 274, [['CA', -98], ['FL', -63], ['AZ', -59]]],
+  ['jul', 'Jul', '$10.31M actual vs $10.68M expected', -370, -798, 427, -204, -163, -552, 642, -571, 113, [['AZ', -136], ['CA', -102], ['FL', -88]]],
+  ['aug', 'Aug 1–13', '$4.16M actual vs $4.40M expected', -240, -277, 37, -231, -10, -232, 231, -310, 70, [['CA', -78], ['FL', -43], ['AZ', -39]]]
+];
+
+const WEEKS = [
+  ['May 4', 96, 4, 92, 19, 77, -3], ['May 11', 65, 10, 55, 29, 35, -18],
+  ['May 18', 30, -30, 60, 59, -29, -54], ['May 25', -365, -478, 114, -113, -251, -359],
+  ['Jun 1', 69, -43, 112, 60, 9, -25], ['Jun 8', -16, -71, 55, -21, 5, -100],
+  ['Jun 15', -43, -150, 107, -19, -24, -75], ['Jun 22', -136, -198, 61, -59, -77, -196],
+  ['Jun 29', -401, -500, 98, -168, -233, -382], ['Jul 6', -123, -199, 76, -38, -84, -150],
+  ['Jul 13', 1, -85, 86, -24, 25, -70], ['Jul 20', 131, 11, 120, 35, 96, 39],
+  ['Jul 27', -39, -133, 93, -29, -11, -106], ['Aug 3', -126, -136, 9, -109, -18, -180],
+  ['Aug 10', -108, -123, 15, -122, 18, -129]
+];
+
+const HOLIDAY = { 'May 25': 'Memorial', 'Jun 29': 'Jul 4' };
+
+function monthScope(m) {
+  const [id, label, caption, d, vol, aov, bun, non, chu, nw, top, rest, states] = m;
+  return {
+    id, label, kind: 'period', caption: label + ' · ' + caption, delta: d * K,
+    A: [['Order volume', '', vol * K], ['AOV / price-mix', '', aov * K]],
+    B: [['Bundle orders', '', bun * K], ['Non-bundle orders', '', non * K]],
+    C: [['Churned clinics', '', chu * K], ['New clinics', '', nw * K],
+        ['Retained — top 20%', '', top * K], ['Retained — remaining 80%', '', rest * K]],
+    D: states.map(s => [s[0], 'worst states', s[1] * K]),
+    noteD: 'Monthly geography reports the worst states only, so these rows do not sum to the month total.'
+  };
+}
+
+function weekScope(w, i) {
+  const [label, d, vol, aov, bun, non, top] = w;
+  const partial = label === 'Aug 10';
+  return {
+    id: 'w' + i, label: 'Week of ' + label, kind: 'week',
+    caption: 'Week of ' + label + (partial ? ' (partial week)' : '') + (HOLIDAY[label] ? ' · ' + HOLIDAY[label] + ' holiday week' : ''),
+    delta: d * K,
+    A: [['Order volume', '', vol * K], ['AOV / price-mix', '', aov * K]],
+    B: [['Bundle orders', '', bun * K], ['Non-bundle orders', '', non * K]],
+    C: [['Churned clinics', '', null], ['New clinics', '', null],
+        ['Retained — top 20%', '', top * K], ['Retained — remaining 80%', '', null]],
+    D: [['All states', '', null]],
+    noteD: 'Geography is not broken out weekly. Switch to a month or the full window.'
+  };
+}
+
+const SCOPES = [FULL].concat(MONTHS.map(monthScope), WEEKS.map(weekScope));
+
+class Component extends DCLogic {
+  state = { scope: 'all' };
+
+  fmt(v) {
+    const s = v < 0 ? '-' : '+', a = Math.abs(v);
+    if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(2) + 'M';
+    return s + '$' + Math.round(a / 1000).toLocaleString() + 'K';
+  }
+
+  renderVals() {
+    const showPct = this.props.showPercents ?? true;
+    const perLens = (this.props.barBasis ?? 'Shared scale') === 'Per-lens scale';
+    const flags = this.props.highlightHolidayWeeks ?? true;
+    const scope = SCOPES.find(s => s.id === this.state.scope) || FULL;
+
+    const all = ['A', 'B', 'C', 'D'].flatMap(k => scope[k].map(r => Math.abs(r[2] || 0)));
+    const globalMax = Math.max.apply(null, all.concat([1]));
+
+    const meta = {
+      A: ['A', 'Volume vs price', 'Fewer orders, or lower prices?', 'Still a volume problem: -$2.22M of lost orders, only partly offset by AOV.'],
+      B: ['B', 'Product', 'Bundles or single tests?', 'An even split over the window; bundles are almost all of August.'],
+      C: ['C', 'Client cohort', 'Which clinics?', 'Churn and new logos cancel out. The top-20% cohort is the whole hole.'],
+      D: ['D', 'Geography', 'Where?', scope.noteD]
+    };
+
+    const lenses = ['A', 'B', 'C', 'D'].map(k => {
+      const rows = scope[k];
+      const lensMax = Math.max.apply(null, rows.map(r => Math.abs(r[2] || 0)).concat([1]));
+      const max = perLens ? lensMax : globalMax;
+      return {
+        letter: meta[k][0], title: meta[k][1], question: meta[k][2], note: meta[k][3],
+        rows: rows.map(r => {
+          const v = r[2];
+          if (v === null) return {
+            label: r[0], sub: 'not broken out at this grain', valueText: '—', pctText: '',
+            color: 'var(--text-disabled)', barLeft: '50%', barWidth: '0%'
+          };
+          const hw = Math.abs(v) / max * 50;
+          return {
+            label: r[0], sub: r[1], valueText: this.fmt(v),
+            pctText: showPct ? Math.round(v / scope.delta * 100) + '% of shortfall' : '',
+            color: v < 0 ? 'var(--vw-error)' : 'var(--vw-success)',
+            barLeft: (v < 0 ? 50 - hw : 50) + '%', barWidth: hw + '%'
+          };
+        })
+      };
+    });
+
+    const pxPerK = 0.45, zeroTop = 80;
+    const weeks = WEEKS.map((w, i) => {
+      const v = w[1], h = Math.abs(v) * pxPerK, sel = this.state.scope === 'w' + i;
+      const flag = flags && HOLIDAY[w[0]] ? HOLIDAY[w[0]] : (w[0] === 'Aug 10' ? 'partial' : '');
+      return {
+        label: w[0], deltaShort: this.fmt(v * K), flag,
+        top: (v > 0 ? zeroTop - h : zeroTop) + 'px', height: h + 'px',
+        labelTop: (v > 0 ? zeroTop - h - 16 : zeroTop + h + 4) + 'px',
+        labelColor: v < 0 ? 'var(--vw-error)' : 'var(--vw-success)',
+        color: sel ? 'var(--vw-blue)' : (v < 0 ? (flags && HOLIDAY[w[0]] ? 'var(--vw-warning)' : 'var(--vw-error)') : 'var(--vw-success)'),
+        wash: sel ? 'var(--vw-blue-tint)' : 'transparent',
+        select: () => this.setState({ scope: 'w' + i })
+      };
+    });
+
+    return {
+      weeks, lenses,
+      scopeTabs: [{ label: 'Full', value: 'all' }].concat(MONTHS.map(m => ({ label: m[1], value: m[0] }))),
+      activeTab: scope.kind === 'period' ? scope.id : null,
+      setScope: id => this.setState({ scope: id }),
+      scopeCaption: scope.caption,
+      rootLabel: scope.label,
+      rootValue: scope.id === 'all' ? '-$1.027M' : this.fmt(scope.delta),
+      rootSub: scope.kind === 'week' ? 'vs run rate' : Math.round(scope.delta / FULL.delta * 100) + '% of total shortfall',
+      rootColor: scope.delta < 0 ? 'var(--vw-error-hover)' : 'var(--vw-result-in-control)'
+    };
+  }
+}
+
+</script>
+</body>
+</html>

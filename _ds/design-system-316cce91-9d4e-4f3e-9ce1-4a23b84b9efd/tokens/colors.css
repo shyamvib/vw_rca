@@ -1,0 +1,68 @@
+/* ── Vibrant Wellness · Color system ──────────────────────────────────────
+   Semantic aliases layered on top of the raw Figma variables
+   (tokens/fig-tokens.css). The rebrand is a near-monochrome system:
+   ink black + lab-coat white, with Rebranding Blue as the single brand
+   accent. Clinical result colors (red / amber / green) are reserved for
+   data viz in lab reports. */
+
+:root {
+  /* ── Brand core ── */
+  --vw-ink: rgb(22, 22, 22);            /* Rebranding Black 100 — primary text, brandmark */
+  --vw-paper: rgb(243, 243, 243);       /* Rebranding White 100 — "lab-coat white" surface */
+  --vw-white: rgb(255, 255, 255);
+  --vw-blue: rgb(1, 66, 226);           /* Rebranding Blue 100 — the one brand accent */
+  --vw-blue-hover: rgb(1, 53, 181);     /* Blue_B_80 */
+  --vw-blue-press: rgb(1, 46, 158);     /* Blue_B_70 */
+  --vw-blue-tint: rgb(235, 243, 255);   /* Sky_W_10 — faint blue wash */
+  --vw-blue-tint-2: rgb(230, 236, 252); /* Blue_W_10 */
+
+  /* ── Neutral ramp (black → white) ── */
+  --vw-gray-90: rgb(51, 51, 51);
+  --vw-gray-80: rgb(69, 69, 69);
+  --vw-gray-70: rgb(92, 92, 92);
+  --vw-gray-60: rgb(115, 115, 115);
+  --vw-gray-50: rgb(138, 138, 138);
+  --vw-gray-40: rgb(162, 162, 162);
+  --vw-gray-30: rgb(185, 185, 185);
+  --vw-gray-20: rgb(208, 208, 208);
+  --vw-gray-15: rgb(224, 224, 224);
+  --vw-gray-10: rgb(232, 232, 232);
+  --vw-gray-05: rgb(243, 243, 243);
+  --vw-gray-02: rgb(250, 250, 250);
+
+  /* ── Semantic / functional ── */
+  --vw-error: rgb(209, 0, 0);
+  --vw-error-hover: rgb(246, 59, 59);
+  --vw-error-press: rgb(166, 11, 11);
+  --vw-error-bg: rgb(250, 234, 234);
+  --vw-warning: rgb(241, 182, 105);
+  --vw-warning-bg: rgb(254, 249, 233);
+  --vw-success: rgb(52, 116, 71);
+  --vw-success-bg: rgb(225, 250, 232);
+  --vw-info: rgb(1, 66, 226);
+  --vw-info-bg: rgb(232, 244, 253);
+
+  /* ── Clinical result scale (lab-report data viz) ── */
+  --vw-result-in-control: rgb(124, 197, 102);   /* green band */
+  --vw-result-moderate: rgb(241, 165, 41);      /* amber band */
+  --vw-result-high-risk: rgb(228, 47, 47);       /* red band */
+  --vw-result-marker: rgb(40, 160, 190);         /* teal current-value pin */
+
+  /* ── Surfaces & text (semantic) ── */
+  --surface-page: var(--vw-paper);
+  --surface-card: var(--vw-white);
+  --surface-sunken: var(--vw-gray-05);
+  --surface-inverse: var(--vw-ink);
+
+  --text-primary: var(--vw-ink);
+  --text-secondary: var(--vw-gray-60);
+  --text-tertiary: var(--vw-gray-50);
+  --text-disabled: var(--vw-gray-40);
+  --text-on-accent: var(--vw-white);
+  --text-link: var(--vw-blue);
+
+  --border-subtle: var(--vw-gray-15);
+  --border-default: var(--vw-gray-20);
+  --border-strong: var(--vw-gray-40);
+  --border-focus: var(--vw-blue);
+}

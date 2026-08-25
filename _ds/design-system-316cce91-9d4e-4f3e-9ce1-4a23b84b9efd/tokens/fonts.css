@@ -1,0 +1,153 @@
+/* ── Vibrant Wellness webfonts ────────────────────────────────────────────
+   Primary:   ABC Oracle  — self-hosted (brand-supplied font files in /fonts).
+   Secondary: GT Pressura Mono — not yet supplied; the brand book's sanctioned
+              fallback (Roboto Mono, via Google Fonts CDN below) renders until
+              the real files are uploaded.  */
+
+/* Secondary fallback — Roboto Mono (CDN). Swap for self-hosted GT Pressura Mono when supplied. */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400;1,500&display=swap');
+
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Thin.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Thin.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-ThinItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-ThinItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Light.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Light.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-LightItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-LightItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Book.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Book.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-BookItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-BookItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 450;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Regular.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Regular.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 450;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-RegularItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-RegularItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Medium.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Medium.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-MediumItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-MediumItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Bold.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Bold.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-BoldItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-BoldItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Heavy.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Heavy.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-HeavyItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-HeavyItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 850;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Ultra.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Ultra.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 850;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-UltraItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-UltraItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-Black.woff2') format('woff2'),
+       url('../fonts/ABCOracle-Black.woff') format('woff');
+}
+@font-face {
+  font-family: 'ABC Oracle';
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/ABCOracle-BlackItalic.woff2') format('woff2'),
+       url('../fonts/ABCOracle-BlackItalic.woff') format('woff');
+}
