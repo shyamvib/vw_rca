@@ -1,0 +1,30 @@
+cubes:
+  - name: order_tests
+    sql_table: "`vibrant-lab-datamodels`.business_intelligence.fact_orders_tests_enriched_bq"
+    joins:
+      - name: rfm_orders
+        sql: "{CUBE}.sample_id = {rfm_orders}.sample_id"
+        relationship: many_to_one
+    dimensions:
+      - { name: pk, sql: "CONCAT(CAST(sample_id AS STRING), '-', CAST(test_id AS STRING))", type: string, primary_key: true }
+      - { name: sample_id, sql: sample_id, type: number }
+      - { name: test_id, sql: test_id, type: number }
+      - { name: test_name, sql: test_name_v2, type: string }
+      - { name: bundle_name, sql: bundle_name, type: string }
+      - { name: product_family, sql: product_family, type: string }
+      - { name: test_type, sql: test_type_v2, type: string }
+      - { name: is_bundle, sql: "bundle_name <> 'Non Bundle'", type: boolean }
+    measures:
+      - { name: test_lines, type: count }
+      - { name: orders, type: count_distinct, sql: sample_id }
+    pre_aggregations:
+      - name: family_daily
+        type: rollup
+        measures: [order_tests.orders, rfm_orders.revenue]
+        dimensions: [order_tests.product_family, order_tests.test_name, order_tests.is_bundle, rfm_orders.clinic_id, rfm_orders.sales_id]
+        time_dimension: rfm_orders.order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+# Caveat: rfm_orders.revenue joined to test lines sums correctly only because Cube
+# dedupes by primary key (sample_id); verify against Power BI family totals.

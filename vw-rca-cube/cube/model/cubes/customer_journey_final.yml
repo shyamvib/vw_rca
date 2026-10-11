@@ -1,0 +1,35 @@
+cubes:
+  - name: journey
+    sql_table: "{{ env_var('BQ_DATASET') }}.customer_journey_final"
+    joins:
+      - name: hubspot_contacts
+        sql: "{CUBE}.contact_id = {hubspot_contacts}.contact_id"
+        relationship: many_to_one
+    dimensions:
+      - { name: pk, sql: "CONCAT(CAST(contact_id AS STRING),'-',CAST(touchpoint_date AS STRING),'-',touchpoint_type,'-',IFNULL(CAST(touchpoint_detail AS STRING),''))", type: string, primary_key: true }
+      - { name: contact_id, sql: contact_id, type: string }
+      - { name: touchpoint_date, sql: touchpoint_date, type: time }
+      - { name: touchpoint_type, sql: touchpoint_type, type: string }
+      - { name: touchpoint_category, sql: touchpoint_category, type: string }
+      - { name: activity_type, sql: activityType, type: string }
+      - { name: meeting_outcome, sql: meetingOutcome, type: string }
+      - { name: zendesk_ticket_id, sql: zendesk_ticket_id, type: string }
+      - { name: ticket_category, sql: ticket_category, type: string }
+      - { name: provider_customer_id, sql: provider_customer_id, type: number }
+      - { name: engagement_id, sql: "CAST(engagement_id AS STRING)", type: string }
+    measures:
+      - { name: touchpoints, type: count }
+      - { name: last_touch, type: max, sql: "CAST(DATE(touchpoint_date) AS STRING)" }
+      - { name: contacts, type: count_distinct, sql: contact_id }
+      - name: tickets
+        type: count_distinct
+        sql: zendesk_ticket_id
+        filters: [{ sql: "{CUBE}.zendesk_ticket_id IS NOT NULL" }]
+    pre_aggregations:
+      - name: daily_touch
+        measures: [touchpoints, contacts, tickets]
+        dimensions: [touchpoint_type, touchpoint_category, activity_type]
+        time_dimension: touchpoint_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }

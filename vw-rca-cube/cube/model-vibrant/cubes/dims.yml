@@ -1,0 +1,40 @@
+cubes:
+  - name: hubspot_contacts
+    sql_table: "`vibrant-lab-datamodels`.business_intelligence.bi_hubspot_contacts"
+    dimensions:
+      - { name: contact_id, sql: contact_id, type: string, primary_key: true, public: true }
+      - { name: customer_id, sql: customer_id, type: number }   # do NOT use as join key to orders.hubspot_id
+      - { name: hubspot_owner_id, sql: hubspot_owner_id, type: string }
+      - { name: patient_lead, sql: patient_lead, type: boolean }
+      - { name: first_conversion_event, sql: first_conversion_event_name, type: string }
+    measures:
+      - { name: count, type: count }
+
+  - name: internal_user
+    sql: "SELECT * FROM `vibrant-lab-datamodels`.business_intelligence.bq_internal_user WHERE TRUE QUALIFY ROW_NUMBER() OVER (PARTITION BY internal_user_id ORDER BY _airbyte_extracted_at DESC) = 1"
+    dimensions:
+      - { name: internal_user_id, sql: internal_user_id, type: number, primary_key: true, public: true }
+      - { name: name, sql: internal_user_name, type: string }
+      - { name: email, sql: internal_user_email, type: string }
+      - { name: role, sql: internal_user_role, type: string }
+      - { name: title, sql: title, type: string }
+      - { name: is_active, sql: isActive, type: boolean }
+      - { name: supervisor_id, sql: sales_supervisor_id, type: number }
+      - { name: supervisor_name, sql: supervisor_name, type: string }
+      - { name: cam_id, sql: CAM_id, type: number }
+      - { name: cam_name, sql: CAM_name, type: string }
+      - { name: hire_date, sql: hire_date, type: time }
+      - { name: departure_date, sql: departure_date, type: time }
+
+  - name: sales_commission
+    sql_table: "`vibrant-lab-datamodels`.commission.summary"
+    dimensions:
+      - { name: pk, sql: "CONCAT(CAST(date AS STRING),'-',CAST(sales_id AS STRING),'-',order_type)", type: string, primary_key: true }
+      - { name: date, sql: date, type: time }
+      - { name: sales_id, sql: sales_id, type: number }
+      - { name: sales_name, sql: sales_name, type: string }
+      - { name: senior_sales_id, sql: senior_sales_id, type: number }
+      - { name: order_type, sql: order_type, type: string }
+    measures:
+      - { name: revenue, type: sum, sql: revenue, format: currency }
+      - { name: commission, type: sum, sql: commission_final, format: currency }

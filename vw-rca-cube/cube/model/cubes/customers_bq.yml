@@ -1,0 +1,22 @@
+# You already have a `customers` cube; extend it with these if missing.
+cubes:
+  - name: customers
+    sql_table: "{{ env_var('BQ_DATASET') }}.customers_bq"
+    dimensions:
+      - { name: customer_id, sql: customer_id, type: number, primary_key: true, public: true }
+      - { name: sales_id, sql: sales_id, type: number }
+      - { name: hubspot_id, sql: hubspot_id, type: string }
+      - { name: signup_time, sql: customer_signup_time, type: time }
+      - { name: state, sql: state, type: string }
+      - { name: country, sql: country, type: string }
+      - { name: zipcode, sql: zipcode, type: string }
+      - { name: credential, sql: customer_suffix, type: string }
+      - { name: referral_source, sql: referral_source, type: string }
+      - { name: customer_type, sql: customer_type, type: string }
+      - { name: is_lead, sql: is_lead, type: boolean }
+      - { name: is_provider, sql: is_provider, type: boolean }
+    measures:
+      - { name: count, type: count }
+      - name: signups
+        type: count
+        filters: [{ sql: "{CUBE}.is_provider = 1" }]

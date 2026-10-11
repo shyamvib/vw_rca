@@ -1,0 +1,59 @@
+/* ── Vibrant Wellness · Typography ────────────────────────────────────────
+   Primary:   ABC Oracle  → Inter fallback (clean neo-grotesque, headlines + body)
+   Secondary: GT Pressura Mono → Roboto Mono fallback (eyebrows, labels, buttons, data)
+
+   Brand rules from the book:
+   · Headlines: ABC Oracle Medium, line-height ~85%, tracking tightened (~-0.03em)
+   · Body: ABC Oracle Book, line-height ~140%
+   · Small headers / buttons: GT Pressura Mono, 14pt, UPPERCASE feel, tracking +0.04em
+   · Copy is always left-aligned; never justified. */
+
+:root {
+  --font-sans: 'ABC Oracle', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Roboto Mono', 'GT Pressura Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Weights */
+  --fw-light: 300; /* @kind font */
+  --fw-book: 400; /* @kind font */
+  --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */
+  --fw-bold: 700; /* @kind font */
+
+  /* Display / headline scale (ABC Oracle Medium, tight) */
+  --type-display-lh: 0.9; /* @kind font */
+  --type-display-tracking: -0.03em; /* @kind font */
+
+  /* Type ramp (px) */
+  --fs-display-xl: 88px;
+  --fs-display-lg: 64px;
+  --fs-display-md: 48px;
+  --fs-h1: 40px;
+  --fs-h2: 32px;
+  --fs-h3: 24px;
+  --fs-h4: 20px;
+  --fs-body-lg: 18px;
+  --fs-body: 16px;
+  --fs-body-sm: 14px;
+  --fs-caption: 12px;
+  --fs-mono-label: 14px;
+  --fs-mono-sm: 12px;
+  --fs-mono-xs: 11px;
+
+  --lh-tight: 1.05; /* @kind font */
+  --lh-snug: 1.25; /* @kind font */
+  --lh-body: 1.5; /* @kind font */
+  --lh-relaxed: 1.6; /* @kind font */
+
+  /* Mono label / eyebrow */
+  --mono-tracking: 0.06em; /* @kind font */
+}
+
+/* Optional helper classes (components reference vars directly, but these
+   make specimen cards & quick layouts faster). */
+.vw-display { font-family: var(--font-sans); font-weight: var(--fw-medium);
+  line-height: var(--type-display-lh); letter-spacing: var(--type-display-tracking); }
+.vw-eyebrow { font-family: var(--font-mono); font-weight: var(--fw-book);
+  font-size: var(--fs-mono-label); letter-spacing: var(--mono-tracking);
+  text-transform: uppercase; }
+.vw-body { font-family: var(--font-sans); font-weight: var(--fw-book);
+  font-size: var(--fs-body); line-height: var(--lh-body); }

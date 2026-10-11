@@ -1,0 +1,60 @@
+# DERIVED (not in BigQuery). Rebuilds the two Power BI clinic_dimension[Note]
+# flags vw-rca imports, using Thiru's Note DAX rules:
+#   Buying Overdue     = MAX(buying_rhythm_ratio) >= 3 and last order <= 365 days ago
+#   High Ticket Volume = >= 4 distinct Ticket engagements in the last 30 days
+# `note` reproduces the Power BI Note lines so the app parses it unchanged.
+# Reconciled 2026-10-03: Buying Overdue 2,515 (Cube) vs 2,523 (PBI). High Ticket
+# Volume not yet reconciled (PBI 339).
+cubes:
+  - name: clinic_dimension
+    sql: >
+      WITH o AS (
+        SELECT clinic_id,
+               ANY_VALUE(customer_practice_name) AS practice_name,
+               MAX(order_date)                   AS last_order_date,
+               MAX(buying_rhythm_ratio)          AS rhythm_ratio
+        FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq
+        WHERE clinic_id IS NOT NULL
+        GROUP BY clinic_id
+      ),
+      tickets AS (
+        SELECT m.clinic_id,
+               COUNT(DISTINCT COALESCE(NULLIF(CAST(j.engagement_id AS STRING), ''), CAST(j.zendesk_ticket_id AS STRING))) AS tickets_30d
+        FROM `vibrant-lab-datamodels`.business_intelligence.bq_customer_journey_final j
+        JOIN (SELECT DISTINCT CAST(hubspot_id AS STRING) AS hubspot_id, clinic_id
+              FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq
+              WHERE hubspot_id IS NOT NULL) m
+          ON CAST(j.contact_id AS STRING) = m.hubspot_id
+        WHERE j.touchpoint_type = 'Ticket'
+          AND DATE(j.touchpoint_date) > DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        GROUP BY m.clinic_id
+      ),
+      f AS (
+        SELECT o.*,
+               DATE_DIFF(CURRENT_DATE(), DATE(o.last_order_date), DAY) AS days_since_last,
+               IFNULL(t.tickets_30d, 0) AS tickets_30d,
+               (o.rhythm_ratio >= 3 AND DATE_DIFF(CURRENT_DATE(), DATE(o.last_order_date), DAY) <= 365) AS buying_overdue,
+               IFNULL(t.tickets_30d, 0) >= 4 AS high_ticket_volume
+        FROM o LEFT JOIN tickets t USING (clinic_id)
+      )
+      SELECT f.*,
+             ARRAY_TO_STRING(ARRAY_CONCAT(
+               IF(f.high_ticket_volume, ['⚠️ High Ticket Volume'], []),
+               IF(f.buying_overdue, ['⏰ Buying Overdue'], [])), CODE_POINTS_TO_STRING([10])) AS note
+      FROM f
+    dimensions:
+      - { name: clinic_id, sql: clinic_id, type: number, primary_key: true, public: true }
+      - { name: practice_name, sql: practice_name, type: string }
+      - { name: last_order_date, sql: last_order_date, type: time }
+      - { name: days_since_last, sql: days_since_last, type: number }
+      - { name: rhythm_ratio, sql: rhythm_ratio, type: number }
+      - { name: tickets_30d, sql: tickets_30d, type: number }
+      - { name: buying_overdue, sql: buying_overdue, type: boolean }
+      - { name: high_ticket_volume, sql: high_ticket_volume, type: boolean }
+      - { name: note, sql: note, type: string }
+    measures:
+      - { name: clinics, type: count }
+    pre_aggregations:
+      - name: snapshot
+        type: original_sql
+        refresh_key: { every: 6 hour }

@@ -1,0 +1,37 @@
+services:
+  cube-rca:
+    image: cubejs/cube:latest
+    restart: unless-stopped
+    ports:
+      - "4002:4000"
+    environment:
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET}
+      CUBEJS_DB_TYPE: bigquery
+      CUBEJS_DB_BQ_PROJECT_ID: vibrant-lab-datamodels
+      CUBEJS_DB_BQ_KEY_FILE: /cube/bq-key.json
+      CUBEJS_CUBESTORE_HOST: cubestore-rca
+      BQ_DATASET: "`vibrant-lab-datamodels`.business_intelligence"
+    volumes:
+      - ./model:/cube/conf/model
+      - /home/shyam/cube/bq-key.json:/cube/bq-key.json:ro
+    depends_on:
+      - cubestore-rca
+    mem_limit: 4g
+    cpus: 2
+  cubestore-rca:
+    image: cubejs/cube:latest
+    restart: unless-stopped
+    entrypoint: ["/cube/node_modules/@cubejs-backend/cubestore/downloaded/latest/bin/cubestored"]
+    volumes:
+      - cubestore_rca_data:/cube/conf/.cubestore
+    mem_limit: 2g
+  tunnel-rca:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://cube-rca:4000
+    depends_on:
+      - cube-rca
+    mem_limit: 256m
+volumes:
+  cubestore_rca_data:

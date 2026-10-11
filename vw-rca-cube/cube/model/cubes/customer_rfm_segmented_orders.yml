@@ -1,0 +1,100 @@
+# Main RCA fact (Revenue Intelligence's order header). Columns match Power BI 1:1.
+cubes:
+  - name: rfm_orders
+    # Order header + two order-level attributes rolled up from the test lines, so
+    # family / bundle cuts never fan out across lines (vw-rca needs both).
+    sql: >
+      SELECT o.*, t.product_family AS order_product_family,
+             IFNULL(t.has_bundle, FALSE) AS order_is_bundle
+      FROM {{ env_var('BQ_DATASET') }}.customer_rfm_segmented_orders o
+      LEFT JOIN (
+        SELECT sample_id,
+               ANY_VALUE(product_family) AS product_family,
+               LOGICAL_OR(bundle_name IS NOT NULL AND bundle_name NOT IN ('Non Bundle', '')) AS has_bundle
+        FROM {{ env_var('BQ_DATASET') }}.fact_order_tests_enriched
+        GROUP BY sample_id
+      ) t USING (sample_id)
+    joins:
+      - name: order_tests
+        sql: "{CUBE}.sample_id = {order_tests}.sample_id"
+        relationship: one_to_many
+      - name: hubspot_contacts
+        sql: "{CUBE}.hubspot_id = {hubspot_contacts}.contact_id"   # NEVER join on hubspot_contacts.customer_id
+        relationship: many_to_one
+      - name: internal_user
+        sql: "{CUBE}.sales_id = {internal_user}.internal_user_id"
+        relationship: many_to_one
+    dimensions:
+      - { name: sample_id, sql: sample_id, type: number, primary_key: true, public: true }
+      - { name: order_date, sql: order_date, type: time }
+      - { name: customer_id, sql: customer_id, type: number }
+      - { name: clinic_id, sql: clinic_id, type: number }
+      - { name: practice_name, sql: customer_practice_name, type: string }
+      - { name: sales_id, sql: sales_id, type: number }
+      - { name: cam_id, sql: CAM_id, type: number }
+      - { name: sales_supervisor_id, sql: sales_supervisor_id, type: number }
+      - { name: team_lead, sql: team_lead, type: string }
+      - { name: state, sql: state, type: string }
+      - { name: country, sql: country_name, type: string }
+      - { name: bundle_name, sql: bundle_name, type: string }
+      - { name: sample_test_type_v2, sql: sample_test_type_v2, type: string }
+      - { name: payment_status, sql: payment_status, type: string }
+      - { name: customer_segment, sql: customer_segment, type: string }
+      - { name: clinic_segment, sql: clinic_segment, type: string }
+      - { name: clinic_rfm_segment, sql: clinic_rfm_segment, type: string }
+      - { name: current_rfm_segment, sql: current_rfm_segment_v2, type: string }
+      - { name: customer_credential, sql: customer_credential, type: string }
+      - { name: clinic_first_order_date, sql: clinic_first_order_date, type: time }
+      - { name: clinic_last_order_date, sql: clinic_last_order_date, type: time }
+      - { name: median_days_between_orders, sql: median_days_between_orders, type: number }
+      - { name: buying_rhythm_ratio, sql: buying_rhythm_ratio, type: number }
+      - { name: is_coupon_used, sql: is_coupon_used, type: boolean }
+      # --- added for vw-rca ---
+      - { name: customer_name, sql: customer_name, type: string }
+      - { name: customer_type, sql: customer_type, type: string }
+      - { name: charge_method, sql: charge_method, type: string }
+      - { name: hubspot_id, sql: "CAST(hubspot_id AS STRING)", type: string }
+      - { name: hubspot_link, sql: hubspot_link, type: string }
+      - { name: customer_signup_time, sql: customer_signup_time, type: time }
+      - { name: product_family, sql: "IFNULL(NULLIF(order_product_family, ''), 'Unmapped')", type: string }
+      - { name: is_bundle, sql: order_is_bundle, type: boolean }
+      - { name: header_bundle_blank, sql: "(bundle_name IS NULL OR bundle_name = '')", type: boolean }
+    measures:
+      - { name: orders, type: count_distinct, sql: sample_id }
+      - { name: revenue, type: sum, sql: total, format: currency }
+      - { name: discount, type: sum, sql: discount_amount, format: currency }
+      - { name: aov, type: number, sql: "SAFE_DIVIDE({revenue}, {orders})", format: currency }
+      - { name: clinics, type: count_distinct, sql: clinic_id }
+      - name: va_orders
+        type: count_distinct
+        sql: sample_id
+        filters: [{ sql: "{CUBE}.sample_test_type_v2 = 'VA'" }]
+      - name: va_revenue
+        type: sum
+        sql: total
+        filters: [{ sql: "{CUBE}.sample_test_type_v2 = 'VA'" }]
+      # --- added for vw-rca ---
+      - { name: patients, type: count_distinct, sql: patient_id }
+      - name: bundle_orders
+        type: count_distinct
+        sql: sample_id
+        filters: [{ sql: "{CUBE}.order_is_bundle" }]
+      - name: bundle_revenue
+        type: sum
+        sql: total
+        filters: [{ sql: "{CUBE}.order_is_bundle" }]
+      - { name: first_order, type: min, sql: "CAST(order_date AS STRING)" }
+      - { name: last_order, type: max, sql: "CAST(order_date AS STRING)" }
+      - { name: first_signup, type: min, sql: "CAST(customer_signup_time AS STRING)" }
+      - { name: last_hubspot_link, type: max, sql: hubspot_link }
+      - name: deductions
+        type: sum
+        sql: "IFNULL(consultation_fee, 0) + IFNULL(markup_fee, 0) + IFNULL(blood_draw_fee, 0)"
+    pre_aggregations:
+      - name: daily_clinic
+        measures: [orders, revenue, va_orders, va_revenue, discount]
+        dimensions: [clinic_id, sales_id, cam_id, state, clinic_segment, customer_segment]
+        time_dimension: order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }

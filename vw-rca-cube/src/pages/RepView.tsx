@@ -1,0 +1,3186 @@
+/**
+ * Sales Rep View — "1b Thermometer rail" layout (Shyam, 2026-09-28).
+ * Left rail: this week vs plan thermometer + leaderboard rank.
+ * Tabs: Today (call list, new-clinic funnel, say thanks), This week (four
+ * lenses, effort, leaderboard, weekly targets), Scorecard (6×4 KPI matrix from
+ * "Sales perf KPIs v2" + KPI library). Numbers come from convex/repView.ts.
+ */
+import { useAction, useMutation, useQuery } from "convex/react";
+import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
+import { toast } from "sonner";
+import { api } from "../../convex/_generated/api";
+import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
+import { pw } from "./gatePw";
+import "./repview.css";
+import { AlertRail, FamilyLevel, FamilyPanel } from "./RcaDashboardPage";
+
+type Tab = "today" | "plan" | "week" | "month" | "quarter" | "custom" | "scorecard";
+type Tone = "good" | "watch" | "bad" | "act" | "na";
+
+const K = (n: number) => {
+  const a = Math.abs(n);
+  const s = n < 0 ? "-" : "";
+  if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(1)}K`;
+  return `${s}$${Math.round(a)}`;
+};
+const SK = (n: number) => (n > 0 ? `+${K(n)}` : K(n));
+// Compact tick-label formatter for the gauge (Shyam, 2026-09-29) — gauge
+// ticks always land on "nice" round steps, so drop the decimal K() forces
+// (avoids "$900.0K" overflowing the narrow rail; "$900K" fits).
+const KT = (n: number) => {
+  const a = Math.abs(n);
+  const s = n < 0 ? "-" : "";
+  if (a >= 1e6) return `${s}$${+(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${s}$${+(a / 1e3).toFixed(1)}K`;
+  return `${s}$${Math.round(a)}`;
+};
+const P = (n: number | null | undefined, d = 0) =>
+  n === null || n === undefined ? "—" : `${(n * 100).toFixed(d)}%`;
+const SP = (n: number) => `${n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
+const fmtD = (d?: string | null) =>
+  d
+    ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      })
+    : "";
+const COHORT: Record<string, string> = {
+  churned: "Churned",
+  new: "New",
+  retained_top20: "Retained top 20%",
+  retained_rest: "Retained rest",
+};
+
+export type RepViewPeriod = { id: string; kind: string; label: string; start: string; end: string };
+
+export function RepView(props: {
+  sales: string;
+  isRep: boolean;
+  periodId: string;
+  periodLabel: string;
+  weeks: RepViewPeriod[];
+  months: RepViewPeriod[];
+  quarters: RepViewPeriod[];
+  days: RepViewPeriod[];
+  reps: string[];
+  onPickRep: (name: string) => void;
+  clinicTerm?: string;
+  provTerm?: string;
+  onClearSearch?: () => void;
+}) {
+  const { sales, isRep, periodId, periodLabel, weeks, months, quarters, days } = props;
+  const [tab, setTab] = useState<Tab>("today");
+  const [searchSel, setSearchSel] = useState<SearchSel | null>(null);
+  useEffect(() => setSearchSel(null), [props.clinicTerm, props.provTerm, sales]);
+  const [recent, setRecent] = useState<SearchSel[]>(() => { try { return JSON.parse(localStorage.getItem("rv-recent-search") || "[]"); } catch { return []; } });
+  const saveRecent = (l: SearchSel[]) => { setRecent(l); try { localStorage.setItem("rv-recent-search", JSON.stringify(l)); } catch { /* ignore */ } };
+  const openSel = (x: SearchSel | null) => {
+    setSearchSel(x);
+    if (x) saveRecent([x, ...recent.filter(r => searchKey(r) !== searchKey(x))].slice(0, 10));
+  };
+  const [health, setHealth] = useState("");
+  const [pstatus, setPstatus] = useState("");
+  const [stuckWin, setStuckWin] = useState<{ min: number; max: number }>({ min: 14, max: 21 });
+  const [clinicSel, setClinicSel] = useState<string | null>(null);
+  const thisWeek = weeks[weeks.length - 1];
+  const lastWeek = weeks[weeks.length - 2];
+  const thisMonth = months[months.length - 1];
+  const lastMonth = months[months.length - 2];
+  const thisQuarter = quarters[quarters.length - 1];
+  const lastQuarter = quarters[quarters.length - 2];
+  const today = days[days.length - 1];
+  // Rail leaderboard follows whichever window tab is open (2026-09-28 round 3):
+  // "Leaderboard · this week/month/custom window", with a same-shape prior
+  // window for the rank-change line only where one exists (week, month).
+  const lbWin =
+    tab === "month"
+      ? { id: thisMonth?.id, prevId: lastMonth?.id, label: "this month" }
+      : tab === "quarter"
+        ? { id: thisQuarter?.id, prevId: lastQuarter?.id, label: "this quarter" }
+        : tab === "custom"
+          ? { id: periodId, prevId: undefined, label: "custom window" }
+          : { id: thisWeek?.id, prevId: lastWeek?.id, label: "this week" };
+  // Thermometer follows the same active-tab window (Shyam, 2026-09-28 round
+  // 5) — was hardcoded to "this week" regardless of the open tab. Exception
+  // (Shyam, 2026-09-28 later): "today" tab still shows "this week" on the
+  // thermometer instead of a single day's pace.
+  const thermoWin =
+    tab === "month"
+        ? { id: thisMonth?.id, prevId: lastMonth?.id, label: "This month" }
+        : tab === "quarter"
+          ? { id: thisQuarter?.id, prevId: lastQuarter?.id, label: "This quarter" }
+          : tab === "custom"
+            ? { id: periodId, prevId: undefined, label: "Custom window" }
+            : { id: thisWeek?.id, prevId: lastWeek?.id, label: "This week" };
+  // Scorecard's own window — defaults to the custom/top-of-page window, but
+  // any tab's "Scorecard for this window" button repoints it (Shyam, 2026-09-28).
+  const [scWin, setScWin] = useState<{ periodId: string; label: string }>({
+    periodId,
+    label: periodLabel,
+  });
+  const openScorecard = (pid: string, label: string, focus: string | null = null) => {
+    setScFocus(focus);
+    setScWin({ periodId: pid, label });
+    setTab("scorecard");
+  };
+  const bookQ = useQuery(
+    api.repView.book,
+    sales ? { password: pw(), periodId, sales } : "skip",
+  );
+  const todayBookQ = useQuery(
+    api.repView.book,
+    sales && today
+      ? {
+          password: pw(),
+          periodId: today.id,
+          sales,
+          health: health || undefined,
+          pstatus: pstatus || undefined,
+          stuckMin: stuckWin.min,
+          stuckMax: stuckWin.max,
+        }
+      : "skip",
+  );
+  const weekBookQ = useQuery(
+    api.repView.book,
+    sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
+  );
+  const monthBookQ = useQuery(
+    api.repView.book,
+    sales && thisMonth ? { password: pw(), periodId: thisMonth.id, sales } : "skip",
+  );
+  const quarterBookQ = useQuery(
+    api.repView.book,
+    sales && thisQuarter ? { password: pw(), periodId: thisQuarter.id, sales } : "skip",
+  );
+  const scBookQ = useQuery(
+    api.repView.book,
+    sales ? { password: pw(), periodId: scWin.periodId, sales } : "skip",
+  );
+  const paceQ = useQuery(
+    api.repView.pace,
+    sales && thermoWin.id ? { password: pw(), periodId: thermoWin.id, sales } : "skip",
+  );
+  const lastPaceQ = useQuery(
+    api.repView.pace,
+    sales && thermoWin.prevId ? { password: pw(), periodId: thermoWin.prevId, sales } : "skip",
+  );
+  const boardLbQ = useQuery(
+    api.geo.salesReps,
+    lbWin.id ? { password: pw(), periodId: lbWin.id } : "skip",
+  );
+  const boardLbPrevQ = useQuery(
+    api.geo.salesReps,
+    lbWin.prevId ? { password: pw(), periodId: lbWin.prevId } : "skip",
+  );
+  const wins = useQuery(
+    api.wins.winsSummary,
+    sales ? { password: pw(), periodId, sales } : "skip",
+  );
+  const winsToday = useQuery(
+    api.wins.winsSummary,
+    sales && today ? { password: pw(), periodId: today.id, sales } : "skip",
+  );
+  const winsWeek = useQuery(
+    api.wins.winsSummary,
+    sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
+  );
+  const winsMonth = useQuery(
+    api.wins.winsSummary,
+    sales && thisMonth ? { password: pw(), periodId: thisMonth.id, sales } : "skip",
+  );
+  const winsQuarter = useQuery(
+    api.wins.winsSummary,
+    sales && thisQuarter ? { password: pw(), periodId: thisQuarter.id, sales } : "skip",
+  );
+  const weekFams = useQuery(
+    api.leadFamilies.salesFamilies,
+    sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
+  );
+  const [scFocus, setScFocus] = useState<string | null>(null);
+  const [planned, setPlanned] = useState<Record<string, boolean>>({});
+  const planKey = `rv-opp-plan:${sales}:${thisWeek?.id ?? ""}`;
+  useEffect(() => { try { setPlanned(JSON.parse(localStorage.getItem(planKey) || "{}")); } catch { setPlanned({}); } }, [planKey]);
+  const togglePlanned = (id: string) => {
+    const n = { ...planned, [id]: !planned[id] };
+    setPlanned(n);
+    try { localStorage.setItem(planKey, JSON.stringify(n)); } catch { /* ignore */ }
+  };
+  const [plan, setPlan] = useState<PlanState>(() => {
+    try { return { sellHours: 28, weighted: true, pins: {}, ...JSON.parse(localStorage.getItem("rv-week-plan") || "{}") }; } catch { return { sellHours: 28, weighted: true, pins: {} }; }
+  });
+  const savePlan = (p: PlanState) => { setPlan(p); try { localStorage.setItem("rv-week-plan", JSON.stringify(p)); } catch { /* ignore */ } };
+  const scFams = useQuery(
+    api.leadFamilies.salesFamilies,
+    sales ? { password: pw(), periodId: scWin.periodId, sales } : "skip",
+  );
+  // Bug fix (Shyam, 2026-09-28 round 5): this used to always query "Today"'s
+  // periodId no matter which tab a clinic card was clicked from. A clinic
+  // with $0 actual+expected specifically today (weekend baseline, etc.) but
+  // real activity in This week/This month never resolved — `clinicDetail`
+  // came back {ready:false}, which the caller below quietly mapped to
+  // `null`, so the drawer showed "Loading…" forever instead of an error.
+  const activeLabel =
+    tab === "today" ? "Today's agenda" : tab === "week" ? "This week" : tab === "month" ? "This month" : tab === "quarter" ? "This quarter" : `Custom · ${periodLabel}`;
+  const activePeriodId =
+    tab === "today"
+      ? (today?.id ?? periodId)
+      : tab === "week"
+        ? (thisWeek?.id ?? periodId)
+        : tab === "month"
+          ? (thisMonth?.id ?? periodId)
+          : tab === "quarter"
+            ? (thisQuarter?.id ?? periodId)
+            : periodId;
+  const clinicDetailQ = useQuery(
+    api.repView.clinicDetail,
+    sales && clinicSel ? { password: pw(), periodId: activePeriodId, sales, clinic: clinicSel } : "skip",
+  );
+
+  // Leaderboard scope toggle (Shyam, 2026-09-30): "My team" = reps under the
+  // same team lead, re-ranked among themselves; "All reps" = company-wide.
+  const [lbScope, setLbScope] = useState<"team" | "all">("team");
+  const myLead = (boardLbQ ?? []).find(r => r.name === sales)?.teamLead;
+  const scopeLead = lbScope === "team" && myLead && myLead !== "—" ? myLead : null;
+  const board = useMemo(() => rankBoard(boardLbQ ?? [], scopeLead), [boardLbQ, scopeLead]);
+  const boardPrev = useMemo(() => rankBoard(boardLbPrevQ ?? [], scopeLead), [boardLbPrevQ, scopeLead]);
+  const boardLb = board;
+  const boardLbPrev = boardPrev;
+  const me = board.find(r => r.name === sales);
+  const mePrev = boardPrev.find(r => r.name === sales);
+
+  if (!sales) {
+    return (
+      <div className="rv-pick">
+        <h2>Sales rep view</h2>
+        <p>Pick a rep to open their day, week and scorecard.</p>
+        <div className="rv-pick-list">
+          {props.reps.map(r => (
+            <button key={r} type="button" onClick={() => props.onPickRep(r)}>
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const b = bookQ?.ready ? bookQ : null;
+  const tb = todayBookQ?.ready ? todayBookQ : null;
+  const wb = weekBookQ?.ready ? weekBookQ : null;
+  const mb = monthBookQ?.ready ? monthBookQ : null;
+  const qb = quarterBookQ?.ready ? quarterBookQ : null;
+  const kpiSrc = {
+    week: wb?.effortWin?.week ? { e: wb.effortWin.week, periodId: thisWeek?.id ?? periodId } : null,
+    month: mb?.effortWin?.month ? { e: mb.effortWin.month, periodId: thisMonth?.id ?? periodId } : null,
+    quarter: qb?.effortWin?.quarter ? { e: qb.effortWin.quarter, periodId: thisQuarter?.id ?? periodId } : null,
+  };
+  const scb = scBookQ?.ready ? scBookQ : null;
+  const pace = paceQ?.ready ? paceQ : null;
+  const lastPace = lastPaceQ?.ready ? lastPaceQ : null;
+  // Plan win for Great Job (Shyam, 2026-09-30): current window if it has
+  // enough data and is heading over plan, else the prior window if it beat it.
+  const prevWord = thermoWin.label.replace("This ", "Last ");
+  const planBeat =
+    pace && !paceTooEarly(pace) && pace.plan > 0 && pace.heading > pace.plan
+      ? { label: `${thermoWin.label}: on pace to beat plan`, amount: pace.heading - pace.plan, pct: pace.heading / pace.plan }
+      : lastPace && lastPace.plan > 0 && lastPace.heading > lastPace.plan
+        ? { label: `${prevWord} beat plan`, amount: lastPace.heading - lastPace.plan, pct: lastPace.heading / lastPace.plan }
+        : null;
+  const activeBook =
+    tab === "today" ? tb : tab === "week" ? wb : tab === "month" ? mb : tab === "quarter" ? qb : b;
+  const clinicDetail = clinicDetailQ ?? null;
+
+  return (
+    <div className="rv-shell">
+      <aside className="rv-rail">
+        <div className="rv-brand">VIBRANT</div>
+        <div className="rv-rep">{sales}</div>
+        <div className="rv-rep-sub">
+          {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
+        </div>
+        <nav className="rv-nav">
+          {(["today", "plan", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
+            <button
+              key={t}
+              type="button"
+              className={tab === t ? "is-on" : ""}
+              onClick={() => { setTab(t); setSearchSel(null); setScFocus(null); }}
+            >
+              {t === "today"
+                ? "Today's agenda"
+                : t === "plan"
+                  ? "My week plan"
+                : t === "week"
+                  ? "This week"
+                  : t === "month"
+                    ? "This month"
+                    : t === "quarter"
+                      ? "This quarter"
+                      : t === "custom"
+                        ? `Custom · ${periodLabel}`
+                        : "Scorecard"}
+            </button>
+          ))}
+        </nav>
+        <Thermo pace={pace} lastPace={lastPace} winLabel={thermoWin.label} />
+        <div className="rv-rail-sec">
+          <div className="rv-eyebrow">Leaderboard · {lbWin.label}<Info k="lb" /></div>
+          <div className="rv-lb-toggle">
+            <button type="button" className={lbScope === "team" ? "is-on" : ""} onClick={() => setLbScope("team")}>
+              My team{myLead && myLead !== "—" ? ` (${myLead.split(" ")[0]})` : ""}
+            </button>
+            <button type="button" className={lbScope === "all" ? "is-on" : ""} onClick={() => setLbScope("all")}>All reps</button>
+          </div>
+          {me && !isRep ? (
+            <>
+              <div className="rv-rank">
+                {me.rank}
+                <span>/{board.length}</span>
+                {mePrev ? (
+                  <em className={mePrev.rank >= me.rank ? "up" : "down"}>
+                    {mePrev.rank === me.rank
+                      ? "same place"
+                      : mePrev.rank > me.rank
+                        ? `up ${mePrev.rank - me.rank}`
+                        : `down ${me.rank - mePrev.rank}`}
+                  </em>
+                ) : null}
+              </div>
+              <p>
+                {SP(me.pct)} vs your baseline
+                {mePrev ? `, from ${SP(mePrev.pct)} last period` : ""}.
+                {me.rank > 1
+                  ? ` ${((board[me.rank - 2].pct - me.pct) * 100).toFixed(1)} pts behind ${board[me.rank - 2].name}.`
+                  : " Leading the team."}
+              </p>
+            </>
+          ) : me ? (
+            <p>
+              <b>{SP(me.pct)}</b> vs your baseline this period
+              {mePrev ? `, from ${SP(mePrev.pct)} last period` : ""}.
+            </p>
+          ) : (
+            <p className="rv-dim">No activity yet this period.</p>
+          )}
+        </div>
+        <RailLeaderboard
+          label={`${lbWin.label} · ${scopeLead ? "my team" : "all reps"}`}
+          board={boardLb}
+          boardPrev={boardLbPrev}
+          sales={sales}
+          isRep={isRep}
+        />
+        <RecentSearches items={recent} selKey={searchKey(searchSel)} onOpen={openSel} onClear={() => saveRecent([])} />
+      </aside>
+      <main className="rv-main">
+        <TourGuide tab={tab} setTab={setTab} />
+        {searchSel ? (
+          <SearchDetailPage sel={searchSel} periodId={activePeriodId} winLabel={activeLabel} sales={sales} onBack={() => setSearchSel(null)} />
+        ) : ((props.clinicTerm ?? "").trim().length >= 2 || (props.provTerm ?? "").trim().length >= 2) ? (
+          <div className="rv-main-search">
+            <RailSearch
+              clinicTerm={props.clinicTerm ?? ""}
+              provTerm={props.provTerm ?? ""}
+              sales={sales}
+              onClear={() => { setSearchSel(null); props.onClearSearch?.(); }}
+              selKey={searchKey(searchSel)}
+              onOpen={openSel}
+            />
+          </div>
+        ) : tab === "today" ? (
+          !tb ? (
+            <div className="rv-loading">Loading {sales}'s day…</div>
+          ) : (
+            <>
+            {wb ? <NextBestAction rows={rankActions(wb, weekFams, plan)} onPlan={() => setTab("plan")} /> : null}
+            <TouchKpis sales={sales} w="week" src={kpiSrc} />
+            <TodayTab
+              agenda={wb ? (
+                <OppAgenda
+                  b={wb}
+                  st={pillarStatus(wb, weekFams)}
+                  planned={planned}
+                  onToggle={togglePlanned}
+                  onOpenClinic={setClinicSel}
+                  sales={sales}
+                  periodId={thisWeek?.id ?? ""}
+                  onScorecard={cell => openScorecard(thisWeek.id, `This week · ${thisWeek?.label ?? ""}`, cell)}
+                />
+              ) : null}
+              b={tb}
+              wins={winsToday}
+              health={health}
+              onHealth={setHealth}
+              pstatus={pstatus}
+              onPstatus={setPstatus}
+              stuckWin={stuckWin}
+              onStuckWin={setStuckWin}
+              isRep={isRep}
+              onOpenClinic={setClinicSel}
+              onScorecard={() => openScorecard(today.id, `Today's agenda · ${today?.label ?? ""}`)}
+            />
+            </>
+          )
+        ) : tab === "plan" ? (
+          !wb ? (
+            <div className="rv-loading">Loading {sales}'s week…</div>
+          ) : (
+            <WeekPlan b={wb} fams={weekFams} plan={plan} onPlan={savePlan} sales={sales} periodId={thisWeek?.id ?? ""} />
+          )
+        ) : tab === "week" ? (
+          !wb ? (
+            <div className="rv-loading">Loading {sales}'s week…</div>
+          ) : (
+            <>
+            <TouchKpis sales={sales} w="week" src={kpiSrc} />
+            <WindowTab
+              b={wb}
+              sales={sales}
+              periodId={thisWeek.id}
+              wins={winsWeek}
+              periodLabel={`This week · ${thisWeek?.label ?? ""}`}
+              showWeekly
+              showFunnel={false}
+              planBeat={planBeat}
+              onScorecard={() => openScorecard(thisWeek.id, `This week · ${thisWeek?.label ?? ""}`)}
+            />
+            </>
+          )
+        ) : tab === "month" ? (
+          !mb ? (
+            <div className="rv-loading">Loading {sales}'s month…</div>
+          ) : (
+            <>
+            <TouchKpis sales={sales} w="month" src={kpiSrc} />
+            <WindowTab
+              b={mb}
+              sales={sales}
+              periodId={thisMonth.id}
+              wins={winsMonth}
+              periodLabel={`This month · ${thisMonth?.label ?? ""}`}
+              showWeekly={false}
+              showFunnel
+              planBeat={planBeat}
+              onScorecard={() => openScorecard(thisMonth.id, `This month · ${thisMonth?.label ?? ""}`)}
+            />
+            </>
+          )
+        ) : tab === "quarter" ? (
+          !qb ? (
+            <div className="rv-loading">Loading {sales}'s quarter…</div>
+          ) : (
+            <>
+            <TouchKpis sales={sales} w="quarter" src={kpiSrc} />
+            <WindowTab
+              b={qb}
+              sales={sales}
+              periodId={thisQuarter.id}
+              wins={winsQuarter}
+              periodLabel={`This quarter · ${thisQuarter?.label ?? ""}`}
+              showWeekly={false}
+              showFunnel
+              planBeat={planBeat}
+              onScorecard={() => openScorecard(thisQuarter.id, `This quarter · ${thisQuarter?.label ?? ""}`)}
+            />
+            </>
+          )
+        ) : tab === "custom" ? (
+          !b ? (
+            <div className="rv-loading">Loading {sales}'s book…</div>
+          ) : (
+            <WindowTab
+              b={b}
+              sales={sales}
+              periodId={periodId}
+              wins={wins}
+              periodLabel={`Custom · ${periodLabel}`}
+              showWeekly={false}
+              showFunnel={b.days >= 28}
+              planBeat={planBeat}
+              onScorecard={() => openScorecard(periodId, `Custom · ${periodLabel}`)}
+            />
+          )
+        ) : !scb ? (
+          <div className="rv-loading">Loading scorecard…</div>
+        ) : (
+          <ScorecardTab key={`${scWin.periodId}|${scFocus ?? ""}`} b={scb} fams={scFams} periodLabel={scWin.label} focus={scFocus} sales={sales} periodId={scWin.periodId} />
+        )}
+      </main>
+      {clinicSel ? (
+        <ClinicDrawer
+          name={clinicSel}
+          detail={clinicDetail}
+          onClose={() => setClinicSel(null)}
+          periodId={activePeriodId}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type BoardRow = { name: string; pct: number; delta: number; rank: number; teamLead?: string };
+function rankBoard(
+  rows: Array<{ name: string; actual: number; expected: number; delta: number; teamLead?: string }>,
+  lead?: string | null,
+): BoardRow[] {
+  // Team leads are excluded from both boards (Shyam, 2026-09-30).
+  const leadNames = new Set(rows.map(r => r.teamLead).filter((x): x is string => !!x && x !== "—"));
+  return rows
+    .filter(r => r.expected > 0 && !leadNames.has(r.name) && (!lead || r.teamLead === lead))
+    .map(r => ({ name: r.name, pct: r.actual / r.expected - 1, delta: r.delta, rank: 0, teamLead: r.teamLead }))
+    .sort((a, b) => b.pct - a.pct)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+/** Full leaderboard in the rail, below the compact rank widget — its title
+ * and rows follow whichever window tab is open (2026-09-28 round 3), so it
+ * reads "Leaderboard · this month" / "· custom window" and not just "week". */
+function RailLeaderboard({
+  label,
+  board,
+  boardPrev,
+  sales,
+  isRep,
+}: {
+  label: string;
+  board: BoardRow[];
+  boardPrev: BoardRow[];
+  sales: string;
+  isRep: boolean;
+}) {
+  void isRep;
+  const rows = board;
+  const prevByName = new Map(boardPrev.map(r => [r.name, r]));
+  if (!rows.length) {
+    return (
+      <div className="rv-rail-sec">
+        <div className="rv-eyebrow">Leaderboard · {label}<Info k="lb" /></div>
+        <p className="rv-dim">No activity yet.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rv-rail-sec rv-rail-lb-wrap">
+      <div className="rv-eyebrow">Leaderboard · {label}<Info k="lb" /></div>
+      <div className="rv-rail-lb">
+        {rows.map(r => {
+          const prev = prevByName.get(r.name);
+          return (
+            <div className={`rv-rail-lb-row${r.name === sales ? " me" : ""}`} key={r.name}>
+              <span className="rv-mono">{r.rank}</span>
+              <span className="rv-rail-lb-name">
+                {r.name}
+                {r.name === sales ? " (you)" : ""}
+              </span>
+              <em className={r.pct < 0 ? "bad" : "good"}>{SP(r.pct)}</em>
+              {prev ? (
+                <i className={prev.rank >= r.rank ? "up" : prev.rank === r.rank ? "" : "down"}>
+                  {prev.rank === r.rank ? "→" : prev.rank > r.rank ? "↑" : "↓"}
+                </i>
+              ) : (
+                <i />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+type Pace = {
+  soFar: number;
+  elapsedDays: number;
+  heading: number;
+  plan: number;
+  planned: number;
+  needPerDay: number;
+  remainingDays: number;
+  firstDay: string | null;
+  lastDay: string | null;
+};
+// Gauge geometry (Shyam, 2026-09-29) — replaces the vertical thermometer with
+// a semicircular dial: two needles (solid = so far, dotted = heading to) and
+// the plan value anchored at the dial's right end, per Shyam's spec. The
+// scale is zoomed to just below the lowest of the three values so the gap
+// between the needles and the plan end reads clearly, with tick labels at a
+// "nice" round step (not 0-to-plan, which bunched the needles together when
+// pace is close to 100%).
+const CX = 111;
+const CY = 112;
+const RADIUS = 74;
+const polar = (angleDeg: number, r: number) => {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: CX + r * Math.cos(rad), y: CY - r * Math.sin(rad) };
+};
+// Round a raw step down to a "nice" 1/2/2.5/5 * 10^n increment so tick labels
+// land on clean numbers regardless of magnitude (works for $500 Today windows
+// through $500K quarter windows alike).
+function niceStep(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const norm = raw / mag;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  return step * mag;
+}
+function gaugeScale(plan: number, soFar: number, heading: number) {
+  const lowest = Math.min(plan, soFar, heading);
+  const highest = Math.max(plan, soFar, heading);
+  // Minimum visible spread so the dial never collapses to a sliver when the
+  // three values are nearly identical (e.g. a "Today" window).
+  const spreadFloor = Math.max(highest * 0.08, 1);
+  const spread = Math.max(highest - lowest, spreadFloor);
+  const rawMin = lowest - spread * 0.3;
+  const step = niceStep(spread / 4);
+  const vmin = Math.max(0, Math.floor(rawMin / step) * step);
+  // Plan sits at the dial's end only while the rep is at/behind pace; when
+  // heading/so-far run past plan, extend the end so the overrun still fits
+  // on the dial instead of clipping off the edge.
+  const vmax = Math.max(plan, highest * 1.02);
+  const ticks: number[] = [];
+  for (let v = vmin; v < vmax - step * 0.4; v += step) ticks.push(v);
+  return { vmin, vmax, step, ticks };
+}
+
+/** Early-window guard (Shyam, 2026-09-30): with <2 days of data or $0 booked
+ * so far, a pace projection is meaningless ($0 heading), so don't show one. */
+function paceTooEarly(p: Pace) {
+  return p.elapsedDays < 2 || p.soFar <= 0;
+}
+
+function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pace | null; winLabel: string }) {
+  if (!pace) return <div className="rv-rail-sec rv-dim">Loading {winLabel}…</div>;
+  if (paceTooEarly(pace))
+    return (
+      <div className="rv-rail-sec">
+        <div className="rv-eyebrow">{winLabel} vs plan<Info k="gauge" /></div>
+        <p className="rv-thermo-headline">Waiting on {winLabel.toLowerCase()}'s data.</p>
+        <p className="rv-dim rv-small">
+          Only {pace.elapsedDays} day(s) in so far (data to {fmtD(pace.lastDay)}), too early to project.
+          {lastPace && lastPace.plan ? ` Last window finished at ${P(lastPace.heading / lastPace.plan, 1)} of plan.` : ""}
+        </p>
+        <div className="rv-thermo-row">
+          <i className="sw plan" />
+          <span>Plan</span>
+          <b>{K(pace.plan)}</b>
+        </div>
+      </div>
+    );
+  const { vmin, vmax, ticks } = gaugeScale(pace.plan, pace.soFar, pace.heading);
+  const range = vmax - vmin || 1;
+  const angleFor = (v: number) => 180 - ((v - vmin) / range) * 180;
+  const needleLen = RADIUS - 6;
+  const short = pace.plan - pace.heading;
+  const planAngle = angleFor(pace.plan);
+  const planPt = polar(planAngle, RADIUS);
+  const soFarTip = polar(angleFor(pace.soFar), needleLen);
+  const headingTip = polar(angleFor(pace.heading), needleLen);
+  const trackStart = polar(180, RADIUS);
+  const trackEnd = polar(0, RADIUS);
+  return (
+    <div className="rv-rail-sec">
+      <div className="rv-eyebrow">{winLabel} vs plan<Info k="gauge" /></div>
+      <div className="rv-gauge-cap">
+        Scale zoomed to {KT(vmin)}–{KT(vmax)} so the gap to plan reads clearly.
+      </div>
+      <svg className="rv-gauge" viewBox="0 0 224 132" width="224" height="132">
+        <path
+          d={`M ${trackStart.x.toFixed(1)} ${trackStart.y.toFixed(1)} A ${RADIUS} ${RADIUS} 0 0 1 ${trackEnd.x.toFixed(1)} ${trackEnd.y.toFixed(1)}`}
+          className="rv-gauge-track"
+        />
+        {ticks.map((t) => {
+          const a = angleFor(t);
+          const inner = polar(a, RADIUS - 6);
+          const outer = polar(a, RADIUS + 4);
+          const lbl = polar(a, RADIUS + 12);
+          return (
+            <g key={t}>
+              <line x1={inner.x} y1={inner.y} x2={outer.x} y2={outer.y} className="rv-gauge-tick" />
+              <text x={lbl.x} y={lbl.y} className="rv-gauge-ticklabel" textAnchor="middle">
+                {KT(t)}
+              </text>
+            </g>
+          );
+        })}
+        <circle cx={planPt.x} cy={planPt.y} r={6} className="rv-gauge-plandot" />
+        <line
+          x1={CX}
+          y1={CY}
+          x2={headingTip.x}
+          y2={headingTip.y}
+          className="rv-gauge-needle rv-gauge-needle-heading"
+        />
+        <line x1={CX} y1={CY} x2={soFarTip.x} y2={soFarTip.y} className="rv-gauge-needle rv-gauge-needle-sofar" />
+        <circle cx={CX} cy={CY} r={5} className="rv-gauge-hub" />
+      </svg>
+      {lastPace && lastPace.plan ? (
+        <p className="rv-dim rv-small" style={{ marginTop: 0 }}>
+          Prior window finished at {P(lastPace.heading / lastPace.plan, 1)}.
+        </p>
+      ) : null}
+      {/* Fixed legend instead of value-tracking labels — those overlapped
+       * whenever plan/heading/so-far sat close together (Shyam, 2026-09-28
+       * round 3). Numbers made larger so they "pop" as requested. */}
+      <div className="rv-thermo-legend">
+        <div className="rv-thermo-row">
+          <i className="sw plan" />
+          <span>Plan</span>
+          <b>{K(pace.plan)}</b>
+        </div>
+        <div className="rv-thermo-row">
+          <i className="sw heading" />
+          <span>Heading to</span>
+          <b>{K(pace.heading)}</b>
+        </div>
+        <div className="rv-thermo-row">
+          <i className="sw sofar" />
+          <span>So far</span>
+          <b>{K(pace.soFar)}</b>
+        </div>
+      </div>
+      <div className="rv-pct">{P(pace.plan ? pace.heading / pace.plan : 0, 1)}</div>
+      <p className="rv-thermo-headline">
+        {short > 0 ? (
+          <>
+            Heading <b className="bad">{K(short)}</b> short of {K(pace.plan)}.
+          </>
+        ) : (
+          <>
+            Heading <b className="good">{K(-short)}</b> over {K(pace.plan)}.
+          </>
+        )}
+      </p>
+      <p>
+        {K(pace.soFar)} booked {fmtD(pace.firstDay)}–{fmtD(pace.lastDay)}
+        {pace.remainingDays > 0 ? (
+          <>
+            ; <b>{K(pace.needPerDay)}</b>/day needed for the {pace.remainingDays} day(s) left.
+          </>
+        ) : (
+          "."
+        )}
+      </p>
+      <p className="rv-dim rv-small">
+        Plan = your weekly clinic targets where set ({pace.planned}), pro-rated to this window; baseline for the rest.
+      </p>
+    </div>
+  );
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: shape comes from convex/repView.ts
+type Book = any;
+// biome-ignore lint/suspicious/noExplicitAny: wins payload
+type Wins = any;
+
+function TodayTab({
+  b,
+  wins,
+  health,
+  onHealth,
+  pstatus,
+  onPstatus,
+  stuckWin,
+  onStuckWin,
+  onOpenClinic,
+  onScorecard,
+  isRep,
+  agenda,
+}: {
+  agenda?: React.ReactNode;
+  isRep: boolean;
+  b: Book;
+  wins: Wins;
+  health: string;
+  onHealth: (h: string) => void;
+  pstatus: string;
+  onPstatus: (p: string) => void;
+  stuckWin: { min: number; max: number };
+  onStuckWin: (w: { min: number; max: number }) => void;
+  onOpenClinic: (clinic: string) => void;
+  onScorecard: () => void;
+}) {
+  const first = b.callFirst[0];
+  const f = b.funnel;
+  void wins;
+  // Getting-to-order-4 window: only clinics stuckMin–stuckMax days since
+  // their last order are "about to fall off", ranked order 4 → order 1
+  // (Shyam, 2026-09-28; window widened + made adjustable in round 3).
+  const ORDER_LABEL: Record<number, string> = { 3: "order 4", 2: "order 3", 1: "order 2" };
+  const STUCK_PRESETS: Array<{ min: number; max: number }> = [
+    { min: 10, max: 14 },
+    { min: 14, max: 21 },
+    { min: 21, max: 30 },
+    { min: 30, max: 45 },
+  ];
+  return (
+    <>
+      <div className="rv-sec-head" style={{ marginTop: 0 }}>
+        <div className="rv-eyebrow">Today's agenda<Info k="headline" /></div>
+        <button type="button" className="rv-sc-btn" onClick={onScorecard}>
+          Scorecard for today ↓
+        </button>
+      </div>
+      <h1 className="rv-h1">
+        {b.overdueCount
+          ? `${b.overdueCount} clinic${b.overdueCount === 1 ? " is" : "s are"} past their usual reorder.${first ? ` Start with ${first.name}.` : ""}`
+          : "Every regular clinic is ordering on its usual rhythm."}
+      </h1>
+      {agenda}
+      <div className="rv-sec-head">
+        <h2>Call first<Info k="call" /></h2>
+        <span>{b.callFirst.length} shown · $ at stake, then longest overdue · 5–44 days since last order</span>
+      </div>
+      <div className="rv-chips">
+        <button type="button" className={health === "" ? "is-on" : ""} onClick={() => onHealth("")}>
+          All notes
+        </button>
+        {(b.healthTags ?? []).map((h: string) => (
+          <button key={h} type="button" className={health === h ? "is-on" : ""} onClick={() => onHealth(h)}>
+            {h} ({(b.healthCounts ?? []).find((x: [string, number]) => x[0] === h)?.[1] ?? 0} clinics)
+          </button>
+        ))}
+      </div>
+      {(b.pstatusTags ?? []).length ? (
+        <div className="rv-chips">
+          <button type="button" className={pstatus === "" ? "is-on" : ""} onClick={() => onPstatus("")}>
+            All portfolio status
+          </button>
+          {(b.pstatusTags ?? []).map((p: string) => (
+            <button key={p} type="button" className={pstatus === p ? "is-on" : ""} onClick={() => onPstatus(p)}>
+              {p} ({(b.pstatusCounts ?? []).find((x: [string, number]) => x[0] === p)?.[1] ?? 0} clinics)
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="rv-cards">
+        {b.callFirst.map((c: Book, i: number) => (
+          <button type="button" className="rv-card rv-card-click" key={c.clinic} onClick={() => onOpenClinic(c.clinic)}>
+            <div className="rv-card-top">
+              <span className="rv-tag">{c.tag}</span>
+              <span className="rv-dim">#{i + 1}</span>
+            </div>
+            <div className="rv-card-name">{c.name}</div>
+            <div className="rv-card-sub">
+              {c.state} · usually every {c.every ?? "—"}d
+            </div>
+            <div className="rv-card-nums">
+              <div>
+                <b className="bad">{c.daysSinceLast}d</b>
+                <span>since last order</span>
+              </div>
+              <div>
+                <b className={c.daysSinceTouch !== null && c.daysSinceTouch > 14 ? "bad" : ""}>
+                  {c.daysSinceTouch === null ? "—" : `${c.daysSinceTouch}d`}
+                </b>
+                <span>{c.daysSinceTouch === null ? "no touch on record" : "since last touch"}</span>
+              </div>
+            </div>
+            <div className="rv-card-foot">
+              <span className={c.delta < 0 ? "bad" : "good"}>{SK(c.delta)}</span> vs baseline this period ·{" "}
+              {K(c.expected)} expected
+            </div>
+          </button>
+        ))}
+        {b.callFirst.length === 0 ? (
+          <p className="rv-dim">
+            No overdue regulars{health ? ` tagged "${health}"` : ""}
+            {pstatus ? ` in "${pstatus}"` : ""}.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rv-panel">
+        <div className="rv-sec-head">
+          <h2>New clinics: getting to order 4<Info k="newc" /></h2>
+          <span>{f.o1} new clinics in your book</span>
+        </div>
+        <div className="rv-funnel">
+          {[
+            [f.o1, "Placed order 1"],
+            [f.o2, "Placed order 2"],
+            [f.o3, "Placed order 3"],
+            [f.o4, "Placed order 4"],
+          ].map(([n, l], i) => (
+            <div key={l as string} className={`rv-step s${i}`}>
+              <b>{n}</b>
+              <span>{l}</span>
+              {i > 0 && f.o1 ? <em>{P((n as number) / f.o1)} of order 1</em> : null}
+            </div>
+          ))}
+        </div>
+        <div className="rv-sec-head">
+          <div className="rv-dim rv-small">
+            Due for their next order in the next {stuckWin.min}–{stuckWin.max} days, order 4 first:
+          </div>
+          <div className="rv-chips rv-chips-tight">
+            {STUCK_PRESETS.map(w => (
+              <button
+                type="button"
+                key={`${w.min}-${w.max}`}
+                className={stuckWin.min === w.min && stuckWin.max === w.max ? "is-on" : ""}
+                onClick={() => onStuckWin(w)}
+              >
+                {w.min}–{w.max}d
+              </button>
+            ))}
+          </div>
+        </div>
+        {b.stuck.map((s: Book) => (
+          <button type="button" className="rv-row rv-row-click" key={s.clinic} onClick={() => onOpenClinic(s.clinic)}>
+            <b>{s.name}</b>
+            <span className="rv-mono">next up: {ORDER_LABEL[s.reached] ?? `order ${s.reached + 1}`}</span>
+            <span>
+              Last order {s.daysSinceLast ?? "—"}d ago · first order {s.daysSinceFirst ?? "—"}d ago
+            </span>
+            <span className={s.daysSinceTouch === null || s.daysSinceTouch > 14 ? "bad" : ""}>
+              {s.daysSinceTouch === null ? "no touch on record" : `touch ${s.daysSinceTouch}d ago`}
+            </span>
+          </button>
+        ))}
+        {b.stuck.length === 0 ? (
+          <p className="rv-dim">No new clinics due in the next {stuckWin.min}–{stuckWin.max} days.</p>
+        ) : null}
+      </div>
+
+      {/* Business feed replaces "Say thanks" (Shyam 2026-09-30). The feed is
+          company-wide, so rep logins don't get it until a rep-scoped version exists. */}
+      {isRep ? null : <AlertRail onFocus={() => undefined} />}
+    </>
+  );
+
+}
+
+function Bar({ v, max }: { v: number; max: number }) {
+  const w = max ? Math.min(50, (Math.abs(v) / max) * 50) : 0;
+  return (
+    <div className="rv-bar">
+      <i className={v < 0 ? "neg" : "pos"} style={v < 0 ? { right: "50%", width: `${w}%` } : { left: "50%", width: `${w}%` }} />
+    </div>
+  );
+}
+
+function WindowTab({
+  b,
+  sales,
+  periodId,
+  wins,
+  periodLabel,
+  showWeekly,
+  showFunnel,
+  planBeat,
+  onScorecard,
+}: {
+  b: Book;
+  sales: string;
+  periodId: string;
+  wins: Wins;
+  periodLabel: string;
+  showWeekly: boolean;
+  showFunnel: boolean;
+  planBeat: { label: string; amount: number; pct: number } | null;
+  onScorecard: () => void;
+}) {
+  const [simplify, setSimplify] = useState(true);
+  // Exact view: product families under branches A and B, like the main tree.
+  const treeFams = useQuery(
+    api.leadFamilies.salesFamilies,
+    sales && !simplify ? { password: pw(), periodId, sales } : "skip",
+  );
+  const [famScope, setFamScope] = useState<"bundle" | "nonbundle">("nonbundle");
+  const [famOpen, setFamOpen] = useState<{ family: string; scope: "all" | "bundle" | "nonbundle" } | null>(null);
+  const [famLimit, setFamLimit] = useState(25);
+  const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
+  const focusRowsQ = useQuery(
+    api.repView.rowsByFocus,
+    sales && focus ? { password: pw(), periodId, sales, focus: focus.focus } : "skip",
+  );
+  const L = b.lenses;
+  const cohorts = [...L.cohorts].sort((x: Book, y: Book) => x.delta - y.delta);
+  const worst = cohorts[0];
+  // Same share-of-gap phrasing as the main dashboard's tree (Shyam,
+  // 2026-09-28 exact-parity pass).
+  const pct = (v: number) => {
+    if (b.totals.delta === 0) return "—";
+    const share = Math.round((Math.abs(v) / Math.abs(b.totals.delta)) * 100);
+    const sameDirection = v < 0 === b.totals.delta < 0;
+    const noun = b.totals.delta < 0 ? "gap" : "gain";
+    return sameDirection ? `${share}% of ${noun}` : `${share}% offset`;
+  };
+  const lensCards: Array<{
+    k: string;
+    t: string;
+    q: string;
+    rows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book }>;
+    note: string;
+  }> = [
+    {
+      k: "A",
+      t: "Volume vs price",
+      q: "Fewer orders, or lower $ per order?",
+      rows: [
+        {
+          l: "Order volume",
+          v: L.volume,
+          focus: L.volume < 0 ? "volneg" : "volpos",
+          sub: `${Math.round(b.totals.orders - b.totals.expOrders)} orders vs run rate`,
+        },
+        {
+          l: "AOV / price-mix",
+          v: L.aovEffect,
+          focus: L.aovEffect < 0 ? "aovneg" : "aovpos",
+          sub: `$${Math.round(b.kpi.aov ?? 0)} vs $${Math.round(b.kpi.baseAov ?? 0)} baseline`,
+        },
+      ],
+      note: `Orders ${b.totals.orders.toFixed(0)} vs ${b.totals.expOrders.toFixed(0)} expected.`,
+    },
+    {
+      k: "B",
+      t: "Product",
+      q: "Bundles or single panels?",
+      rows: [
+        { l: "Bundle orders", v: L.bundle, focus: L.bundle < 0 ? "bundleneg" : "bundlepos", sub: `${b.clinics} clinics in scope` },
+        { l: "Non-bundle orders", v: L.nonBundle, focus: L.nonBundle < 0 ? "nonbundleneg" : "nonbundlepos", sub: `${b.clinics} clinics in scope` },
+      ],
+      note: Math.abs(L.bundle) > Math.abs(L.nonBundle) ? "Bundles are the larger share." : "Non-bundle is the larger share.",
+    },
+    {
+      k: "C",
+      t: "Clinic cohort",
+      q: "Which clinics?",
+      rows: cohorts.map((c: Book) => ({
+        l: `${COHORT[c.key] ?? c.key} (${c.clinics})`,
+        v: c.delta,
+        focus: `cohort:${c.key}`,
+        sub: "clinic cohort",
+        cohortSplit: c,
+      })),
+      note: worst ? `${COHORT[worst.key] ?? worst.key} is the biggest swing.` : "",
+    },
+    {
+      k: "D",
+      t: "Geography",
+      q: "Where?",
+      rows: L.states.map((s: Book) => ({ l: s.key, v: s.delta, focus: `state:${s.key}`, sub: "geography" })),
+      note: "Allocated by each clinic's main state.",
+    },
+  ];
+  const max = Math.max(1, ...lensCards.flatMap(c => c.rows.map(r => Math.abs(r.v))));
+  const e = b.effort;
+  const touchedPct = e.touched ? e.touchedRe / e.touched : 0;
+  const openFocus = (f: string, label: string) =>
+    setFocus(cur => (cur && cur.focus === f && cur.label === label ? null : { focus: f, label }));
+  return (
+    <>
+      <div className="rv-sec-head" style={{ marginTop: 0 }}>
+        <div className="rv-eyebrow">{periodLabel}<Info k="headline" /></div>
+        <button type="button" className="rv-sc-btn" onClick={onScorecard}>
+          Scorecard for this window ↓
+        </button>
+      </div>
+      <h1 className="rv-h1">
+        Your book is {SK(b.totals.delta)} vs baseline
+        {worst && worst.delta < 0 ? `, and the biggest drag is ${COHORT[worst.key]?.toLowerCase() ?? worst.key} clinics.` : "."}
+      </h1>
+
+      <div className="rv-effort-banner rv-great-job">
+        <div>
+          <div className="rv-eyebrow rv-great-job-eyebrow">🎉 Great job<Info k="great" /></div>
+          <div className="rv-effort-h">
+            {e.touched
+              ? `${P(touchedPct, 0)} of clinics you touched in the last 14 days reordered since.`
+              : "No touches logged in the last 14 days yet."}
+          </div>
+        </div>
+        <div className="rv-mini">
+          {planBeat ? (
+            <div className="rv-mini-item">
+              <b>+{K(planBeat.amount)}</b>
+              <span>{planBeat.label}<br />over plan ({P(planBeat.pct, 0)})</span>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="rv-mini-item"
+            disabled={!wins?.ready || !wins.beatersIds.length}
+            onClick={() => wins?.ready && openFocus(`ids:${wins.beatersIds.join(",")}`, "Beating baseline")}
+          >
+            <b>{wins?.ready ? wins.beatersCount : "—"}</b>
+            <span>Beating baseline<br />{wins?.ready ? SK(wins.beatersRevenue) : ""} combined</span>
+          </button>
+          <button
+            type="button"
+            className="rv-mini-item"
+            disabled={!wins?.ready || !wins.comebackIds.length}
+            onClick={() => wins?.ready && openFocus(`ids:${wins.comebackIds.join(",")}`, "Comebacks")}
+          >
+            <b>{wins?.ready ? wins.comeback.length : "—"}</b>
+            <span>Comebacks<br />below last period, above now</span>
+          </button>
+          <button
+            type="button"
+            className="rv-mini-item"
+            disabled={!wins?.ready || !wins.newLogoIds.length}
+            onClick={() => wins?.ready && openFocus(`ids:${wins.newLogoIds.join(",")}`, "New-logo wins")}
+          >
+            <b>{wins?.ready ? wins.newLogoCount : "—"}</b>
+            <span>New-logo wins<br />first orders in window</span>
+          </button>
+          <button
+            type="button"
+            className="rv-mini-item"
+            disabled={!wins?.ready || !wins.bundleGainerIds.length}
+            onClick={() => wins?.ready && openFocus(`ids:${wins.bundleGainerIds.join(",")}`, "Bundle gainers")}
+          >
+            <b>{wins?.ready ? wins.bundleGainerIds.length : "—"}</b>
+            <span>Bundle gainers<br />bundle $ above baseline</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="rv-sec-head">
+        <h2>Shortfall tree<Info k="tree" /></h2>
+        <div className="rv-tree-toggle">
+          <span>click a branch for its clinic list</span>
+          <button type="button" className="rv-toggle-btn" onClick={() => setSimplify(s => !s)}>
+            {simplify ? "Switch to exact view ↔" : "Switch to simplified view ↔"}
+          </button>
+        </div>
+      </div>
+      {simplify ? (
+        <div className="rv-tree">
+          <div className="rv-tree-root">
+            <div className="rv-tree-side">
+              <div className="rv-eyebrow rv-dim">Expected</div>
+              <div className="rv-tree-side-v">{K(b.totals.expected)}</div>
+            </div>
+            <button type="button" className="rv-tree-node" onClick={() => openFocus("", "Whole book")}>
+              <div className="rv-eyebrow rv-dim">{periodLabel}</div>
+              <div className={`rv-tree-node-v ${b.totals.delta < 0 ? "bad" : "good"}`}>{SK(b.totals.delta)}</div>
+              <div className="rv-eyebrow rv-blue">clinic list ↓</div>
+            </button>
+            <div className="rv-tree-side">
+              <div className="rv-eyebrow rv-dim">Actual</div>
+              <div className="rv-tree-side-v">{K(b.totals.actual)}</div>
+            </div>
+          </div>
+          <div className="rv-lenses">
+            {lensCards.map(c => (
+              <div className="rv-lens" key={c.k}>
+                <div className="rv-lens-h">
+                  <em>{c.k}</em> {c.t}
+                </div>
+                {c.rows.map(r => (
+                  <button type="button" className="rv-lens-row rv-lens-row-click" key={r.l} onClick={() => openFocus(r.focus, r.l)}>
+                    <div>
+                      <span>{r.l}</span>
+                      <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
+                    </div>
+                    <Bar v={r.v} max={max} />
+                  </button>
+                ))}
+                <div className="rv-lens-note">{c.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rca-tree rv-rca-tree">
+          <div className="rca-root-row">
+            <div className="rca-root-side">
+              <div className="rca-eyebrow rca-dim">Expected</div>
+              <div className="rca-root-side-value">{K(b.totals.expected)}</div>
+              <div className="rca-eyebrow rca-dim">{b.totals.expOrders.toFixed(0)} orders</div>
+            </div>
+            <button type="button" className="rca-root-node" onClick={() => openFocus("", "Whole book")}>
+              <div className="rca-eyebrow rca-dim">{periodLabel}</div>
+              <div className="rca-root-value" style={{ color: b.totals.delta < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>
+                {SK(b.totals.delta)}
+              </div>
+              <div className="rca-eyebrow rca-dim">
+                {b.totals.expected ? Math.abs((b.totals.delta / b.totals.expected) * 100).toFixed(1) : "0"}%{" "}
+                {b.totals.delta < 0 ? "below" : "above"} baseline
+              </div>
+              <div className="rca-eyebrow rca-blue">{focus && focus.focus === "" ? "hide clinics" : "clinic detail ↓"}</div>
+            </button>
+            <div className="rca-root-side">
+              <div className="rca-eyebrow rca-dim">Actual</div>
+              <div className="rca-root-side-value">{K(b.totals.actual)}</div>
+              <div className="rca-eyebrow rca-dim">{b.totals.orders.toFixed(0)} orders</div>
+            </div>
+          </div>
+          <div className="rca-stem" />
+          <div className="rca-crossbar" />
+          <div className="rca-grid-4">
+            {lensCards.map(c => (
+              <div key={c.k}>
+                <div className="rca-stem" />
+                <div className="rca-card rca-lens">
+                  <div className="rca-lens-head">
+                    <span className="rca-lens-letter">{c.k}</span>
+                    <div>
+                      <div className="rca-lens-title">{c.t}</div>
+                      <div className="rca-lens-q">{c.q}</div>
+                    </div>
+                  </div>
+                  {c.rows.map(r => {
+                    const w = (Math.abs(r.v) / max) * 50;
+                    const neg = r.v < 0;
+                    return (
+                      <button
+                        type="button"
+                        className={`rca-lens-row${focus && focus.focus === r.focus ? " is-open" : ""}`}
+                        key={r.l}
+                        onClick={() => openFocus(r.focus, r.l)}
+                      >
+                        <div className="rca-lens-row-top">
+                          <span>{r.l}</span>
+                          <span className="rca-mono" style={{ color: neg ? "var(--vw-error)" : "var(--vw-success)" }}>
+                            {SK(r.v)}
+                          </span>
+                        </div>
+                        <div className="rca-lens-row-sub">
+                          <span>{r.sub}</span>
+                          <span>{pct(r.v)}</span>
+                        </div>
+                        <div className="rca-track">
+                          <span className="rca-track-mid" />
+                          <span
+                            className="rca-track-fill"
+                            style={{
+                              left: neg ? `${50 - w}%` : "50%",
+                              width: `${w}%`,
+                              background: neg ? "var(--vw-error)" : "var(--vw-success)",
+                            }}
+                          />
+                        </div>
+                        {r.cohortSplit && r.cohortSplit.posCount > 0 && r.cohortSplit.negCount > 0 ? (
+                          <div className="rca-lens-split">
+                            <span className="rca-lens-split-pos">
+                              +{SK(r.cohortSplit.posSum)} · {r.cohortSplit.posCount}{" "}
+                              {r.focus === "cohort:new" ? "on pace" : "beating"}
+                            </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="rca-info-icon"
+                              title={
+                                r.focus === "cohort:new"
+                                  ? "New clinics ordering within this cohort's own median days-between-orders (no baseline history to compare to yet)"
+                                  : "See the clinics beating baseline in this cohort"
+                              }
+                              onClick={e => {
+                                e.stopPropagation();
+                                openFocus(
+                                  `ids:${r.cohortSplit.posIds.join(",")}`,
+                                  r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating baseline`,
+                                );
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.stopPropagation();
+                                  openFocus(
+                                    `ids:${r.cohortSplit.posIds.join(",")}`,
+                                    r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating baseline`,
+                                  );
+                                }
+                              }}
+                            >
+                              i
+                            </span>
+                            <span>vs</span>
+                            <span className="rca-lens-split-neg">
+                              {SK(-r.cohortSplit.negSum)} · {r.cohortSplit.negCount}{" "}
+                              {r.focus === "cohort:new" ? "overdue" : "missing"}
+                            </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="rca-info-icon"
+                              title={
+                                r.focus === "cohort:new"
+                                  ? "New clinics past this cohort's own median days-between-orders — falling behind their own pace, not a baseline"
+                                  : "See the clinics missing baseline in this cohort"
+                              }
+                              onClick={e => {
+                                e.stopPropagation();
+                                openFocus(
+                                  `ids:${r.cohortSplit.negIds.join(",")}`,
+                                  r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing baseline`,
+                                );
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.stopPropagation();
+                                  openFocus(
+                                    `ids:${r.cohortSplit.negIds.join(",")}`,
+                                    r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing baseline`,
+                                  );
+                                }
+                              }}
+                            >
+                              i
+                            </span>
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {(c.k === "A" || c.k === "B") && treeFams?.ready ? (
+                    <FamilyLevel
+                      rows={c.k === "A" ? treeFams.all : famScope === "nonbundle" ? treeFams.nonbundle : treeFams.bundle}
+                      scopeNote={c.k === "A" ? null : famScope}
+                      onScope={c.k === "B" ? setFamScope : undefined}
+                      by={c.k === "A" ? "orders" : "revenue"}
+                      openFamily={famOpen?.family ?? null}
+                      onPick={family => {
+                        setFamLimit(25);
+                        setFocus(null);
+                        setFamOpen(cur =>
+                          cur && cur.family === family ? null : { family, scope: c.k === "A" ? "all" : famScope },
+                        );
+                      }}
+                    />
+                  ) : (c.k === "A" || c.k === "B") && !treeFams ? (
+                    <div className="rca-sub rv-dim">Loading product families…</div>
+                  ) : null}
+                  <div className="rca-lens-note">{c.note}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showFunnel && focus && focus.focus === "cohort:new" ? (
+        <ProviderRetentionFunnel periodId={periodId} sales={sales} />
+      ) : null}
+
+      {famOpen && !simplify ? (
+        <FamilyPanel
+          sales={sales}
+          periodId={periodId}
+          periodLabel={periodLabel}
+          family={famOpen.family}
+          scope={famOpen.scope}
+          limit={famLimit}
+          onLimit={setFamLimit}
+          onClose={() => setFamOpen(null)}
+        />
+      ) : null}
+
+      {focus ? (
+        <FocusTable
+          label={focus.label}
+          rows={focusRowsQ?.ready ? focusRowsQ.rows : null}
+          onClose={() => setFocus(null)}
+          periodId={periodId}
+          sales={sales}
+        />
+      ) : null}
+
+      {showWeekly ? <Targets b={b} /> : null}
+
+    </>
+  );
+}
+
+/**
+ * "Provider Retention Funnel — Orders 1→5" (Shyam, 2026-09-28): signup →
+ * order 1 → 2 → 3 → 4 → 5, each bar showing how many of this window's new
+ * clinics reached it, plus avg days since the previous stage and total /
+ * median revenue at that stage. Shown under the shortfall tree's "New"
+ * clinic-cohort row, only for This month / This quarter / a Custom window of
+ * a month or more (a week of new clinics is too thin to read as a funnel).
+ */
+/** MoM/QoQ % chip for a funnel stage — null means no prior-period base to
+ * compare against (Shyam, 2026-09-28: always calendar month/quarter before
+ * the current one, independent of the window tab selected). */
+function TrendPct({ value, label, title }: { value: number | null; label: string; title: string }) {
+  if (value === null) return <span title={title}>{label} —</span>;
+  const cls = value > 0 ? "good" : value < 0 ? "bad" : "";
+  return (
+    <span title={title} className={cls}>
+      {value >= 0 ? "+" : ""}
+      {value.toFixed(0)}% {label}
+    </span>
+  );
+}
+
+function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
+  const [touchFilter, setTouchFilter] = useState<"" | "touched" | "untouched">("");
+  const [clinicalFilter, setClinicalFilter] = useState<"" | "touched" | "untouched">("");
+  const data = useQuery(api.newClinicFunnel.orderRetentionFunnel, {
+    password: pw(),
+    periodId,
+    sales,
+    touchFilter: touchFilter || undefined,
+    clinicalFilter: clinicalFilter || undefined,
+  });
+  if (!data) return <div className="rv-panel rv-loading">Loading funnel…</div>;
+  if (!data.ready) return null;
+  const STAGE_LABEL = ["Order 1", "Order 2", "Order 3", "Order 4", "Order 5"];
+  const top = Math.max(data.signups, data.clinics, 1);
+  const bars = [
+    { label: "Signup", n: data.signups, pct: data.signups ? 100 : 0 },
+    ...data.stages.map(s => ({
+      label: STAGE_LABEL[s.n - 1],
+      n: s.clinics,
+      pct: data.signups ? Math.round((s.clinics / data.signups) * 100) : 0,
+      medianDays: s.medianDays,
+      totalRevenue: s.totalRevenue,
+      medianRevenue: s.medianRevenue,
+      momPct: s.momPct,
+      qoqPct: s.qoqPct,
+    })),
+  ];
+  return (
+    <div className="rv-panel rv-funnel-panel">
+      <div className="rv-sec-head">
+        <h2>Provider retention funnel · orders 1→5<Info k="funnel" /></h2>
+        <span>{data.clinics} new clinics this window</span>
+      </div>
+      <div className="rv-chips" role="group" aria-label="Filter by call/meeting before order 1">
+        {(
+          [
+            ["", "All clinics"],
+            ["touched", "Had a call/meeting first"],
+            ["untouched", "No call/meeting first"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            className={touchFilter === v ? "is-on" : ""}
+            onClick={() => setTouchFilter(v)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="rv-chips" role="group" aria-label="Filter by clinical consult before order 1">
+        {(
+          [
+            ["", "All clinics"],
+            ["touched", "Had a clinical consult first"],
+            ["untouched", "No clinical consult first"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            className={clinicalFilter === v ? "is-on" : ""}
+            onClick={() => setClinicalFilter(v)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="rv-retention-funnel">
+        {bars.map((r, i) => (
+          <div className="rv-rf-row" key={r.label}>
+            <div className="rv-rf-label">
+              <b>{r.label}</b>
+              {"medianDays" in r && r.medianDays !== null && r.medianDays !== undefined ? (
+                <span className="rv-dim rv-small">median {Math.round(r.medianDays)}d</span>
+              ) : null}
+            </div>
+            <div className="rv-rf-bar-track">
+              <div className="rv-rf-bar" style={{ width: `${Math.max(2, (r.n / top) * 100)}%` }}>
+                <b>{r.n.toLocaleString()}</b>
+              </div>
+            </div>
+            <div className="rv-rf-side">
+              <span>{i === 0 ? "100%" : `${r.pct}%`}</span>
+              {"totalRevenue" in r && r.totalRevenue !== undefined ? (
+                <span className="rv-dim rv-small">
+                  {K(r.totalRevenue)} · rev {r.medianRevenue !== undefined ? K(Math.round(r.medianRevenue)) : "—"} median
+                </span>
+              ) : null}
+              {"momPct" in r ? (
+                <span className="rv-dim rv-small">
+                  <TrendPct value={r.momPct} label="MoM" title={`${data.trendPrevM} → ${data.trendCurM}`} />
+                  {" · "}
+                  <TrendPct value={r.qoqPct} label="QoQ" title={`${data.trendPrevQ} → ${data.trendCurQ}`} />
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="rv-dim rv-small" style={{ marginTop: 12 }}>
+        Signup = leads assigned to you in this window (Power BI). Order stages are cumulative new-clinic
+        counts reaching that order, ranked order 1 → 5; each bar's % is of signups. The call/meeting filter
+        checks for a Call or Meeting touchpoint logged before order 1; the clinical consult filter checks
+        for a Clinical Activity touchpoint (consult/training) logged before order 1. MoM/QoQ are fixed and ignore the window
+        selected above: new clinics whose order 1 fell in the current month / quarter to date vs the same
+        number of days into the prior month / quarter (hover a chip for the exact dates).
+      </p>
+    </div>
+  );
+}
+
+function Targets({ b }: { b: Book }) {
+  const plan = useQuery(api.plan.list, { password: pw() });
+  const save = useMutation(api.plan.setPlan);
+  const planBy = new Map((plan?.plans ?? []).map(p => [p.clinic, p]));
+  const [draft, setDraft] = useState<Record<string, number>>({});
+  const commit = async (c: Book, val: number) => {
+    const p = planBy.get(c.clinic);
+    try {
+      await save({
+        password: pw(),
+        clinic: c.clinic,
+        name: c.name,
+        targetRevenueWeek: Math.max(0, val),
+        targetOrdersWeek: p?.targetOrdersWeek ?? Math.round(c.baseOrdWeek),
+      });
+    } catch (err) {
+      toast.error(String(err));
+    }
+  };
+  const total = b.targetClinics.reduce(
+    (s: number, c: Book) => s + (draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? c.baseWeek),
+    0,
+  );
+  return (
+    <div className="rv-panel">
+      <div className="rv-sec-head">
+        <h2>Weekly targets<Info k="targets" /></h2>
+        <span className="rv-mono">Top 10 clinics · {K(total)}/wk</span>
+      </div>
+      <p className="rv-dim rv-small">Edits move the thermometer's plan line. Blank = baseline.</p>
+      <div className="rv-targets">
+        {b.targetClinics.map((c: Book) => {
+          const cur = draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? Math.round(c.baseWeek);
+          const set = (v: number) => {
+            setDraft(d => ({ ...d, [c.clinic]: v }));
+            void commit(c, v);
+          };
+          return (
+            <div className="rv-target" key={c.clinic}>
+              <div>
+                <b>{c.name}</b>
+                <span>baseline {K(c.baseWeek)}/wk</span>
+              </div>
+              <span className="rv-dim rv-mono">
+                {planBy.has(c.clinic) ? (cur >= c.baseWeek ? "above baseline" : "below baseline") : "at baseline"}
+              </span>
+              <div className="rv-step-in">
+                <button type="button" onClick={() => set(Math.max(0, cur - 100))}>−</button>
+                <input
+                  value={Math.round(cur)}
+                  onChange={e => setDraft(d => ({ ...d, [c.clinic]: Number(e.target.value) || 0 }))}
+                  onBlur={e => void commit(c, Number(e.target.value) || 0)}
+                />
+                <button type="button" onClick={() => set(cur + 100)}>+</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+type Cell = { label: string; value: string; sub: string; tone: Tone; ids?: string[] };
+const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
+const vsTone = (ratio: number | null, watch = 0.95): Tone =>
+  ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
+
+type Fam = {
+  family: string;
+  revenue: number;
+  orders: number;
+  expected: number;
+  expectedOrders: number;
+  delta: number;
+  orderDelta: number;
+};
+
+function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: string; cells: Cell[] }> {
+  const k = b.kpi;
+  const hz: Fam | undefined = pg
+    ? (fams?.all ?? []).find((f: Fam) => f.family === pg.family)
+    : (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
+  return [
+    {
+      pillar: "New Business",
+      cells: [
+        {
+          label: "New Revenue",
+          value: K(k.newRevenue),
+          sub: `${k.newCustomers} new clinics · ${P(k.newRevShare)} of revenue`,
+          ids: b.newIds,
+          tone: "act",
+        },
+        NA("Pipeline", "needs CRM pipeline data"),
+        NA("Unconverted prospects", "needs CRM lead data"),
+        NA("Win rate", "needs CRM opportunity data"),
+      ],
+    },
+    {
+      pillar: "AOV",
+      cells: [
+        {
+          label: "AOV",
+          value: k.aov ? K(k.aov) : "—",
+          sub: `${SK((k.aov ?? 0) - k.baseAov)} vs baseline`,
+          tone: vsTone(k.aov && k.baseAov ? k.aov / k.baseAov : null, 0.97),
+        },
+        NA("Stack penetration", "needs per-order panel mix"),
+        { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids },
+        NA("Stack mix", "needs per-order panel mix"),
+      ],
+    },
+    {
+      pillar: "Product Growth",
+      cells: [
+        hz
+          ? {
+              label: "Target Product Orders",
+              value: hz.orders.toFixed(0),
+              sub: `${hz.family} · ${hz.expectedOrders.toFixed(0)} expected`,
+              tone: vsTone(hz.expectedOrders ? hz.orders / hz.expectedOrders : null),
+            }
+          : NA("Target Product Orders", `no ${pg?.family ?? "Hormone Zoomer"} orders in this book`),
+        pg
+          ? {
+              label: "Product adoption",
+              value: P(pg.adoption),
+              sub: `${pg.adoptN} of ${pg.newN} new clinics ordered ${pg.family}`,
+              ids: pg.adoptIds,
+              tone: pg.adoption === null ? "na" : pg.adoption >= 0.5 ? "good" : pg.adoption >= 0.3 ? "watch" : "bad",
+            }
+          : NA("Product adoption", "loading product mix…"),
+        pg
+          ? {
+              label: "Product whitespace",
+              value: String(pg.wsN),
+              sub: pg.eligN ? `${pg.wsN} of ${pg.eligN} clinics you marked eligible never ordered ${pg.family}` : `mark clinics eligible for ${pg.family} below`,
+              tone: "act",
+              ids: pg.wsIds,
+            }
+          : NA("Product whitespace", "loading product mix…"),
+        pg
+          ? {
+              label: "Repeat product rate",
+              value: P(pg.repeat),
+              sub: `${pg.repN} of ${pg.pairN} ${pg.family} clinics ordered it 2+ times`,
+              ids: pg.repIds,
+              tone: pg.repeat === null ? "na" : pg.repeat >= 0.5 ? "good" : pg.repeat >= 0.35 ? "watch" : "bad",
+            }
+          : NA("Repeat product rate", "loading product mix…"),
+      ],
+    },
+    {
+      pillar: "Retention",
+      cells: [
+        {
+          label: "Revenue Retention",
+          value: P(k.revenueRetention),
+          sub: "existing clinics' baseline $ kept",
+          tone: vsTone(k.revenueRetention, 0.9),
+        },
+        {
+          label: "Repeat ordering",
+          value: P(k.repeatRate),
+          sub: `${k.repeatCount} of ${k.activeCount} ordered 2+ times`,
+          ids: k.repeatIds,
+          tone: k.repeatRate === null ? "na" : k.repeatRate >= 0.7 ? "good" : k.repeatRate >= 0.55 ? "watch" : "bad",
+        },
+        { label: "At-risk customers", value: String(k.atRisk), sub: `${K(k.atRiskRev)} below baseline`, tone: "act", ids: b.opp?.atRisk?.ids },
+        {
+          label: "Customer churn",
+          value: P(k.churnRate, 1),
+          sub: `${k.churned} of ${k.existingCount} clinics`,
+          ids: k.churnedIds,
+          tone: k.churnRate === null ? "na" : k.churnRate <= 0.05 ? "good" : k.churnRate <= 0.1 ? "watch" : "bad",
+        },
+      ],
+    },
+    {
+      pillar: "Expansion",
+      cells: [
+        { label: "Expansion Revenue", value: SK(k.expansionRev), sub: `${k.growing} clinics growing`, tone: "good", ids: b.opp?.growing?.ids },
+        pg
+          ? { label: "Products per customer", value: pg.ppcRange, sub: `families per clinic (middle 50%) · ${pg.activeN} clinics`, ids: pg.activeIds, tone: pg.ppc === null ? "na" : pg.ppc >= 2 ? "good" : pg.ppc >= 1.5 ? "watch" : "bad" }
+          : NA("Products per customer", "loading product mix…"),
+        pg
+          ? { label: "Cross-sell candidates", value: String(pg.xs.length), sub: `${K(pg.xsUp)} upside · active clinics on 1–2 families`, tone: "act", ids: pg.xs.map(x => x.clinic) }
+          : NA("Cross-sell candidates", "loading product mix…"),
+        { label: "NRR", value: P(k.nrr), sub: "existing clinics vs baseline", tone: vsTone(k.nrr) },
+      ],
+    },
+    {
+      pillar: "Combined",
+      cells: [
+        {
+          label: "Net Revenue Growth",
+          value: SP(k.netGrowth ?? 0),
+          sub: `${SK(b.totals.delta)} vs baseline`,
+          tone: vsTone(k.netGrowth === null ? null : 1 + k.netGrowth),
+        },
+        {
+          label: "Growth run-rate",
+          value: k.runRate ? `${K(k.runRate)}/wk` : "—",
+          sub: `baseline ${K(k.runRatePlan ?? 0)}/wk`,
+          tone: vsTone(k.runRate && k.runRatePlan ? k.runRate / k.runRatePlan : null),
+        },
+        { label: "Revenue opportunity", value: K(k.opportunity), sub: "at-risk + low-AOV gap", tone: "act" },
+        {
+          label: "Growth decomposition",
+          value: `${SK(k.volume)} / ${SK(k.aovEffect)}`,
+          sub: "volume / AOV",
+          tone: "act",
+        },
+      ],
+    },
+  ];
+}
+
+/** Pillar status from the scorecard tones: any red cell = behind, any amber = watch. */
+function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | "good"> {
+  const out: Record<string, "behind" | "watch" | "good"> = {};
+  for (const r of scoreRows(b, fams))
+    out[r.pillar] = r.cells.some(c => c.tone === "bad") ? "behind" : r.cells.some(c => c.tone === "watch") ? "watch" : "good";
+  return out;
+}
+
+function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string }) {
+  const k = b.kpi;
+  const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
+  const totalRev = b.totals.actual;
+  const pgd = usePG(sales, periodId);
+  const [wsFam, setWsFam] = useState<string>("");
+  const famList = useMemo(() => {
+    const t = new Map<string, number>();
+    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
+    return [...t].filter(([f]) => f !== "Unmapped").sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+  }, [pgd.data]);
+  const family = wsFam || famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
+  const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
+  const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
+  const rows = scoreRows(b, fams, pg);
+  const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
+  const [pillar, setPillar] = useState(focusPillar ?? "Combined");
+  useEffect(() => {
+    if (!focus) return;
+    if (focusPillar) setPillar(focusPillar);
+    const t = setTimeout(() => document.getElementById(`sc-cell-${focus}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+    return () => clearTimeout(t);
+  }, [focus, focusPillar]);
+  const all = rows.flatMap(r => r.cells);
+  const count = (t: Tone) => all.filter(c => c.tone === t).length;
+  const behind = rows.filter(r => r.cells.some(c => c.tone === "bad")).map(r => r.pillar);
+  const sel = rows.find(r => r.pillar === pillar) ?? rows[5];
+
+  const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
+  const [cl, setCl] = useState<{ key: string; label: string; ids: string[] } | null>(null);
+  const clQ = useQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
+  const openCell = (c: Cell, e: React.MouseEvent) => {
+    if (!c.ids?.length) return;
+    e.stopPropagation();
+    setCl(x => (x?.key === c.label ? null : { key: c.label, label: `${c.label} · ${c.ids!.length} clinics`, ids: c.ids! }));
+    setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+  };
+  const libFor = LIB.filter(x => x.pillar === pillar);
+
+  return (
+    <>
+      <div className="rv-eyebrow">Scorecard · {periodLabel} · your book<Info k="sc" /></div>
+      <div className="rv-sc-head">
+        <h1 className="rv-h1">
+          {count("good")} on track, {count("watch")} to watch, {count("bad")} behind.
+          {behind.length ? ` ${behind.slice(0, 2).join(" and ")} need the most work.` : ""}
+        </h1>
+        <div className="rv-legend">
+          <span><i className="good" />On track</span>
+          <span><i className="watch" />Watch</span>
+          <span><i className="bad" />Behind</span>
+          <span><i className="act" />Where to act</span>
+          <span><i className="na" />Not in data yet</span>
+        </div>
+      </div>
+      {pillar === "Product Growth" && famList.length ? (
+        <div className="rv-famchips">
+          <span className="rv-dim rv-small">Product Growth for:</span>
+          {famList.map(f => (
+            <button type="button" key={f} className={f === family ? "on" : ""} onClick={() => setWsFam(f)}>{f}</button>
+          ))}
+        </div>
+      ) : null}
+      <div className="rv-matrix">
+        <div className="rv-mx-h">Pillar</div>
+        <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
+        <div className="rv-mx-h">Leading indicator<span>Will it happen?</span></div>
+        <div className="rv-mx-h">Opportunity<span>Where to act</span></div>
+        <div className="rv-mx-h">Diagnostic<span>Why</span></div>
+        {rows.map(r => (
+          <div
+            className={`rv-mx-row${pillar === r.pillar ? " is-sel" : ""}`}
+            key={r.pillar}
+            onClick={() => setPillar(r.pillar)}
+            onKeyDown={e => e.key === "Enter" && setPillar(r.pillar)}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="rv-mx-p">
+              <b>{r.pillar}</b>
+              <div className="rv-dots">
+                {r.cells.map((c, i) => (
+                  <i key={i} className={c.tone} />
+                ))}
+              </div>
+            </div>
+            {r.cells.map(c => (
+              <div className={`rv-mx-c ${c.tone}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+                <div className="rv-mx-l">
+                  {c.label}
+                  <i className={c.tone} />
+                </div>
+                <div className="rv-mx-v">{c.value}</div>
+                <div className="rv-mx-s">{c.sub}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {cl ? (
+        <div id="sc-cl">
+          <FocusTable label={cl.label} rows={clQ?.ready ? clQ.rows : null} onClose={() => setCl(null)} periodId={periodId ?? ""} sales={sales ?? ""} />
+        </div>
+      ) : null}
+      <div className="rv-sel-bar">
+        <span className="rv-mono">{sel.pillar} · outcome</span>
+        <b>{sel.cells[0].label}</b>
+        <span className="rv-mono">{sel.cells[0].value} · {sel.cells[0].sub}</span>
+      </div>
+      <div className="rv-sec-head">
+        <h2>All {pillar} KPIs</h2>
+        <span>from Sales perf KPIs v2 · {libFor.filter(x => x.value !== null).length} of {libFor.length} calculable from RCA data</span>
+      </div>
+      <div className="rv-lib">
+        {libFor.map(x => (
+          <div className={`rv-lib-card${x.value === null ? " na" : ""}`} key={x.name}>
+            <div className="rv-eyebrow">{x.pillar}</div>
+            <b>{x.name}</b>
+            <div className="rv-lib-v">{x.value ?? "—"}</div>
+            <p>{x.def}</p>
+            {x.value === null ? <span className="rv-mono rv-dim">Not in RCA data · {x.why}</span> : null}
+          </div>
+        ))}
+      </div>
+      {pillar === "Product Growth" ? (
+        <>
+          <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />
+          <ProductFamilies fams={fams} />
+        </>
+      ) : null}
+      {pillar === "Expansion" ? <CrossSellList pg={pg} /> : null}
+    </>
+  );
+}
+
+function ProductFamilies({ fams }: { fams: Wins }) {
+  const all: Fam[] = fams?.ready ? fams.all : [];
+  if (!fams?.ready) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product families…</p>;
+  if (all.length === 0) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>No product-family orders in this window.</p>;
+  const withGrowth = all.map(f => ({ ...f, growth: f.expected ? f.revenue / f.expected - 1 : null }));
+  const ranked = [...withGrowth].sort((a, b) => (b.growth ?? -Infinity) - (a.growth ?? -Infinity));
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  return (
+    <>
+      <div className="rv-sec-head">
+        <h2>All product families<Info k="fam" /></h2>
+        <span>
+          {all.length} families · best {best?.family} ({best?.growth !== null && best?.growth !== undefined ? SP(best.growth) : "—"}) · worst{" "}
+          {worst?.family} ({worst?.growth !== null && worst?.growth !== undefined ? SP(worst.growth) : "—"})
+        </span>
+      </div>
+      <div className="rv-fam-list">
+        {ranked.map(f => (
+          <div
+            className={`rv-fam-row${f.family === best?.family ? " best" : ""}${f.family === worst?.family ? " worst" : ""}`}
+            key={f.family}
+          >
+            <b>{f.family}</b>
+            <span className="rv-mono">{K(f.revenue)} / {K(f.expected)} exp</span>
+            <span className="rv-mono">{f.orders} orders ({f.orderDelta > 0 ? "+" : ""}{f.orderDelta.toFixed(0)} vs base)</span>
+            <em className={f.growth === null ? "rv-dim" : f.growth < 0 ? "bad" : "good"}>
+              {f.growth === null ? "—" : SP(f.growth)}
+            </em>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+type Lib = { pillar: string; name: string; def: string; value: string | null; why?: string };
+function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?: PGStats | null): Lib[] {
+  const n = (pillar: string, name: string, def: string, value: string | null, why = "") => ({ pillar, name, def, value, why });
+  const CRM = "needs CRM (HubSpot deals/leads)";
+  const MIX = "needs clinic × product history";
+  return [
+    n("New Business", "New Revenue", "Revenue from clinics whose first-ever order is in this window.", K(k.newRevenue)),
+    n("New Business", "New Customers", "First-time clinics that placed an order.", String(k.newCustomers)),
+    n("New Business", "New Customer Orders", "Orders placed by first-time clinics.", String(k.newOrders)),
+    n("New Business", "New Customer AOV", "Average order value from first-time clinics.", k.newAov ? K(k.newAov) : null, "no new clinics"),
+    n("New Business", "New Customer Revenue %", "New-clinic revenue as a share of total.", P(k.newRevShare, 1)),
+    n("New Business", "Order 1 → Order 2", "Share of new clinics that placed a second order (activation).", P(k.o1to2)),
+    n("New Business", "Lead → Customer Conversion", "Share of leads that become paying customers.", null, CRM),
+    n("New Business", "Pipeline $", "Open new-business opportunity value.", null, CRM),
+    n("New Business", "Pipeline Coverage", "Open pipeline relative to target.", null, CRM),
+    n("New Business", "Sales Cycle", "Average days from first contact to closed-won.", null, CRM),
+    n("New Business", "Win Rate", "Share of qualified opportunities closed won.", null, CRM),
+    n("New Business", "Quota Attainment", "Performance against assigned quota.", null, "no quota data"),
+    n("AOV", "Overall AOV", "Average revenue per order.", k.aov ? K(k.aov) : null),
+    n("AOV", "New Customer AOV", "AOV from first-time clinics.", k.newAov ? K(k.newAov) : null, "no new clinics"),
+    n("AOV", "Existing Customer AOV", "AOV from existing clinics (vs their baseline).", k.existingAov ? `${K(k.existingAov)} (base ${K(k.existingBaseAov ?? 0)})` : null),
+    n("AOV", "Orders per Customer", "Orders per active clinic in the window.", k.ordersPerCustomer ? k.ordersPerCustomer.toFixed(1) : null),
+    n("AOV", "Bundle Penetration", "Share of orders that are bundle orders.", P(k.bundlePen)),
+    n("AOV", "AOV Opportunity", "Revenue if clinics below their own baseline AOV got back to it.", K(k.aovOpp)),
+    n("AOV", "Discount Rate", "Average discount vs list price.", null, "no list-price/discount field"),
+    n("AOV", "Stack Penetration", "Orders with 2+ Zoomers.", null, "needs per-order panel mix"),
+    n("AOV", "Stack Mix", "Revenue share by panel combination.", null, "needs per-order panel mix"),
+    n("AOV", "Zoomers per Order", "Zoomer panels per order.", null, "needs per-order panel mix"),
+    n("Product Growth", "Target Product Orders", "Selected family orders in the window.", hz ? hz.orders.toFixed(0) : null, "no Hormone Zoomer orders"),
+    n("Product Growth", "Target Product Growth %", "Selected family revenue vs its baseline.", hz && hz.expected ? SP(hz.revenue / hz.expected - 1) : null, "no baseline"),
+    n("Product Growth", "Product Mix %", "Selected family share of revenue.", hz && totalRev ? P(hz.revenue / totalRev, 1) : null, "no Hormone Zoomer orders"),
+    n("Product Growth", "Attach Rate", "Orders that attach the target product.", null, "needs per-order panel mix"),
+    n("Product Growth", "Product Penetration", "Clinics you marked eligible that have ordered the product.", pg && pg.eligN ? P((pg.eligN - pg.wsN) / pg.eligN) : null, "mark eligible clinics in the planner below"),
+    n("Product Growth", "Product Adoption", "New clinics with orders in the window that ordered the selected family.", pg ? P(pg.adoption) : null, "no new clinics with orders"),
+    n("Product Growth", "Repeat Rate", "Clinics ordering the selected family that ordered it 2+ times in the window.", pg ? P(pg.repeat) : null, "no orders"),
+    n("Product Growth", "Product Whitespace", "Eligible clinics (marked by you) that never ordered it.", pg ? String(pg.wsN) : null, "loading"),
+    n("Product Growth", "Portfolio changes", "Clinics by Portfolio Changes status (NEW / DECLINING / STOPPED).", pstat(b), "no portfolio status"),
+    n("Retention", "Revenue Retention", "Existing clinics' baseline revenue kept (growth capped).", P(k.revenueRetention)),
+    n("Retention", "Customer Retention", "Existing clinics still ordering.", P(k.customerRetention)),
+    n("Retention", "Customer Churn", "Existing clinics with no order in the window.", `${P(k.churnRate, 1)} (${k.churned})`),
+    n("Retention", "Revenue Churn", "Baseline revenue of clinics that stopped ordering.", K(k.revenueChurn)),
+    n("Retention", "Contraction Revenue", "Revenue lost from clinics still ordering but below baseline.", K(k.contraction)),
+    n("Retention", "Repeat Purchase Rate", "Active clinics with 2+ orders.", P(k.repeatRate)),
+    n("Retention", "Time to Next Order", "Approx. days between orders for repeat clinics (window ÷ orders).", k.daysBetweenOrders ? `${k.daysBetweenOrders.toFixed(0)}d` : null),
+    n("Retention", "Dormant Customers", "Clinics with no order in 9+ months.", String(k.dormant)),
+    n("Retention", "At-Risk Revenue", "Shortfall at clinics flagged slipping/overdue or under half their baseline.", K(k.atRiskRev)),
+    n("Retention", "Reactivation Rate", "Lapsed clinics that resumed ordering.", null, "needs lapsed-list history"),
+    n("Expansion", "Expansion Revenue", "Revenue above baseline at growing existing clinics.", SK(k.expansionRev)),
+    n("Expansion", "Expansion Rate", "Existing clinics above baseline.", P(k.expansionRate)),
+    n("Expansion", "Existing Customer Revenue Growth", "Existing clinics' revenue vs baseline.", SP(k.existingGrowth ?? 0)),
+    n("Expansion", "AOV Expansion", "Existing-clinic AOV change vs baseline.", k.existingAov && k.existingBaseAov ? SK(k.existingAov - k.existingBaseAov) : null),
+    n("Expansion", "Bundle Expansion", "Existing clinics whose bundle share rose.", String(k.bundleUp)),
+    n("Expansion", "NRR", "Existing clinics' revenue ÷ their baseline.", P(k.nrr)),
+    n("Expansion", "Orders per Customer", "Orders per active clinic.", k.ordersPerCustomer ? k.ordersPerCustomer.toFixed(1) : null),
+    n("Expansion", "Products per Customer", "Distinct panels per clinic.", null, MIX),
+    n("Expansion", "Product Expansion", "Clinics adding new products.", null, MIX),
+    n("Combined", "Net Revenue Growth", "Revenue vs baseline across the book.", `${SP(k.netGrowth ?? 0)} · ${SK(b.totals.delta)}`),
+    n("Combined", "Growth run-rate", "Weekly revenue pace in the window.", k.runRate ? `${K(k.runRate)}/wk` : null),
+    n("Combined", "Revenue opportunity", "At-risk shortfall + AOV gap.", K(k.opportunity)),
+    n("Combined", "Growth decomposition", "Volume effect / AOV effect.", `${SK(k.volume)} / ${SK(k.aovEffect)}`),
+  ];
+}
+
+/** Full-metrics drawer for one clinic, opened from a Call-first card, a
+ * stuck-funnel row, or a clinic list inside the shortfall tree — every
+ * number the clinic list itself would show (Shyam, 2026-09-28). */
+function ClinicDrawer({ name, detail, onClose, periodId }: { name: string; detail: Book | null; onClose: () => void; periodId: string }) {
+  return (
+    <div className="rv-modal-mask" onClick={onClose}>
+      <div className="rv-modal" onClick={e => e.stopPropagation()}>
+        <button type="button" className="rv-modal-x" onClick={onClose}>
+          close ✕
+        </button>
+        {detail === null ? (
+          <div className="rv-loading">Loading {name}…</div>
+        ) : detail.ready === false ? (
+          <div className="rv-loading">
+            {name} has no data in this window
+            {detail.reason === "not-in-book" ? " (not in your book for this period)" : ""}. Try a wider window (This month/Custom).
+          </div>
+        ) : (
+          <ClinicCardBody detail={detail} periodId={periodId} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One vs-baseline comparison bar (mockup option 3), reused for every metric
+ * in the combined clinic-card design. */
+function CompareBar({
+  label,
+  actual,
+  exp,
+  fmt,
+  higherIsBetter,
+}: {
+  label: string;
+  actual: number;
+  exp: number;
+  fmt: (v: number) => string;
+  higherIsBetter?: boolean;
+}) {
+  const max = Math.max(actual, exp, 1);
+  const worse = higherIsBetter ? actual < exp : actual < exp;
+  return (
+    <div className="rv-ch-comp">
+      <div className="rv-ch-comp-h">
+        <span>{label}</span>
+        <b className={worse ? "bad" : "good"}>
+          {fmt(actual)} / {fmt(exp)}
+        </b>
+      </div>
+      <div className="rv-ch-comp-bar">
+        <i className="rv-ch-comp-exp" style={{ width: `${(exp / max) * 100}%` }} />
+        <i className={`rv-ch-comp-actual${worse ? " bad" : " good"}`} style={{ width: `${(actual / max) * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Everything a single clinic card shows (Shyam, 2026-09-28 rounds 4/5) —
+ * hero delta + timeline (mockup option 2) + vs-baseline bars (mockup option
+ * 3) + the option-1 stat grid + health/portfolio tags, then the same
+ * portfolio / customers ("providers") / digital-footprint panels the main
+ * dashboard's own expandable clinic row shows, scoped to this rep's book and
+ * whatever window is currently open. Shared by the single-clinic modal and
+ * the inline expand inside a clinic-list row. */
+function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId: string; winLabel?: string }) {
+  return (
+    <>
+      <div className="rv-eyebrow">{detail.state}{detail.country && detail.country !== "US" ? `, ${detail.country}` : ""} · {COHORT[detail.cohort] ?? detail.cohort}</div>
+      <h2 className="rv-modal-h">{detail.name}</h2>
+
+      <div className="rv-ch-hero">
+        <div className={`rv-ch-hero-v ${detail.delta < 0 ? "bad" : "good"}`}>{SK(detail.delta)}</div>
+        <div className="rv-ch-hero-l">vs baseline · {winLabel ?? "this period"} · {K(detail.expected)} expected</div>
+      </div>
+      <div className="rv-ch-timeline">
+        <div className="rv-ch-tl-pt">
+          <i className="rv-ch-tl-dot rv-ch-tl-dot-grey" />
+          First order<b>{fmtD(detail.firstOrder) || "—"}</b>
+        </div>
+        <div className="rv-ch-tl-pt">
+          <i className={`rv-ch-tl-dot${detail.daysSinceTouch === null || detail.daysSinceTouch > 14 ? " rv-ch-tl-dot-bad" : ""}`} />
+          Last touch<b>{detail.daysSinceTouch !== null ? `${detail.daysSinceTouch}d ago` : "no record"}</b>
+        </div>
+        <div className="rv-ch-tl-pt">
+          <i className="rv-ch-tl-dot rv-ch-tl-dot-bad" />
+          Last order<b>{detail.daysSinceLast !== null ? `${detail.daysSinceLast}d ago` : "—"}</b>
+        </div>
+      </div>
+
+      <div className="rv-ch-bars" style={detail.fallback ? { display: "none" } : undefined}>
+        <CompareBar label="Revenue" actual={detail.actual} exp={detail.expected} fmt={K} />
+        <CompareBar label="Orders" actual={detail.orders} exp={detail.expectedOrders} fmt={(v: number) => v.toFixed(1)} />
+        <CompareBar label="AOV" actual={detail.aov} exp={detail.baseAov} fmt={K} higherIsBetter />
+        <CompareBar label="Bundle share" actual={detail.bundleShare} exp={detail.baseBundleShare} fmt={(v: number) => P(v)} higherIsBetter />
+      </div>
+
+      <div className="rv-modal-grid">
+        <div><span>Volume effect</span><b className={detail.volume < 0 ? "bad" : "good"}>{SK(detail.volume)}</b></div>
+        <div><span>AOV effect</span><b className={detail.aovEffect < 0 ? "bad" : "good"}>{SK(detail.aovEffect)}</b></div>
+        <div><span>Last order</span><b>{fmtD(detail.lastOrderAllTime) || "—"} {detail.daysSinceLast !== null ? `(${detail.daysSinceLast}d ago)` : ""}</b></div>
+        <div><span>Last touch</span><b>{fmtD(detail.lastTouchDate) || "no touch on record"} {detail.daysSinceTouch !== null ? `(${detail.daysSinceTouch}d ago)` : ""}</b></div>
+        <div><span>Orders · {winLabel ?? "this window"}</span><b>{detail.windowOrders}</b></div>
+        <ClinicalRows clinic={detail.clinic} />
+      </div>
+      {detail.fallback ? (
+        <div className="rv-modal-grid" style={{ marginTop: 10 }}>
+          <div style={{ gridColumn: "1 / -1" }}><span>No orders in {winLabel ?? "this window"} — showing This qtr ({fmtD(detail.fallback.start)} – {fmtD(detail.fallback.end)})</span></div>
+          <div><span>Orders</span><b>{detail.fallback.orders}</b></div>
+          <div><span>Revenue</span><b>{K(detail.fallback.actual)}</b></div>
+          <div><span>AOV</span><b>{detail.fallback.aov ? K(detail.fallback.aov) : "—"}</b></div>
+          <div><span>Bundle share</span><b>{detail.fallback.bundleShare !== null ? P(detail.fallback.bundleShare) : "—"}</b></div>
+        </div>
+      ) : null}
+      {detail.health?.length || detail.pstatus?.length ? (
+        <div className="rv-modal-tags">
+          {(detail.health ?? []).map((h: string) => (
+            <span className="rv-tag" key={`h-${h}`}>{h}</span>
+          ))}
+          {(detail.pstatus ?? []).map((p: string) => (
+            <span className="rv-tag rv-tag-blue" key={`p-${p}`}>{p}</span>
+          ))}
+        </div>
+      ) : null}
+
+      <RepClinicPortfolio clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
+      <RepFootprintNote clinic={detail.clinic} />
+      <RepCustomerTable clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
+    </>
+  );
+}
+
+/** Rep-scoped clinic portfolio panel — same `families.portfolioAction` the
+ * main dashboard's expandable clinic row calls; `assertOwnsClinic` inside it
+ * already restricts a rep session to their own clinics. */
+function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: string }) {
+  const run = useAction(api.families.portfolioAction);
+  const [rows, setRows] = useState<Book[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setRows(null);
+    setError(null);
+    run({ password: pw(), clinic, periodId })
+      .then(r => {
+        if (live) setRows(r.rows);
+      })
+      .catch(e => {
+        if (live) setError(String(e).slice(0, 160));
+      });
+    return () => {
+      live = false;
+    };
+  }, [run, clinic, periodId]);
+
+  if (error) return <div className="rca-sub rv-dim">{error}</div>;
+  if (rows === null) return <div className="rca-sub rv-dim">Loading this clinic's portfolio…</div>;
+  if (rows.length === 0) return <div className="rca-sub rv-dim">No product families in this window.</div>;
+  return (
+    <div className="rca-portfolio rv-expand-panel">
+      <div className="rv-eyebrow rv-dim">Product families ordered by this clinic</div>
+      <div className="rca-sub rv-dim rca-tiny">
+        Portfolio status compares the last 28 days of orders against the prior 90-day baseline — independent of the window tab above.
+      </div>
+      <table className="rca-table rca-table-sub">
+        <thead>
+          <tr>
+            <th>Family</th>
+            <th className="rca-num">Orders</th>
+            <th className="rca-num">Order Δ</th>
+            <th title="Recent 28 days vs. prior 90-day baseline">Portfolio status ⓘ</th>
+            <th className="rca-num" title="Prior 90-day baseline daily average → recent 28-day total">28d recent vs 90d baseline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r: Book) => (
+            <tr key={r.family}>
+              <td>{r.family}</td>
+              <td className="rca-num">{r.orders.toFixed(0)} <span className="rv-dim">vs {r.expectedOrders.toFixed(0)}</span></td>
+              <td className={`rca-num ${r.orderDelta < 0 ? "bad" : "good"}`}>{r.orderDelta >= 0 ? "+" : ""}{r.orderDelta.toFixed(0)}</td>
+              <td>{r.status ? <span className={`rca-status is-${r.status.toLowerCase()}`}>{r.status}</span> : <span className="rv-dim">—</span>}</td>
+              <td className="rca-num rv-dim">{r.status ? `${r.baselineAvg.toFixed(1)} → ${r.recentOrders.toFixed(0)}` : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Rep-scoped "providers" panel — the customers/providers ordering inside
+ * this clinic, same `families.customersAction` the main dashboard uses. */
+function RepCustomerTable({ clinic, periodId }: { clinic: string; periodId: string }) {
+  const run = useAction(api.families.customersAction);
+  const [rows, setRows] = useState<Book[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setRows(null);
+    setError(null);
+    run({ password: pw(), clinic, periodId })
+      .then(r => {
+        if (live) setRows(r.rows);
+      })
+      .catch(e => {
+        if (live) setError(String(e).slice(0, 160));
+      });
+    return () => {
+      live = false;
+    };
+  }, [run, clinic, periodId]);
+
+  if (error) return <div className="rca-sub rv-dim">{error}</div>;
+  if (rows === null) return <div className="rca-sub rv-dim">Loading providers…</div>;
+  if (rows.length === 0) return <div className="rca-sub rv-dim">No provider detail for this period.</div>;
+  return (
+    <div className="rv-expand-panel">
+      <div className="rv-eyebrow rv-dim">Providers ordering in this clinic</div>
+      <table className="rca-table rca-table-sub">
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Type</th>
+            <th className="rca-num">Expected</th>
+            <th className="rca-num">Actual</th>
+            <th className="rca-num">Orders</th>
+            <th className="rca-num">AOV</th>
+            <th className="rca-num">Last order</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c: Book) => (
+            <tr key={c.customerId}>
+              <td>{c.hubspot ? <a className="rca-link" href={c.hubspot} target="_blank" rel="noreferrer">{c.name} ↗</a> : c.name}</td>
+              <td>{c.type}</td>
+              <td className="rca-num">{K(c.expected)}</td>
+              <td className="rca-num">{K(c.revenue)}</td>
+              <td className="rca-num">{c.orders.toFixed(0)} <span className="rv-dim">vs {c.expectedOrders.toFixed(0)}</span></td>
+              <td className="rca-num">{K(c.aov)}</td>
+              <td className="rca-num rv-dim">{c.lastOrder}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Digital-footprint OSINT note — a static per-clinic lookup, same one the
+ * main dashboard's expandable clinic row shows. */
+function RepFootprintNote({ clinic }: { clinic: string }) {
+  const note = CLINIC_FOOTPRINTS[clinic];
+  if (!note) return null;
+  return (
+    <div className="rca-masknote rv-expand-panel">
+      <div className="rv-eyebrow rv-dim">Digital footprint (OSINT, {note.confidence === "solid" ? "verified" : "tentative"})</div>
+      <div>{note.finding}</div>
+      <div style={{ marginTop: 4 }}>
+        <strong>Likely cause:</strong> {note.cause}
+      </div>
+    </div>
+  );
+}
+
+/** Clinic list opened from a shortfall-tree branch or a Great Job stat
+ * (Shyam, 2026-09-28 rounds 3-5) — renders inline below the tree, not a
+ * modal, using the same `rca-table` markup the main dashboard's "Clinics
+ * behind this number" panel uses. Round 5: added the health/portfolio-status
+ * filter bar and search the main dashboard's clinic lists have, and clicking
+ * a row expands/collapses the full clinic card (portfolio, providers,
+ * digital footprint) in place instead of opening a separate modal. */
+function FocusTable({
+  label,
+  rows,
+  onClose,
+  periodId,
+  sales,
+}: {
+  label: string;
+  rows: Array<{
+    rank: number;
+    clinic: string;
+    name: string;
+    state: string;
+    cohort: string;
+    health?: string[];
+    pstatus?: string[];
+    actual: number;
+    expected: number;
+    delta: number;
+    orders: number;
+    expectedOrders: number;
+    orderDelta: number;
+    aov: number;
+    baseAov: number;
+    aovDelta: number;
+    bundleShare: number;
+    baseBundleShare: number;
+    bundleDelta: number;
+  }> | null;
+  onClose: () => void;
+  periodId: string;
+  sales: string;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [term, setTerm] = useState("");
+  const [health, setHealth] = useState("");
+  const [pstatus, setPstatus] = useState("");
+
+  const healthOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) for (const h of r.health ?? []) m.set(h, (m.get(h) ?? 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+  const pstatusOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) for (const p of r.pstatus ?? []) m.set(p, (m.get(p) ?? 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+  const q = term.trim().toLowerCase();
+  const filtered = (rows ?? []).filter(
+    r =>
+      (!health || (r.health ?? []).includes(health)) &&
+      (!pstatus || (r.pstatus ?? []).includes(pstatus)) &&
+      (!q || r.name.toLowerCase().includes(q)),
+  );
+
+  return (
+    <section className="rca-card rca-drill rv-focus-table">
+      <div className="rca-drill-head">
+        <div>
+          <div className="rca-eyebrow">Clinics behind this number</div>
+          <div className="rca-drill-title">{label}</div>
+          <div className="rca-sub">
+            {rows ? `${rows.length} clinics · same rows the number above is built from` : "Loading clinic detail…"}
+          </div>
+        </div>
+        <div className="rca-drill-actions">
+          <button type="button" className="rca-tab" onClick={onClose}>
+            close
+          </button>
+        </div>
+      </div>
+      {rows ? (
+        rows.length === 0 ? (
+          <p className="rv-dim">No clinics in this branch.</p>
+        ) : (
+          <>
+            <div className="rca-filters">
+              <span className="rca-filter-label">Filter</span>
+              <input
+                className="rca-search-input rca-filter-search"
+                placeholder="Find clinic in this list…"
+                value={term}
+                onChange={e => setTerm(e.target.value)}
+              />
+              <select className="rca-select" value={health} onChange={e => setHealth(e.target.value)}>
+                <option value="">Health · any</option>
+                {healthOptions.map(([v, n]) => (
+                  <option key={v} value={v}>{v} ({n})</option>
+                ))}
+              </select>
+              <select className="rca-select" value={pstatus} onChange={e => setPstatus(e.target.value)} title="Portfolio status: recent 28 days vs. prior 90-day baseline">
+                <option value="">Portfolio status · any</option>
+                {pstatusOptions.map(([v, n]) => (
+                  <option key={v} value={v}>{v} ({n})</option>
+                ))}
+              </select>
+              {health || pstatus || q ? (
+                <>
+                  <button type="button" className="rca-tab" onClick={() => { setHealth(""); setPstatus(""); setTerm(""); }}>
+                    clear
+                  </button>
+                  <span className="rca-filter-note">{filtered.length} of {rows.length} listed clinics</span>
+                </>
+              ) : null}
+            </div>
+            <div className="rca-table-wrap">
+              <table className="rca-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Clinic</th>
+                    <th>State</th>
+                    <th>Cohort</th>
+                    <th className="rca-num">Expected</th>
+                    <th className="rca-num">Actual</th>
+                    <th className="rca-num">Orders</th>
+                    <th className="rca-num">Order Δ</th>
+                    <th className="rca-num">AOV</th>
+                    <th className="rca-num">AOV Δ</th>
+                    <th className="rca-num">Bundle %</th>
+                    <th className="rca-num">Bundle Δ</th>
+                    <th className="rca-num">Contribution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(r => (
+                    <Fragment key={r.clinic}>
+                      <tr
+                        className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}`}
+                        onClick={() => setExpanded(cur => (cur === r.clinic ? null : r.clinic))}
+                      >
+                        <td>{r.rank}</td>
+                        <td>
+                          <span className="rca-chevron">{expanded === r.clinic ? "▾" : "▸"}</span> {r.name}
+                        </td>
+                        <td>{r.state}</td>
+                        <td>{COHORT[r.cohort] ?? r.cohort}</td>
+                        <td className="rca-num">{K(r.expected)}</td>
+                        <td className="rca-num">{K(r.actual)}</td>
+                        <td className="rca-num">{r.orders.toFixed(0)}</td>
+                        <td className={`rca-num ${r.orderDelta < 0 ? "bad" : "good"}`}>{r.orderDelta > 0 ? "+" : ""}{r.orderDelta.toFixed(1)}</td>
+                        <td className="rca-num">{K(r.aov)}</td>
+                        <td className={`rca-num ${r.aovDelta < 0 ? "bad" : "good"}`}>{SK(r.aovDelta)}</td>
+                        <td className="rca-num">{P(r.bundleShare)}</td>
+                        <td className={`rca-num ${r.bundleDelta < 0 ? "bad" : "good"}`}>{r.bundleDelta > 0 ? "+" : ""}{(r.bundleDelta * 100).toFixed(1)}pp</td>
+                        <td className={`rca-num ${r.delta < 0 ? "bad" : "good"}`}>{SK(r.delta)}</td>
+                      </tr>
+                      {expanded === r.clinic ? (
+                        <tr className="rca-subrow">
+                          <td colSpan={13}>
+                            <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      ) : (
+        <div className="rv-loading">Loading…</div>
+      )}
+    </section>
+  );
+}
+
+/** Fetches one clinic's full detail for the in-place expand row (rather than
+ * reusing the parent's list row, which doesn't carry every field the card
+ * needs — first/last order, touch dates, etc.). */
+function ExpandedClinicCard({ clinic, periodId, sales, winLabel }: { clinic: string; periodId: string; sales: string; winLabel?: string }) {
+  const detailQ = useQuery(
+    api.repView.clinicDetail,
+    sales ? { password: pw(), periodId, sales, clinic } : "skip",
+  );
+  if (!detailQ) return <div className="rv-loading">Loading {clinic}…</div>;
+  if (detailQ.ready === false) {
+    return <div className="rv-loading">No data for this clinic in {winLabel ?? "this window"}. Try a wider window.</div>;
+  }
+  return (
+    <div className="rv-expand-card">
+      <ClinicCardBody detail={detailQ} periodId={periodId} winLabel={winLabel} />
+    </div>
+  );
+}
+
+
+type ProvHit = {
+  customerId: string; name: string; type: string; clinic: string; clinicName: string;
+  state: string; sales: string; revenue: number; orders: number; patients: number; aov: number;
+  expected: number; expectedOrders: number; delta: number; orderDelta: number;
+  lastOrder: string; hubspot: string; health: string[];
+};
+
+/** Left-pane search results (Shyam, 2026-09-29): the top "Search clinic" /
+ * "Search provider" boxes land here, scoped to this rep's book, and each hit
+ * opens the same full clinic card used when a clinic-list row is expanded. */
+type SearchSel = { kind: "c"; clinic: string; name: string } | { kind: "p"; hit: ProvHit };
+function searchKey(s: SearchSel | null) { return !s ? null : s.kind === "c" ? `c:${s.clinic}` : `p:${s.hit.customerId}:${s.hit.clinic}`; }
+
+function SearchDetailPage({ sel, periodId, winLabel, sales, onBack }: { sel: SearchSel; periodId: string; winLabel: string; sales: string; onBack: () => void }) {
+  const run = useAction(api.families.providerSearch);
+  const [pr, setPr] = useState<ProvHit | null | "none">(null);
+  const hit = sel.kind === "p" ? sel.hit : null;
+  useEffect(() => {
+    if (!hit) return;
+    let live = true;
+    setPr(null);
+    run({ password: pw(), term: hit.name, periodId })
+      .then(x => { if (live) setPr(((x.rows as ProvHit[]).find(y => y.customerId === hit.customerId)) ?? "none"); })
+      .catch(() => live && setPr("none"));
+    return () => { live = false; };
+  }, [hit?.customerId, hit?.name, periodId, run]);
+  const r = hit ? (pr && pr !== "none" ? pr : { ...hit, revenue: 0, orders: 0, patients: 0, aov: 0, expected: 0, expectedOrders: 0, delta: 0, orderDelta: 0 }) : null;
+  return (
+    <div className="rv-sd-page">
+      <button type="button" className="rv-sd-back" onClick={onBack}>← Back to dashboard</button>
+      <div className="rv-sd-win">Window: <b>{winLabel}</b> <span>· switch tabs on the left to change it; consult/VCT history is all-time</span></div>
+      {sel.kind === "c" ? (
+        <>
+          <div className="rv-eyebrow">Clinic · #{sel.clinic}</div>
+          <h1 className="rv-h1">{sel.name}</h1>
+          <div className="rv-rs-card"><ExpandedClinicCard clinic={sel.clinic} periodId={periodId} sales={sales} winLabel={winLabel} /></div>
+        </>
+      ) : r ? (
+        <div className="rv-rs-card">
+          {pr === null ? <p className="rv-dim">Loading {winLabel} numbers…</p> : pr === "none" ? <p className="rv-dim">No orders or baseline for this provider in {winLabel}.</p> : null}
+          <div className="rv-eyebrow">Provider · #{r.customerId} · {r.type}</div>
+                    <h2 className="rv-modal-h">{r.name}</h2>
+                    <div className="rv-ch-hero">
+                      <div className={`rv-ch-hero-v ${r.delta < 0 ? "bad" : "good"}`}>{SK(r.delta)}</div>
+                      <div className="rv-ch-hero-l">vs clinic baseline run rate · {winLabel} · {K(r.expected)} expected</div>
+                    </div>
+                    <div className="rv-rs-grid">
+                      <div><span>Actual · {winLabel}</span><b>{K(r.revenue)}</b></div>
+                      <div><span>Expected · {winLabel}</span><b>{K(r.expected)}</b></div>
+                      <div><span>Orders · {winLabel}</span><b>{r.orders} <small>vs {Math.round(r.expectedOrders)}</small></b></div>
+                      <div><span>Order Δ</span><b>{r.orderDelta >= 0 ? "+" : ""}{Math.round(r.orderDelta)}</b></div>
+                      <div><span>AOV · {winLabel}</span><b>${Math.round(r.aov).toLocaleString()}</b></div>
+                      <div><span>Patients · {winLabel}</span><b>{r.patients}</b></div>
+                      <div><span>Last order · {winLabel}</span><b>{r.lastOrder || "—"}</b></div>
+                      <ClinicalRows provider={r.customerId} />
+                      <div><span>HubSpot</span><b>{r.hubspot ? <a href={r.hubspot} target="_blank" rel="noreferrer">open</a> : "—"}</b></div>
+                    </div>
+                    {r.health?.length ? <div className="rv-rs-tags">{r.health.map(h => <span key={h}>{h}</span>)}</div> : null}
+                    <div className="rv-rs-label" style={{ marginTop: 14 }}>Their clinic</div>
+                    <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} winLabel={winLabel} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RailSearch({ clinicTerm, provTerm, sales, onClear, selKey, onOpen }: {
+  clinicTerm: string; provTerm: string; sales: string; onClear?: () => void; selKey: string | null; onOpen: (s: SearchSel | null) => void;
+}) {
+  const cq = clinicTerm.trim();
+  const pq = provTerm.trim();
+  const open = selKey;
+  const clinics = useQuery(api.feed.clinicSearch, cq.length >= 2 ? { term: cq, password: pw() } : "skip");
+  const run = useAction(api.families.providerSearch);
+  const [provs, setProvs] = useState<ProvHit[] | null>(null);
+  const [provErr, setProvErr] = useState<string | null>(null);
+  useEffect(() => {
+    setProvs(null);
+    setProvErr(null);
+    if (pq.length < 2) return;
+    let live = true;
+    const t = setTimeout(() => {
+      run({ password: pw(), term: pq })
+        .then(r => { if (live) setProvs(r.rows as ProvHit[]); })
+        .catch(e => { if (live) setProvErr(String(e).slice(0, 140)); });
+    }, 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [pq, run]);
+  if (cq.length < 2 && pq.length < 2) return null;
+  const cHits = ((clinics?.matches ?? []) as any[]).filter(m => !sales || m.sales === sales);
+  const pHits = (provs ?? []).filter(r => !sales || r.sales === sales);
+  return (
+    <div className="rv-rail-sec rv-rail-search">
+      <div className="rv-rail-search-h">
+        <div className="rv-eyebrow">Search results<Info k="search" /></div>
+        {onClear ? <button type="button" onClick={onClear}>clear ✕</button> : null}
+      </div>
+      {!sales ? <p className="rv-dim">Pick a rep to search their book.</p> : null}
+      {sales && cq.length >= 2 ? (
+        <div className="rv-rs-group">
+          <div className="rv-rs-label">Clinics · “{cq}”</div>
+          {clinics === undefined ? <p className="rv-dim">Searching…</p> : cHits.length === 0 ? (
+            <p className="rv-dim">No clinic in this book matches.</p>
+          ) : cHits.map(m => {
+            const k = `c:${m.clinic}`;
+            return (
+              <Fragment key={k}>
+                <button type="button" className={`rv-rs-hit${open === k ? " is-on" : ""}`} onClick={() => onOpen(open === k ? null : { kind: "c", clinic: m.clinic, name: m.name })}>
+                  <span><b>{m.name}</b><em>#{m.clinic} · {m.state}</em></span>
+                  <strong className={`rv-rs-d ${m.delta < 0 ? "bad" : "good"}`}>{SK(m.delta)}</strong>
+                </button>
+                              </Fragment>
+            );
+          })}
+        </div>
+      ) : null}
+      {sales && pq.length >= 2 ? (
+        <div className="rv-rs-group">
+          <div className="rv-rs-label">Providers · “{pq}”</div>
+          {provErr ? <p className="rv-dim">{provErr}</p> : provs === null ? <p className="rv-dim">Searching providers…</p> : pHits.length === 0 ? (
+            <p className="rv-dim">No provider in this book matches.</p>
+          ) : pHits.map(r => {
+            const k = `p:${r.customerId}:${r.clinic}`;
+            return (
+              <Fragment key={k}>
+                <button type="button" className={`rv-rs-hit${open === k ? " is-on" : ""}`} onClick={() => onOpen(open === k ? null : { kind: "p", hit: r })}>
+                  <span><b>{r.name}</b><em>{r.clinicName} · {r.type}</em></span>
+                  <strong className={`rv-rs-d ${r.delta < 0 ? "bad" : "good"}`}>{SK(r.delta)}</strong>
+                </button>
+              </Fragment>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RecentSearches({ items, selKey, onOpen, onClear }: { items: SearchSel[]; selKey: string | null; onOpen: (s: SearchSel) => void; onClear: () => void }) {
+  if (!items.length) return null;
+  return (
+    <div className="rv-rail-sec rv-rail-search">
+      <div className="rv-rail-search-h">
+        <div className="rv-eyebrow">Recent searches<Info k="recent" /></div>
+        <button type="button" onClick={onClear}>clear ✕</button>
+      </div>
+      {items.map(it => {
+        const k = searchKey(it)!;
+        return (
+          <button type="button" key={k} className={`rv-rs-hit${selKey === k ? " is-on" : ""}`} onClick={() => onOpen(it)}>
+            {it.kind === "c" ? (
+              <span><b>{it.name}</b><em>Clinic · #{it.clinic}</em></span>
+            ) : (
+              <span><b>{it.hit.name}</b><em>Provider · {it.hit.clinicName}</em></span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+type CT = { n: number; last: string } | null;
+function ClinicalRows({ clinic, provider }: { clinic?: string; provider?: string }) {
+  const run = useAction(api.clinicalTouch.clinicalTouch);
+  const [d, setD] = useState<{ consult: CT; training: CT } | null | "err">(null);
+  useEffect(() => {
+    let live = true;
+    setD(null);
+    run({ password: pw(), clinic, provider }).then(r => live && setD(r)).catch(() => live && setD("err"));
+    return () => { live = false; };
+  }, [clinic, provider, run]);
+  const cell = (x: CT) => d === null ? "…" : d === "err" ? "unavailable" : !x ? "No" : `Yes · last ${fmtD(x.last)}${x.last.slice(0, 4) !== String(new Date().getFullYear()) ? ", " + x.last.slice(0, 4) : ""} (${x.n})`;
+  const c = d && d !== "err" ? d.consult : null;
+  const t = d && d !== "err" ? d.training : null;
+  return (
+    <>
+      <div><span>Clinical consult</span><b className={c ? "good" : ""}>{cell(c)}</b></div>
+      <div><span>VCT (clinical training)</span><b className={t ? "good" : ""}>{cell(t)}</b></div>
+    </>
+  );
+}
+
+type EffortWin = {
+  start: string; touched: number; touchedRe: number; untouched: number; untouchedRe: number; idle: number;
+  touchedIds: string[]; touchedReIds: string[]; untouchedIds: string[]; idleIds: string[]; touchGaps?: (number | null)[];
+};
+/** Today KPI strip (Shyam, 2026-09-30): touch effort for this week / month /
+ * quarter, picked with chips. Each card opens the standard clinic list. */
+function TouchKpis({ sales, src, w }: {
+  sales: string;
+  w: "week" | "month" | "quarter";
+  src: Record<"week" | "month" | "quarter", { e: EffortWin; periodId: string } | null>;
+}) {
+  const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
+  const cur = src[w];
+  const rowsQ = useQuery(
+    api.repView.rowsByFocus,
+    sales && focus && cur ? { password: pw(), periodId: cur.periodId, sales, focus: focus.focus } : "skip",
+  );
+  useEffect(() => setFocus(null), [w]);
+  const WL = { week: "This week", month: "This month", quarter: "This quarter" }[w];
+  const [xd, setXd] = useState<number>(0);
+  const e0 = cur?.e;
+  const e = e0 && xd && e0.touchGaps ? (() => {
+    const re = e0.touchedIds.filter((_, i) => { const g = e0.touchGaps![i]; return g != null && g <= xd; });
+    return { ...e0, touchedRe: re.length, touchedReIds: re };
+  })() : e0;
+  const teamQ = useQuery(
+    api.repView.teamEffort,
+    sales && cur && e0 ? { password: pw(), periodId: cur.periodId, sales, start: e0.start, within: xd || undefined } : "skip",
+  );
+  const tm = teamQ?.ready && teamQ.lead ? teamQ : null;
+  const vs = (mine: number, team: number | undefined, fmt: (x: number) => string, higherGood = true) =>
+    team == null ? null : (
+      <span className={`rv-kpi-team ${(mine >= team) === higherGood ? "good" : "bad"}`}>team avg {fmt(team)}</span>
+    );
+  const tr = e && e.touched ? e.touchedRe / e.touched : 0;
+  const ur = e && e.untouched ? e.untouchedRe / e.untouched : 0;
+  const lift = (tr - ur) * 100;
+  const open = (ids: string[], label: string) =>
+    ids.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
+  const Card = ({ v, l, sub, ids, cls, team }: { v: string; l: string; sub: string; ids?: string[]; cls?: string; team?: React.ReactNode }) => (
+    <button type="button" className={`rv-kpi ${cls ?? ""}`} disabled={!ids?.length} onClick={() => ids && open(ids, `${l} · ${WL}`)}>
+      <span className="rv-kpi-l">{l}</span>
+      <b className="rv-kpi-v">{v}</b>
+      <span className="rv-kpi-s">{sub}</span>
+      {team}
+    </button>
+  );
+  return (
+    <div className="rv-kpis-wrap">
+      <div className="rv-sec-head" style={{ marginTop: 0 }}>
+        <div className="rv-eyebrow">Touch effort · {WL}{e ? ` (since ${fmtD(e.start)})` : ""}{tm ? ` · vs ${tm.lead}'s team avg (${tm.reps} reps)` : ""}<Info k="touch" /></div>
+        <label className="rv-dim" style={{ marginLeft: 12 }}>Order within{" "}
+          <select value={xd} onChange={ev => { setXd(Number(ev.target.value)); setFocus(null); }}>
+            {[0, 7, 14, 21, 30, 45, 60].map(d => <option key={d} value={d}>{d ? `${d} days` : "any time"}</option>)}
+          </select>{" "}of touch
+        </label>
+      </div>
+      {!e ? <p className="rv-dim">Loading {WL.toLowerCase()}…</p> : (
+        <div className="rv-kpis">
+          <Card l="Touched" v={String(e.touched)} sub="clinics with a call/meeting" ids={e.touchedIds} team={vs(e.touched, tm?.touched, x => x.toFixed(0))} />
+          <Card l="Touched reorder" v={P(tr, 0)} sub={`${e.touchedRe} reordered ${xd ? `within ${xd}d of` : "after"} the touch`} ids={e.touchedReIds} cls={tr >= ur ? "good" : ""} team={vs(tr, tm?.tr, x => P(x, 0))} />
+          <Card l="Untouched" v={String(e.untouched)} sub={`${P(ur, 0)} reordered anyway`} ids={e.untouchedIds} team={vs(e.untouched, tm?.untouched, x => x.toFixed(0), false)} />
+          <Card l="Lift" v={`${lift >= 0 ? "+" : ""}${lift.toFixed(0)} pts`} sub="touched vs untouched reorder rate" cls={lift >= 0 ? "good" : "bad"} team={vs(lift, tm?.lift, x => `${x >= 0 ? "+" : ""}${x.toFixed(0)} pts`)} />
+          <Card l="Idle" v={String(e.idle)} sub="no touch and no order" ids={e.idleIds} cls={e.idle ? "bad" : ""} team={vs(e.idle, tm?.idle, x => x.toFixed(0), false)} />
+        </div>
+      )}
+      {focus ? (
+        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={cur?.periodId ?? ""} sales={sales} />
+      ) : null}
+    </div>
+  );
+}
+
+/* ───────────── Opportunity agenda · My week plan · Next best action (Shyam, 2026-10-05) ─────────────
+ * Five cards = the scorecard's Opportunity column. Only At-risk and Low-AOV are computable from RCA
+ * data; Unconverted prospects / Product whitespace / Cross-sell need CRM or clinic×product history and
+ * show as "not in data yet" (never invented). Hours and likelihoods below are planning estimates. */
+type PlanState = { sellHours: number; weighted: boolean; pins: Record<string, "in" | "out"> };
+type PKey = "New Business" | "AOV" | "Product Growth" | "Retention" | "Expansion";
+const PILLAR_COLOR: Record<PKey, string> = {
+  "New Business": "#9aa4b2", AOV: "#5b6b82", "Product Growth": "#3b82f6", Retention: "#1d4ed8", Expansion: "#0f172a",
+};
+const WEIGHT: Record<string, number> = { behind: 1.5, watch: 1.15, good: 1 };
+const hrsFor = (n: number, per: number) => Math.max(1, Math.min(10, Math.ceil(n * per)));
+
+type ActionRow = { ids?: string[]; id: string; p: PKey; label: string; detail: string; hrs: number; up: number; pr: number; exp: number; score: number; inPlan?: boolean };
+
+function rankActions(b: Book, fams: Wins, plan: PlanState): ActionRow[] {
+  const o = b.opp;
+  if (!o) return [];
+  const st = pillarStatus(b, fams);
+  const raw: Array<Omit<ActionRow, "exp" | "score">> = [];
+  if (o.callFirst.n) raw.push({ ids: o.callFirst.ids, id: "callFirst", p: "Retention", label: "Overdue reorder calls", detail: `${o.callFirst.n} clinics on Call first`, hrs: hrsFor(o.callFirst.n, 0.25), up: o.callFirst.up, pr: 0.55 });
+  if (o.atRisk.n) raw.push({ ids: o.atRisk.ids, id: "atRisk", p: "Retention", label: "Check in on at-risk clinics", detail: `${o.atRisk.n} clinics, ${K(o.atRisk.up)} below baseline`, hrs: hrsFor(o.atRisk.n, 0.3), up: o.atRisk.up, pr: 0.5 });
+  if (o.nurture.n) raw.push({ ids: o.nurture.ids, id: "nurture", p: "New Business", label: "Nurture new clinics to their next order", detail: `${o.nurture.n} new clinics due 14–21d`, hrs: hrsFor(o.nurture.n, 0.3), up: o.nurture.up, pr: 0.5 });
+  if (o.lowAov.n) raw.push({ ids: o.lowAov.ids, id: "lowAov", p: "AOV", label: "Bundle suggestion on next order", detail: `${o.lowAov.n} clinics under $400 AOV`, hrs: hrsFor(o.lowAov.n, 0.2), up: o.lowAov.up, pr: 0.5 });
+  if (o.growing.n) raw.push({ ids: o.growing.ids, id: "growing", p: "Expansion", label: "Thank and expand growing clinics", detail: `${o.growing.n} clinics above baseline`, hrs: hrsFor(o.growing.n, 0.1), up: o.growing.up * 0.25, pr: 0.7 });
+  const rows: ActionRow[] = raw
+    .map(a => {
+      const exp = a.up * a.pr;
+      const w = plan.weighted ? WEIGHT[st[a.p] ?? "good"] ?? 1 : 1;
+      return { ...a, exp, score: (exp / a.hrs) * w };
+    })
+    .sort((a, b) => b.score - a.score);
+  let used = 0;
+  for (const r of rows) if (plan.pins[r.id] === "in") { used += r.hrs; r.inPlan = true; }
+  for (const r of rows) if (!r.inPlan && plan.pins[r.id] !== "out" && used + r.hrs <= plan.sellHours) { used += r.hrs; r.inPlan = true; }
+  return rows;
+}
+
+function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => void }) {
+  const a = rows[0];
+  if (!a) return null;
+  return (
+    <div className="rv-nba">
+      <div className="rv-nba-main">
+        <div className="rv-nba-eye">Next best action<Info k="nba" /></div>
+        <div className="rv-nba-t">{a.label}</div>
+        <div className="rv-nba-s">Highest weighted return in your week: {a.p} · {a.detail}.</div>
+      </div>
+      <div className="rv-nba-num">
+        <div className="rv-nba-ph">{K(a.score)}/h</div>
+        <div className="rv-nba-sub">{a.hrs}h · {K(a.exp)} expected</div>
+      </div>
+      <button type="button" className="rv-nba-btn" onClick={onPlan}>See my week</button>
+    </div>
+  );
+}
+
+const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "AOV", crosssell: "Expansion" };
+
+function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId }: {
+  sales: string; periodId: string; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string) => void;
+}) {
+  const o = b.opp;
+  const pgd = usePG(sales, periodId);
+  const pgA = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, "") : null;
+  const wsAll = pgd.data ? (() => {
+    const byId = new Map(pgd.data.clinics.map(c => [c.clinic, c]));
+    const ids = [...new Set(pgd.elig.filter(e => !((byId.get(e.clinic)?.life[e.family] ?? 0) > 0)).map(e => e.clinic))];
+    return { ids, names: ids.slice(0, 3).map(id => ({ clinic: id, name: byId.get(id)?.name ?? id, v: 0 })) };
+  })() : null;
+  const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
+  const rowsQ = useQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  if (!o) return null;
+  const openIds = (ids: string[] | undefined, label: string) =>
+    ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
+  const cards = [
+    { id: "atRisk", label: "At-risk customers", n: o.atRisk.n, up: o.atRisk.up, action: "Rescue calls before the next reorder window closes.", names: o.atRisk.names, ids: o.atRisk.ids },
+    { id: "prospects", label: "Unconverted prospects", na: "needs CRM lead data" },
+    wsAll && wsAll.ids.length
+      ? { id: "whitespace", label: "Product whitespace", n: wsAll.ids.length, up: 0, action: "Introduce the product you marked them eligible for.", names: wsAll.names, ids: wsAll.ids }
+      : { id: "whitespace", label: "Product whitespace", na: "mark eligible clinics in Scorecard → Product Growth" },
+    { id: "lowAov", label: "Low-AOV customers", n: o.lowAov.n, up: o.lowAov.up, action: "Suggest a bundle on the next order to lift them past $400.", names: o.lowAov.names, ids: o.lowAov.ids },
+    pgA && pgA.xs.length
+      ? { id: "crosssell", label: "Cross-sell candidates", n: pgA.xs.length, up: pgA.xsUp, action: "Pitch the family similar clinics already buy.", names: pgA.xs.slice(0, 3).map(x => ({ clinic: x.clinic, name: `${x.name} → ${x.suggest}`, v: x.up })), ids: pgA.xs.map(x => x.clinic) }
+      : { id: "crosssell", label: "Cross-sell candidates", na: pgd.data ? "no active clinics on 1–2 families" : "loading product mix…" },
+  ] as Array<{ id: string; label: string; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
+  const total = cards.reduce((s, c) => s + (c.up ?? 0), 0);
+  const done = cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0);
+  const dot = (id: string) => { const v = st?.[OPP_PILLAR[id]]; return v === "behind" ? "bad" : v === "watch" ? "watch" : v ? "good" : "na"; };
+  return (
+    <div className="rv-opp">
+      <div className="rv-opp-head">
+        <div>
+          <h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2>
+          <div className="rv-opp-sub">The Opportunity column of your scorecard (this week's book), turned into today's work. Add what you'll act on.</div>
+        </div>
+        <div className="rv-opp-tot">
+          <div><b>{K(done)}</b> <span>of {K(total)} planned</span></div>
+          <div className="rv-opp-sub">Total revenue opportunity on your scorecard</div>
+        </div>
+      </div>
+      <div className="rv-opp-seg">
+        {cards.filter(c => c.up).map(c => (
+          <i key={c.id} style={{ flex: c.up }} className={planned[c.id] ? "on" : ""} />
+        ))}
+      </div>
+      <div className="rv-opp-grid">
+        {cards.map(c => (
+          <div key={c.id} className={`rv-opp-card${c.na ? " na" : ""}${planned[c.id] ? " is-planned" : ""}`}>
+            <div className="rv-opp-pil"><span>{OPP_PILLAR[c.id]}</span><i className={dot(c.id)} /></div>
+            <div className="rv-opp-t">{c.label}</div>
+            {c.na ? (
+              <>
+                <div className="rv-opp-v">—</div>
+                <p className="rv-opp-act">Not in data yet</p>
+                <p className="rv-opp-nm">{c.na[0].toUpperCase() + c.na.slice(1)}.</p>
+              </>
+            ) : (
+              <>
+                <button type="button" className="rv-opp-v rv-opp-vbtn" title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · this week`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
+                <p className="rv-opp-act">{c.action}</p>
+                <p className="rv-opp-nm">
+                  {(c.names ?? []).slice(0, 3).map((x, i) => (
+                    <span key={x.clinic}>{i ? ", " : ""}<button type="button" onClick={() => onOpenClinic(x.clinic)}>{x.name}</button></span>
+                  ))}
+                  {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
+                </p>
+                <div className="rv-opp-btns">
+                  <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>
+                    {planned[c.id] ? "✓ Added" : "Add to today"}
+                  </button>
+                  <button type="button" className="rv-opp-link" onClick={() => onScorecard(c.label)}>See in scorecard</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+    </div>
+  );
+}
+
+function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; periodId: string; b: Book; fams: Wins; plan: PlanState; onPlan: (p: PlanState) => void }) {
+  const rows = rankActions(b, fams, plan);
+  const st = pillarStatus(b, fams);
+  const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
+  const rowsQ = useQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  const openIds = (ids: string[] | undefined, label: string) =>
+    ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
+  const inPlan = rows.filter(r => r.inPlan);
+  const used = inPlan.reduce((s, r) => s + r.hrs, 0);
+  const expTotal = inPlan.reduce((s, r) => s + r.exp, 0);
+  const pillars = (Object.keys(PILLAR_COLOR) as PKey[]).map(p => {
+    const rs = inPlan.filter(r => r.p === p);
+    const hrs = rs.reduce((s, r) => s + r.hrs, 0);
+    const ex = rs.reduce((s, r) => s + r.exp, 0);
+    const mult = plan.weighted ? WEIGHT[st[p] ?? "good"] ?? 1 : 1;
+    return { p, hrs, ex, raw: hrs ? ex / hrs : 0, ph: hrs ? (ex / hrs) * mult : 0 };
+  }).sort((a, c) => c.ph - a.ph);
+  const top = pillars[0];
+  const overhead = 40 - plan.sellHours;
+  const free = plan.sellHours - used;
+  const toggle = (id: string, isIn: boolean) => {
+    const pins = { ...plan.pins };
+    pins[id] = isIn ? "out" : "in";
+    onPlan({ ...plan, pins });
+  };
+  const statusLabel = (p: string) => (st[p] === "behind" ? "Behind" : st[p] === "watch" ? "Watch" : "On track");
+  return (
+    <>
+      <div className="rv-wp-eye">My week · 40 hours · this week's book<Info k="week" /></div>
+      <h1 className="rv-wp-h1">
+        {top && top.hrs ? `Start with ${top.p}: ${K(top.raw)} per hour, ${Math.round((top.hrs / Math.max(used, 1)) * 100)}% of your selling time.` : "Nothing to plan yet this week."}
+      </h1>
+      <p className="rv-wp-lead">Every action from Call first, the Opportunity agenda and your scorecard is ranked by expected revenue per hour, then filled into your selling hours from the top. Click any row to pin it in or take it out.</p>
+      <div className="rv-wp-kpis">
+        <div className="rv-wp-k">
+          <div className="rv-wp-kl">Hours I can sell</div>
+          <div className="rv-wp-step">
+            <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.max(10, plan.sellHours - 1) })}>−</button>
+            <span>{plan.sellHours}</span>
+            <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.min(40, plan.sellHours + 1) })}>+</button>
+          </div>
+          <div className="rv-wp-ks">{overhead}h of the 40 go to admin, meetings and travel</div>
+        </div>
+        <div className="rv-wp-k">
+          <div className="rv-wp-kl">Hours planned</div>
+          <div className="rv-wp-kv">{used}<small> / {plan.sellHours}h</small></div>
+          <div className="rv-wp-ks">{free > 0 ? `${free}h still free` : "Fully booked"}</div>
+        </div>
+        <div className="rv-wp-k">
+          <div className="rv-wp-kl">Expected revenue</div>
+          <div className="rv-wp-kv g">{K(expTotal)}</div>
+          <div className="rv-wp-ks">{K(expTotal / Math.max(used, 1))} per hour planned</div>
+        </div>
+        <button type="button" className={`rv-wp-k rv-wp-tog${plan.weighted ? " on" : ""}`} onClick={() => onPlan({ ...plan, weighted: !plan.weighted })}>
+          <div className="rv-wp-kl">Favour pillars that are behind <b>{plan.weighted ? "ON" : "OFF"}</b></div>
+          <div className="rv-wp-ks2">Behind pillars score x1.5, watch x1.15. Turn off to rank on revenue per hour alone.</div>
+        </button>
+      </div>
+      <div className="rv-wp-card">
+        <div className="rv-wp-ch"><h2>Your 40 hours<Info k="hours" /></h2>
+          <div className="rv-hours-key">
+            <span><i style={{ background: "#e5e7eb" }} />Admin and meetings</span>
+            {(Object.keys(PILLAR_COLOR) as PKey[]).map(p => <span key={p}><i style={{ background: PILLAR_COLOR[p] }} />{p}</span>)}
+          </div>
+        </div>
+        <div className="rv-hours">
+          {overhead > 0 ? <i style={{ flex: overhead, background: "#e5e7eb", color: "#6b7280" }}>{overhead >= 5 ? "Admin" : ""}</i> : null}
+          {(Object.keys(PILLAR_COLOR) as PKey[]).flatMap(p => inPlan.filter(r => r.p === p).map(r => (
+            <i key={r.id} style={{ flex: r.hrs, background: PILLAR_COLOR[p], color: p === "New Business" ? "#0f172a" : "#fff" }} title={`${r.label} · ${r.hrs}h`}>{r.hrs >= 2 ? `${r.hrs}h` : ""}</i>
+          )))}
+          {free > 0 ? <i style={{ flex: free, background: "#f3f4f6", color: "#6b7280" }}>{free >= 3 ? "free" : ""}</i> : null}
+        </div>
+      </div>
+      <div className="rv-plan-grid">
+        <div className="rv-wp-card p0">
+          <div className="rv-wp-ch pad"><div><h2>Which pillar first<Info k="pillar" /></h2><p className="rv-wp-ks">Ranked by weighted revenue per hour of what is in your plan.</p></div></div>
+          {pillars.map((p, i) => (
+            <div key={p.p} className={`rv-wp-pil${i === 0 ? " top" : ""}`}>
+              <div className="rv-wp-pr">
+                <span><em>{i + 1}</em> <b>{p.p}</b> <i className={st[p.p] === "behind" ? "bad" : st[p.p] === "watch" ? "watch" : "good"} /></span>
+                <span className="g">{K(p.raw)}/h</span>
+              </div>
+              <div className="rv-wp-pr s"><span>{statusLabel(p.p)}</span><span>{p.hrs}h · {K(p.ex)}</span></div>
+              <div className="rv-wp-pb"><i style={{ width: `${pillars[0].raw ? (p.raw / pillars[0].raw) * 100 : 0}%`, background: PILLAR_COLOR[p.p as PKey] }} /></div>
+            </div>
+          ))}
+        </div>
+        <div className="rv-wp-card p0">
+          <div className="rv-wp-ch pad"><div><h2>Action queue<Info k="queue" /></h2><p className="rv-wp-ks">Expected revenue = upside x likelihood. Hours and likelihoods are planning estimates.</p></div></div>
+          <div className="rv-plan-row hd"><span>#</span><span>Action</span><span>Hours</span><span>Expected</span><span>Per hour</span><span>Status</span></div>
+          {rows.map((r, i) => (
+            <button type="button" key={r.id} className={`rv-plan-row${r.inPlan ? " in" : ""}`} onClick={() => toggle(r.id, !!r.inPlan)}>
+              <span className="rv-mono">{i + 1}</span>
+              <span><b>{r.label}</b><em>{r.p} · <a className="rv-plan-cl" role="button" title="Show clinic list" onClick={ev => { ev.stopPropagation(); openIds(r.ids, `${r.label} · this week`); }}>{r.detail} ↓</a></em></span>
+              <span className="rv-mono">{r.hrs}h</span>
+              <span className="rv-mono">{K(r.exp)}</span>
+              <span className="rv-mono g">{K(r.score)}</span>
+              <span className="rv-mono st">{r.inPlan ? "In plan" : "Out"}{plan.pins[r.id] ? " 📌" : ""}</span>
+            </button>
+          ))}
+          <p className="rv-wp-ks pad">Click a row to pin it in or out; click the clinic count to see the clinic list. Prospect calls, product whitespace and cross-sell aren't ranked yet: they need CRM and clinic × product data.</p>
+        </div>
+      </div>
+      {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+    </>
+  );
+}
+
+/* Quick tour (Shyam, 2026-10-06): chains every section (i) guide with Next/Back. */
+const TOUR: Array<{ tab: Tab; k: string }> = [
+  ...["headline", "nba", "touch", "opp", "call", "newc"].map(k => ({ tab: "today" as Tab, k })),
+  ...["headline", "great", "tree", "funnel", "targets"].map(k => ({ tab: "week" as Tab, k })),
+  ...["week", "hours", "pillar", "queue"].map(k => ({ tab: "plan" as Tab, k })),
+  ...["sc", "fam"].map(k => ({ tab: "scorecard" as Tab, k })),
+  ...["gauge", "lb", "recent"].map(k => ({ tab: "today" as Tab, k })),
+];
+const tourStore = { step: null as number | null, dir: 1, subs: new Set<() => void>(), setTab: (_: Tab) => {} };
+const tourSet = (step: number | null, dir = 1) => {
+  if (step != null && (step < 0 || step >= TOUR.length)) step = null;
+  tourStore.step = step; tourStore.dir = dir;
+  if (step == null) localStorage.setItem("rv-tour-done", "1"); else tourStore.setTab(TOUR[step].tab);
+  tourStore.subs.forEach(f => f());
+};
+const useTour = () => useSyncExternalStore(f => { tourStore.subs.add(f); return () => { tourStore.subs.delete(f); }; }, () => tourStore.step);
+function TourGuide({ setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  tourStore.setTab = setTab;
+  const step = useTour();
+  useEffect(() => { if (!localStorage.getItem("rv-tour-done")) setTimeout(() => tourSet(0), 1200); }, []);
+  // Skip sections not shown for this rep/window.
+  useEffect(() => {
+    if (step == null) return;
+    const t = setTimeout(() => {
+      if (tourStore.step === step && !document.querySelector(`[data-info="${TOUR[step].k}"]`)) tourSet(step + tourStore.dir, tourStore.dir);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [step]);
+  return (
+    <div className="rv-tour-bar">
+      <button type="button" className="rv-tour-start" onClick={() => tourSet(0)}>Quick tour</button>
+    </div>
+  );
+}
+
+const INFO: Record<string, string> = {
+  lb: "Ranks reps on % of plan for this window. Toggle my team / all reps. Team leads are excluded; other reps' clinic data stays private.",
+  gauge: "Solid needle = booked so far. Dotted needle = where you're heading at current pace. End of the dial = plan. Shows this week on Today.",
+  call: "Existing clinics 5–45 days since their last order (beyond 45 = lost), ranked by $ at stake then days since order. Filter by health note or portfolio status. Click a clinic for its full card.",
+  newc: "New clinics due for their next order, order 4 first. Use the days-between-orders filter to change the window (default 14–21 days). Shows who dropped off before the next order.",
+  tree: "Actual vs expected (baseline) for this window, split into volume, AOV, products, cohorts and states. Green beats baseline, red misses it. Click any branch for its clinic list. 'Simplify' switches to a lighter tree.",
+  funnel: "How many providers placed order 1, 2, 3… and where they dropped off. Click a stage for the clinic list.",
+  targets: "Your top clinics by baseline with their weekly $ and order targets.",
+  sc: "Five pillars with status: green on track, amber watch, red behind. Numbers follow the window you opened it from. Click a pillar for all its KPIs.",
+  fam: "Every product family's change vs baseline, best and worst highlighted.",
+  ws: "Mark clinics that should be ordering a product but never have. Your marked list is the Product whitespace count on the scorecard; it is saved per rep.",
+  search: "Live results as you type. Click one to open its full clinic/provider card.",
+  recent: "Your last 10 opened clinics/providers, one click to reopen.",
+  touch: "Clinics with a call/meeting in this window, how many reordered after, vs untouched clinics, and the lift. Compared to your team's average. Click a card for clinics; 'Order within' limits how soon after the touch the order counts.",
+  nba: "The single action with the highest expected revenue per hour this week. 'See my week' opens your full plan.",
+  opp: "Your scorecard's Opportunity column as cards: count, $ upside, suggested action. Click the count for clinics, 'Add to today' to plan it, 'See in scorecard' to jump there.",
+  week: "Set your selling hours; actions fill them from the top by expected revenue per hour.",
+  hours: "How your 40 hours split across admin, each pillar and free time.",
+  pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
+  queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; click the clinic count for the list. Hours and likelihoods are estimates.",
+  great: "What's going right in this window: clinics beating baseline and extra dollars over plan. Click a number for the clinics.",
+  headline: "Booked vs plan for this window and the $/day needed for the days left.",
+};
+function Info({ k }: { k: string }) {
+  const [o, setO] = useState(false);
+  const step = useTour();
+  const ref = useRef<HTMLSpanElement>(null);
+  const [mine, setMine] = useState(false);
+  const want = step != null && TOUR[step].k === k;
+  useEffect(() => {
+    if (!want) { setMine(false); return; }
+    const t = setTimeout(() => {
+      const first = document.querySelector(`[data-info="${k}"]`) === ref.current;
+      setMine(first);
+      if (first) ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [want, k, step]);
+  const touring = want && mine && step != null;
+  return (
+    <span ref={ref} data-info={k} className={`rv-info${touring ? " is-tour" : ""}`} onMouseLeave={() => setO(false)}>
+      <button type="button" className="rv-info-i" aria-label="About this section" onClick={e => { e.stopPropagation(); setO(v => !v); }}>i</button>
+      {(o || touring) && (
+        <span className="rv-info-pop" onClick={e => e.stopPropagation()}>
+          {touring ? <b className="rv-info-step">Tour {step! + 1}/{TOUR.length}</b> : null}
+          {INFO[k]}
+          {touring ? (
+            <span className="rv-tour-nav">
+              <button type="button" onClick={() => tourSet(null)}>Skip</button>
+              {step! > 0 ? <button type="button" onClick={() => tourSet(step! - 1, -1)}>Back</button> : null}
+              <button type="button" className="pri" onClick={() => tourSet(step! + 1 < TOUR.length ? step! + 1 : null)}>{step! + 1 < TOUR.length ? "Next" : "Done"}</button>
+            </span>
+          ) : null}
+        </span>
+      )}
+    </span>
+  );
+}
+
+
+/* ── Product Growth pillar (Shyam, 2026-10-06) ─────────────────────────── */
+type PGClinic = { clinic: string; name: string; win: Record<string, number>; life: Record<string, number>; rev?: Record<string, number> };
+type PGStats = {
+  family: string; adoption: number | null; adoptN: number; newN: number;
+  repeat: number | null; repN: number; pairN: number; wsN: number; eligN: number; wsIds: string[];
+  ppc: number | null; ppcRange: string; activeN: number; adoptIds: string[]; repIds: string[]; activeIds: string[]; xs: XSell[]; xsUp: number;
+};
+type XSell = { clinic: string; name: string; has: string[]; suggest: string; up: number; rev: number };
+function pstat(b: Book): string | null {
+  const c: Array<[string, number]> = b.pstatusCounts ?? [];
+  return c.length ? c.map(([k2, n]) => `${n} ${k2.toLowerCase()}`).join(" · ") : null;
+}
+function usePG(sales?: string, periodId?: string) {
+  const run = useAction(api.productGrowth.productGrowth);
+  const eligQ = useQuery(api.productGrowth.eligible, sales ? { password: pw(), sales } : "skip");
+  const [data, setData] = useState<{ clinics: PGClinic[] } | null>(null);
+  useEffect(() => {
+    if (!sales || !periodId) return;
+    let live = true;
+    setData(null);
+    run({ password: pw(), sales, periodId }).then(r => live && r.ready && setData(r)).catch(() => undefined);
+    return () => { live = false; };
+  }, [sales, periodId, run]);
+  return { data, elig: (eligQ ?? []) as Array<{ clinic: string; family: string }> };
+}
+function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
+  const newSet = new Set<string>(b.newIds ?? []);
+  const fams = (r: Record<string, number>) => Object.keys(r).filter(f => f !== "Unmapped" && r[f] > 0);
+  // Per selected family (Shyam, 2026-10-06): adoption = new clinics with window
+  // orders that ordered this family; repeat = clinics ordering it that did so 2+ times.
+  const newOrd = clinics.filter(c => newSet.has(c.clinic) && fams(c.win).length > 0);
+  const adoptN = newOrd.filter(c => (c.win[family] ?? 0) > 0).length;
+  const buyers = clinics.filter(c => (c.win[family] ?? 0) > 0);
+  const pairN = buyers.length, repN = buyers.filter(c => c.win[family] >= 2).length;
+  // Products per customer: distinct families per clinic ordering in the window.
+  const active = clinics.filter(c => fams(c.win).length > 0);
+  const ppc = active.length ? active.reduce((t, c) => t + fams(c.win).length, 0) / active.length : null;
+  // Range (Shyam: "2-4", not a decimal): 25th–75th percentile of families per clinic.
+  const cnts = active.map(c => fams(c.win).length).sort((a, b2) => a - b2);
+  const pct = (q: number) => cnts[Math.min(cnts.length - 1, Math.floor(q * cnts.length))];
+  const ppcRange = cnts.length ? (pct(0.25) === pct(0.75) ? String(pct(0.25)) : `${pct(0.25)}–${pct(0.75)}`) : "—";
+  const adoptIds = newOrd.filter(c => (c.win[family] ?? 0) > 0).map(c => c.clinic);
+  const repIds = buyers.filter(c => c.win[family] >= 2).map(c => c.clinic);
+  const activeIds = active.map(c => c.clinic);
+  // Cross-sell: active clinics on 1–2 families (lifetime). Suggest the family most
+  // often bought by book clinics that share all their families; upside = their
+  // current window $ per family (one more family at today's per-family spend).
+  const xs: XSell[] = [];
+  for (const c of active) {
+    const has = fams(c.life);
+    if (has.length > 2) continue;
+    const tally = new Map<string, number>();
+    for (const o of clinics) {
+      if (o === c) continue;
+      const of = fams(o.life);
+      if (!has.every(f => of.includes(f))) continue;
+      for (const f of of) if (!has.includes(f)) tally.set(f, (tally.get(f) ?? 0) + 1);
+    }
+    const suggest = [...tally].sort((a, b2) => b2[1] - a[1])[0]?.[0];
+    if (!suggest) continue;
+    const rev = Object.values(c.rev ?? {}).reduce((x, y) => x + y, 0);
+    xs.push({ clinic: c.clinic, name: c.name, has, suggest, rev, up: rev / Math.max(1, fams(c.win).length) });
+  }
+  xs.sort((a, b2) => b2.up - a.up);
+  const byId = new Map(clinics.map(c => [c.clinic, c]));
+  const el = elig.filter(e => e.family === family);
+  const wsIds = el.filter(e => !((byId.get(e.clinic)?.life[family] ?? 0) > 0)).map(e => e.clinic);
+  return {
+    family, adoption: newOrd.length ? adoptN / newOrd.length : null, adoptN, newN: newOrd.length,
+    repeat: pairN ? repN / pairN : null, repN, pairN, wsN: wsIds.length, eligN: el.length, wsIds,
+    ppc, ppcRange, activeN: active.length, adoptIds, repIds, activeIds, xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
+  };
+}
+function WhitespacePlanner({ sales, clinics, elig, family, famList, setFamily }: {
+  sales?: string; clinics: PGClinic[] | null; elig: Array<{ clinic: string; family: string }>;
+  family: string; famList: string[]; setFamily: (f: string) => void;
+}) {
+  const toggle = useMutation(api.productGrowth.toggleEligible);
+  const [q, setQ] = useState("");
+  const [onlyMarked, setOnlyMarked] = useState(false);
+  if (!clinics) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product mix…</p>;
+  const marked = new Set(elig.filter(e => e.family === family).map(e => e.clinic));
+  const never = clinics.filter(c => !((c.life[family] ?? 0) > 0));
+  const list = never
+    .filter(c => !onlyMarked || marked.has(c.clinic))
+    .filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => Number(marked.has(b.clinic)) - Number(marked.has(a.clinic)) || Object.values(b.life).reduce((x, y) => x + y, 0) - Object.values(a.life).reduce((x, y) => x + y, 0));
+  return (
+    <div className="rv-ws">
+      <div className="rv-sec-head">
+        <h2>Whitespace planner<Info k="ws" /></h2>
+        <span>{marked.size} marked eligible · {[...marked].filter(id => never.some(c => c.clinic === id)).length} never ordered {family}</span>
+      </div>
+      <div className="rv-ws-bar">
+        <select value={family} onChange={e => setFamily(e.target.value)}>
+          {(famList.includes(family) ? famList : [family, ...famList]).map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <input placeholder="Search clinic" value={q} onChange={e => setQ(e.target.value)} />
+        <label><input type="checkbox" checked={onlyMarked} onChange={e => setOnlyMarked(e.target.checked)} /> Only eligible</label>
+      </div>
+      <p className="rv-dim rv-small">Clinics in your book that have never ordered {family}. Tick the ones that should — they become your whitespace.</p>
+      <div className="rv-ws-list">
+        {list.slice(0, 60).map(c => (
+          <label className={`rv-ws-row${marked.has(c.clinic) ? " on" : ""}`} key={c.clinic}>
+            <input type="checkbox" checked={marked.has(c.clinic)}
+              onChange={() => toggle({ password: pw(), sales, clinic: c.clinic, family }).catch(e => toast.error(String(e.message ?? e)))} />
+            <b>{c.name}</b>
+            <span className="rv-mono rv-dim">{Object.keys(c.life).filter(f => f !== "Unmapped").length} families · {Object.values(c.life).reduce((x, y) => x + y, 0)} orders lifetime</span>
+          </label>
+        ))}
+        {list.length > 60 ? <p className="rv-dim rv-small">Showing 60 of {list.length} — search to narrow.</p> : null}
+        {!list.length ? <p className="rv-dim rv-small">No clinics match.</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function CrossSellList({ pg }: { pg: PGStats | null }) {
+  if (!pg) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product mix…</p>;
+  return (
+    <div className="rv-ws">
+      <div className="rv-sec-head">
+        <h2>Cross-sell candidates</h2>
+        <span>{pg.xs.length} clinics · {K(pg.xsUp)} est. upside</span>
+      </div>
+      <p className="rv-dim rv-small">Clinics ordering this window that have only ever bought 1–2 product families. Suggested family = what clinics with the same mix buy most. Upside = their current spend per family, i.e. one more family at today's rate (estimate).</p>
+      <div className="rv-ws-list">
+        {pg.xs.slice(0, 60).map(x => (
+          <div className="rv-ws-row" key={x.clinic}>
+            <b>{x.name}</b>
+            <span className="rv-mono rv-dim">has {x.has.join(" + ")} → pitch <b>{x.suggest}</b> · {K(x.up)} upside</span>
+          </div>
+        ))}
+        {!pg.xs.length ? <p className="rv-dim rv-small">No candidates in this window.</p> : null}
+      </div>
+    </div>
+  );
+}

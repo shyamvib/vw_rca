@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "auth": {
+    "mode": "public",
+    "providers": []
+  }
+}
