@@ -9,7 +9,7 @@
  * (`echo -n "newpass" | shasum -a 256`), or by editing DEFAULT_HASH below.
  */
 
-// sha256("vw-rca-2026")
+// Fallback only; the live password is the Convex env var DASHBOARD_PASSWORD_SHA256.
 const DEFAULT_HASH =
   "5df5fc8d0535049c19d728d7b2f1d0599c4e278a6755fa7d982b4e8518230fe8";
 
