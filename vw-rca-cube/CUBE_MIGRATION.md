@@ -43,3 +43,8 @@ portfolio_changes: 33-test whitelist, 28d vs prior 84d (inferred).
 - Rep View: Product Growth pillar (`convex/productGrowth.ts`, ported to Cube via `ordersRows`), new schema table `productEligible`, RepView UI/CSS updates.
 - refresh.ts: OOM fix (release raw row arrays after use), per-clinic baseline perf fix, main window always rolls forward to latest data.
 - families.ts: `periodRange` exported; dateUtils/index.html synced.
+
+## Update 2026-10-11 — deployed on Cube at 10.6.2.34 (Vercel + Convex cloud)
+- Server-tuned model lives in `cube/model-vibrant/cubes/` (real BigQuery table names, TIMESTAMP casts, `{CUBE}.bundle_name` fix).
+- `rfm_orders.deductions` = consultation + markup + blood-draw fees, joined from `hs_customer_rfm_orders` on sample_id (1 row per order; ~82% of 2026 orders have a fee row).
+- `hubspot_link` / `last_hubspot_link` are built from `hubspot_id`: `https://app.hubspot.com/contacts/22446299/record/0-1/<hubspot_id>`.

@@ -8,7 +8,7 @@ cubes:
     dimensions:
       - { name: pk, sql: "CONCAT(CAST(contact_id AS STRING),'-',CAST(touchpoint_date AS STRING),'-',touchpoint_type,'-',IFNULL(CAST(touchpoint_detail AS STRING),''))", type: string, primary_key: true }
       - { name: contact_id, sql: contact_id, type: string }
-      - { name: touchpoint_date, sql: touchpoint_date, type: time }
+      - { name: touchpoint_date, sql: "TIMESTAMP(SAFE_CAST(touchpoint_date AS DATETIME))", type: time }
       - { name: touchpoint_type, sql: touchpoint_type, type: string }
       - { name: touchpoint_category, sql: touchpoint_category, type: string }
       - { name: activity_type, sql: activityType, type: string }

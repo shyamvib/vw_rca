@@ -45,7 +45,7 @@ cubes:
     dimensions:
       - { name: clinic_id, sql: clinic_id, type: number, primary_key: true, public: true }
       - { name: practice_name, sql: practice_name, type: string }
-      - { name: last_order_date, sql: last_order_date, type: time }
+      - { name: last_order_date, sql: "TIMESTAMP(last_order_date)", type: time }
       - { name: days_since_last, sql: days_since_last, type: number }
       - { name: rhythm_ratio, sql: rhythm_ratio, type: number }
       - { name: tickets_30d, sql: tickets_30d, type: number }

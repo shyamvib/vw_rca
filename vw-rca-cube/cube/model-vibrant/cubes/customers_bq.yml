@@ -6,7 +6,7 @@ cubes:
       - { name: customer_id, sql: customer_id, type: number, primary_key: true, public: true }
       - { name: sales_id, sql: sales_id, type: number }
       - { name: hubspot_id, sql: hubspot_id, type: string }
-      - { name: signup_time, sql: customer_signup_time, type: time }
+      - { name: signup_time, sql: "TIMESTAMP(customer_signup_time)", type: time }
       - { name: state, sql: state, type: string }
       - { name: country, sql: country, type: string }
       - { name: zipcode, sql: zipcode, type: string }

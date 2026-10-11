@@ -13,7 +13,7 @@ cubes:
       - { name: bundle_name, sql: bundle_name, type: string }
       - { name: product_family, sql: product_family, type: string }
       - { name: test_type, sql: test_type_v2, type: string }
-      - { name: is_bundle, sql: "bundle_name <> 'Non Bundle'", type: boolean }
+      - { name: is_bundle, sql: "{CUBE}.bundle_name <> 'Non Bundle'", type: boolean }
     measures:
       - { name: test_lines, type: count }
       - { name: orders, type: count_distinct, sql: sample_id }

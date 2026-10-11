@@ -5,7 +5,8 @@ cubes:
     # family / bundle cuts never fan out across lines (vw-rca needs both).
     sql: >
       SELECT o.*, t.product_family AS order_product_family,
-             IFNULL(t.has_bundle, FALSE) AS order_is_bundle
+             IFNULL(t.has_bundle, FALSE) AS order_is_bundle,
+             IFNULL(f.consultation_fee, 0) + IFNULL(f.markup_fee, 0) + IFNULL(f.blood_draw_fee, 0) AS order_deductions
       FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq o
       LEFT JOIN (
         SELECT sample_id,
@@ -14,6 +15,8 @@ cubes:
         FROM `vibrant-lab-datamodels`.business_intelligence.fact_orders_tests_enriched_bq
         GROUP BY sample_id
       ) t USING (sample_id)
+      LEFT JOIN `vibrant-lab-datamodels`.business_intelligence.hs_customer_rfm_orders f
+        ON f.sample_id = o.sample_id
     joins:
       - name: order_tests
         sql: "{CUBE}.sample_id = {order_tests}.sample_id"
@@ -54,7 +57,7 @@ cubes:
       - { name: customer_type, sql: customer_type, type: string }
       - { name: charge_method, sql: charge_method, type: string }
       - { name: hubspot_id, sql: "CAST(hubspot_id AS STRING)", type: string }
-      - { name: hubspot_link, sql: "CAST(NULL AS STRING)", type: string }
+      - { name: hubspot_link, sql: "IF(hubspot_id IS NULL, CAST(NULL AS STRING), CONCAT('https://app.hubspot.com/contacts/22446299/record/0-1/', CAST(CAST(hubspot_id AS INT64) AS STRING)))", type: string }
       - { name: customer_signup_time, sql: "TIMESTAMP(customer_signup_time)", type: time }
       - { name: product_family, sql: "IFNULL(NULLIF(order_product_family, ''), 'Unmapped')", type: string }
       - { name: is_bundle, sql: order_is_bundle, type: boolean }
@@ -86,10 +89,10 @@ cubes:
       - { name: first_order, type: min, sql: "CAST(order_date AS STRING)" }
       - { name: last_order, type: max, sql: "CAST(order_date AS STRING)" }
       - { name: first_signup, type: min, sql: "CAST(customer_signup_time AS STRING)" }
-      - { name: last_hubspot_link, type: max, sql: "CAST(NULL AS STRING)" }
+      - { name: last_hubspot_link, type: max, sql: "IF(hubspot_id IS NULL, CAST(NULL AS STRING), CONCAT('https://app.hubspot.com/contacts/22446299/record/0-1/', CAST(CAST(hubspot_id AS INT64) AS STRING)))" }
       - name: deductions
         type: sum
-        sql: "CAST(0 AS FLOAT64)"
+        sql: order_deductions
     pre_aggregations:
       - name: daily_clinic
         measures: [orders, revenue, va_orders, va_revenue, discount]

@@ -30,7 +30,7 @@ cubes:
     sql_table: "`vibrant-lab-datamodels`.commission.summary"
     dimensions:
       - { name: pk, sql: "CONCAT(CAST(date AS STRING),'-',CAST(sales_id AS STRING),'-',order_type)", type: string, primary_key: true }
-      - { name: date, sql: date, type: time }
+      - { name: date, sql: "TIMESTAMP(SAFE.PARSE_DATE('%m/%Y', date))", type: time }
       - { name: sales_id, sql: sales_id, type: number }
       - { name: sales_name, sql: sales_name, type: string }
       - { name: senior_sales_id, sql: senior_sales_id, type: number }
