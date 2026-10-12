@@ -242,6 +242,8 @@ export const setRepWindow = scopedMutation({
     const main = await repRow(ctx, "main");
     const latest = main?.currentEnd ?? currentEnd;
     const end = currentEnd > latest ? latest : currentEnd;
+    // Ending on the latest data date means "keep following the latest data".
+    const followLatest = currentEnd >= latest;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(currentStart) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
       throw new Error("Pick valid dates.");
     }
@@ -249,6 +251,7 @@ export const setRepWindow = scopedMutation({
     if (currentStart < "2025-01-01") throw new Error("Start date must be in 2025 or later.");
     const r = await repRow(ctx, key);
     if (r?.status === "ready" && r.gen && r.currentStart === currentStart && r.currentEnd === end) {
+      if (r.followLatest !== followLatest) await ctx.db.patch(r._id, { followLatest });
       return { queued: false };
     }
     const requestAt = Date.now();
@@ -259,6 +262,7 @@ export const setRepWindow = scopedMutation({
       status: "running",
       reqStart: currentStart,
       reqEnd: end,
+      followLatest,
       requestedAt: requestAt,
       error: undefined,
     };
@@ -354,12 +358,20 @@ export const requeueRepWindows = internalMutation({
     const rows = (await ctx.db.query("config").collect()).filter(
       r => r.key.startsWith("rep:") && r.reqStart && r.reqEnd,
     );
+    const latest = (await repRow(ctx, "main"))?.currentEnd;
     let delay = 60_000;
     for (const r of rows) {
       const requestAt = Date.now();
-      await ctx.db.patch(r._id, { status: "running", requestedAt: requestAt });
+      // Windows that ended on the latest data date follow it forward.
+      const end =
+        r.followLatest && latest && latest > r.reqEnd! ? latest : r.reqEnd!;
+      await ctx.db.patch(r._id, {
+        status: "running",
+        requestedAt: requestAt,
+        reqEnd: end,
+      });
       await ctx.scheduler.runAfter(delay, internal.refresh.refreshSnapshot, {
-        asOf: r.reqEnd!,
+        asOf: end,
         cadence: "weekly",
         repKey: r.key,
         start: r.reqStart!,
