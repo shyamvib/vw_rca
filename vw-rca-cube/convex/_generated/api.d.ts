@@ -18,6 +18,7 @@ import type * as config from "../config.js";
 import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
 import type * as dateUtils from "../dateUtils.js";
+import type * as diag from "../diag.js";
 import type * as families from "../families.js";
 import type * as feed from "../feed.js";
 import type * as flags from "../flags.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   constants: typeof constants;
   crons: typeof crons;
   dateUtils: typeof dateUtils;
+  diag: typeof diag;
   families: typeof families;
   feed: typeof feed;
   flags: typeof flags;
