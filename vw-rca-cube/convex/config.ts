@@ -108,6 +108,8 @@ export const write = internalMutation({
     ),
     gen: v.optional(v.number()),
     genSeq: v.optional(v.number()),
+    baseRevAll: v.optional(v.number()),
+    baseOrdersAll: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -141,6 +143,8 @@ export const writeSnapshot = internalMutation({
     ),
     gen: v.number(),
     genSeq: v.number(),
+    baseRevAll: v.optional(v.number()),
+    baseOrdersAll: v.optional(v.number()),
   },
   handler: async (ctx, { key, ...args }) => {
     const row = await ctx.db
@@ -314,6 +318,8 @@ export const finishRepWindow = internalMutation({
     reqStart: v.string(),
     reqEnd: v.string(),
     requestAt: v.optional(v.number()),
+    baseRevAll: v.optional(v.number()),
+    baseOrdersAll: v.optional(v.number()),
   },
   handler: async (ctx, { key, reqStart, reqEnd, requestAt, ...args }): Promise<boolean> => {
     const r = await repRow(ctx, key);

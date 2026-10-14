@@ -167,7 +167,11 @@ const schema = defineSchema({
     gen: v.optional(v.number()),
   })
     .index("by_clinic", ["clinic"])
-    .index("by_gen", ["gen"]),
+    .index("by_gen", ["gen"])
+    // Scoped reads (a rep's or team lead's own clinics) so drill() does not
+    // have to read the whole table to filter it in memory.
+    .index("by_gen_sales", ["gen", "sales"])
+    .index("by_gen_lead", ["gen", "teamLead"]),
 
   // Current-window actuals per clinic per period (all / month / week / day).
   // expectedRevenue/expectedOrdersP75 are the Power BI-equivalent rolling
@@ -196,7 +200,8 @@ const schema = defineSchema({
   })
     .index("by_period", ["periodId"])
     .index("by_gen", ["gen"])
-    .index("by_gen_period", ["gen", "periodId"]),
+    .index("by_gen_period", ["gen", "periodId"])
+    .index("by_gen_period_clinic", ["gen", "periodId", "clinic"]),
 
   // Same rolling P75 baseline as clinicPeriod's expectedRevenue, but
   // computed from the team lead's / RSM's OWN aggregated daily revenue
@@ -469,6 +474,11 @@ const schema = defineSchema({
     // True when the rep's end date was the latest data date when picked: the
     // nightly requeue then moves their end forward with the team window.
     followLatest: v.optional(v.boolean()),
+    // Sums of baseRev / baseOrders over ALL of this generation's clinicMeta
+    // rows (set at refresh). drill() needs them for the global baseline AOV
+    // even when it reads only one rep's or team lead's clinics.
+    baseRevAll: v.optional(v.number()),
+    baseOrdersAll: v.optional(v.number()),
     error: v.optional(v.string()),
     requestedAt: v.optional(v.number()),
   }).index("by_key", ["key"]),

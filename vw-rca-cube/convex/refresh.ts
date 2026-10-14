@@ -1929,6 +1929,8 @@ export const refreshData = internalAction({
         p75,
         gen,
         genSeq: gen,
+        baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
+        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
       });
       // Stale drill cache keys are gen-agnostic, so clear that small table now.
       for (let i = 0; i < 20; i++) {
@@ -3817,6 +3819,8 @@ export const refreshSnapshot = internalAction({
           reqStart: start ?? currentStart,
           reqEnd: asOf,
           requestAt,
+          baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
+          baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
         });
         // A completed window is protected by config.gen; stale/reset windows
         // schedule deleteGen, which releases their lease after deletion.
@@ -3849,6 +3853,8 @@ export const refreshSnapshot = internalAction({
         p75,
         gen,
         genSeq: gen,
+        baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
+        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
       });
       try {
         await ctx.runMutation(internal.insights.generateFromRefresh, {

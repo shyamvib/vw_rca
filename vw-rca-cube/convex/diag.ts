@@ -74,11 +74,11 @@ export const pagePeriod = internalQuery({
 });
 
 export const currentGen = internalQuery({
-  args: {},
-  handler: async ctx => {
+  args: { key: v.optional(v.string()) },
+  handler: async (ctx, { key }) => {
     const cfg = await ctx.db
       .query("config")
-      .withIndex("by_key", q => q.eq("key", "main"))
+      .withIndex("by_key", q => q.eq("key", key ?? "main"))
       .unique();
     return {
       gen: cfg?.gen ?? 0,
@@ -91,9 +91,10 @@ export const currentGen = internalQuery({
 });
 
 export const sizes = internalAction({
-  args: {},
-  handler: async (ctx): Promise<Record<string, unknown>> => {
-    const cfg: { gen: number } = await ctx.runQuery(internal.diag.currentGen, {});
+  // key: a config row ("main" by default, or e.g. "rep:someone@vibrant-wellness.com").
+  args: { key: v.optional(v.string()) },
+  handler: async (ctx, { key }): Promise<Record<string, unknown>> => {
+    const cfg: { gen: number } = await ctx.runQuery(internal.diag.currentGen, { key });
     const gen = cfg.gen;
 
     let cursor: string | null = null;
@@ -141,7 +142,7 @@ export const sizes = internalAction({
 
     const topFields = Object.entries(fieldBytes)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+      .slice(0, 45)
       .map(([field, b]) => ({
         field,
         totalKB: Math.round(b / 1024),

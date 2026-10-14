@@ -17,6 +17,7 @@ import type * as clinics from "../clinics.js";
 import type * as config from "../config.js";
 import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
+import type * as cube from "../cube.js";
 import type * as dateUtils from "../dateUtils.js";
 import type * as diag from "../diag.js";
 import type * as families from "../families.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   config: typeof config;
   constants: typeof constants;
   crons: typeof crons;
+  cube: typeof cube;
   dateUtils: typeof dateUtils;
   diag: typeof diag;
   families: typeof families;

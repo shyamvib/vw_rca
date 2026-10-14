@@ -416,34 +416,84 @@ export async function drill(
   const dowCounts = [0, 0, 0, 0, 0, 0, 0];
   for (const d of days) dowCounts[dow(d)]++;
 
-  const meta = await ctx.db
-    .query("clinicMeta")
-    .withIndex("by_gen", q => q.eq("gen", gen))
-    .collect();
+  // Scoped read: a rep's or team lead's own clinics come straight off an
+  // index instead of reading the whole table and filtering in memory (which
+  // cost 7-12 MB per call and hit Convex's 16 MiB cap on long windows). The
+  // loop below still applies the same filters, so rows are unchanged. Needs
+  // the generation's global baseline sums (written at refresh); older
+  // generations without them keep the full read.
+  const scopeLead =
+    args.teamLead && args.teamLead !== "—" ? args.teamLead : undefined;
+  const useScope =
+    !!(args.sales || scopeLead) &&
+    cfg.baseRevAll !== undefined &&
+    cfg.baseOrdersAll !== undefined;
+  const meta = useScope
+    ? args.sales
+      ? await ctx.db
+          .query("clinicMeta")
+          .withIndex("by_gen_sales", q =>
+            q.eq("gen", gen).eq("sales", args.sales!),
+          )
+          .collect()
+      : await ctx.db
+          .query("clinicMeta")
+          .withIndex("by_gen_lead", q =>
+            q.eq("gen", gen).eq("teamLead", scopeLead!),
+          )
+          .collect()
+    : await ctx.db
+        .query("clinicMeta")
+        .withIndex("by_gen", q => q.eq("gen", gen))
+        .collect();
   // Global baseline AOV — used for the volume / price split so the clinic rows
-  // add back to the same numbers as lens A on the tree.
+  // add back to the same numbers as lens A on the tree. Always company-wide,
+  // so a scoped read takes it from the sums stored at refresh.
   let baseRevAll = 0;
   let baseOrdAll = 0;
-  for (const m of meta) {
-    baseRevAll += m.baseRev;
-    baseOrdAll += m.baseOrders;
+  if (useScope) {
+    baseRevAll = cfg.baseRevAll!;
+    baseOrdAll = cfg.baseOrdersAll!;
+  } else {
+    for (const m of meta) {
+      baseRevAll += m.baseRev;
+      baseOrdAll += m.baseOrders;
+    }
   }
   const globalBaseAov = baseOrdAll ? baseRevAll / baseOrdAll : 0;
-  const actuals = await ctx.db
-    .query("clinicPeriod")
-    .withIndex("by_gen_period", q =>
-      q.eq("gen", gen).eq("periodId", args.periodId),
-    )
-    .collect();
+  // Period rows. A small scope (one rep) looks its clinics up by index; a
+  // large one, or a company-wide read, takes the period's rows in one range
+  // (Convex caps a function at ~4k index reads, so no per-clinic lookups for
+  // big scopes).
+  const pointLookup = useScope && meta.length <= 1000;
+  const periodRows = async (periodId: string) =>
+    pointLookup
+      ? (
+          await Promise.all(
+            meta.map(m =>
+              ctx.db
+                .query("clinicPeriod")
+                .withIndex("by_gen_period_clinic", q =>
+                  q
+                    .eq("gen", gen)
+                    .eq("periodId", periodId)
+                    .eq("clinic", m.clinic),
+                )
+                .collect(),
+            ),
+          )
+        ).flat()
+      : await ctx.db
+          .query("clinicPeriod")
+          .withIndex("by_gen_period", q =>
+            q.eq("gen", gen).eq("periodId", periodId),
+          )
+          .collect();
+  const actuals = await periodRows(args.periodId);
   const actualBy = new Map(actuals.map(a => [a.clinic, a]));
   const allWindowActuals =
     (args.focus?.startsWith("newgrp:") || args.wantWindowOrders) && args.periodId !== "all"
-      ? await ctx.db
-          .query("clinicPeriod")
-          .withIndex("by_gen_period", q =>
-            q.eq("gen", gen).eq("periodId", "all"),
-          )
-          .collect()
+      ? await periodRows("all")
       : actuals;
   const windowOrdersBy = new Map(
     allWindowActuals.map(a => [a.clinic, a.orders]),

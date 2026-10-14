@@ -30,3 +30,5 @@ bun.lockb
 tmp/
 test-results/
 playwright-report/
+# Local Convex dev backend state (npx convex dev, anonymous mode)
+.convex/
