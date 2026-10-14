@@ -502,6 +502,9 @@ const schema = defineSchema({
     status: v.optional(v.string()), // "running" | "ready" | "error"
     reqStart: v.optional(v.string()),
     reqEnd: v.optional(v.string()),
+    // True when the rep's end date was the latest data date when picked: the
+    // nightly requeue then moves their end forward with the team window.
+    followLatest: v.optional(v.boolean()),
     error: v.optional(v.string()),
     requestedAt: v.optional(v.number()),
   }).index("by_key", ["key"]),
