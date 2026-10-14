@@ -22,6 +22,17 @@ const sum = (rows: ClinicRow[], f: (r: ClinicRow) => number) =>
 const since = (cutoff: string, d?: string) =>
   d ? Math.max(0, diffDays(d, cutoff)) : null;
 
+/** Rep-level P75 baseline (same source as geo.scopeTotals): P75 of the rep's
+ * own aggregated revenue, not a sum of per-clinic P75s (Shyam, 2026-10-12). */
+async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
+  const row = await ctx.db
+    .query("salesPeriodBaseline")
+    .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
+    .filter((q: any) => q.eq(q.field("sales"), sales))
+    .unique();
+  return row ? { rev: row.expectedRevenue as number, ord: row.expectedOrders as number } : null;
+}
+
 export const book = scopedQuery({
   args: {
     periodId: v.string(),
@@ -59,9 +70,10 @@ export const book = scopedQuery({
     const days = res.days;
 
     const actual = sum(rows, r => r.actual);
-    const expected = sum(rows, r => r.expected);
+    const rb = await repBaseline(ctx, args.periodId, args.sales, cfg.gen ?? 0);
+    const expected = rb ? rb.rev : sum(rows, r => r.expected);
     const orders = sum(rows, r => r.orders);
-    const expOrders = sum(rows, r => r.expectedOrders);
+    const expOrders = rb ? rb.ord : sum(rows, r => r.expectedOrders);
     const active = rows.filter(r => r.orders > 0);
 
     // Cohorts
@@ -118,8 +130,9 @@ export const book = scopedQuery({
     const baseAov = expOrders ? expected / expOrders : 0;
 
     // Combined
-    const volume = sum(rows, r => r.volume);
-    const aovEffect = sum(rows, r => r.aovEffect);
+    // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
+    const volume = (orders - expOrders) * baseAov;
+    const aovEffect = actual - expected - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.delta));
 
     // New clinic funnel (same membership rules as the dashboard's New Clinics card)
@@ -350,7 +363,12 @@ export const book = scopedQuery({
         o2: f.f2.length,
         o3: f.f3.length,
         o4: f.f4.length,
+        ids: [f.f1, f.f2, f.f3, f.f4].map(x => x.map(r => r.clinic)),
       },
+      activeIds: active.map(r => r.clinic),
+      existingIds: existing.map(r => r.clinic),
+      allIds: rows.filter(r => r.orders > 0 || r.expected > 0).map(r => r.clinic),
+      oppIds: [...new Set([...atRiskRows, ...aovGap].map(r => r.clinic))],
       stuck,
       stuckMin,
       stuckMax,
@@ -492,6 +510,7 @@ export const pace = scopedQuery({
     let expRest = 0;
     let plan = 0;
     let planned = 0;
+    let fullP75 = 0;
     for (const r of res.rows) {
       soFar += r.actual;
       expSoFar += r.expected;
@@ -507,13 +526,24 @@ export const pace = scopedQuery({
       if (p && p > 0) {
         plan += p * planScale;
         planned++;
-      } else plan += full;
+      } else {
+        plan += full;
+        fullP75 += full;
+      }
     }
     // Heading-to: this window's pace vs baseline so far, applied to the days left.
     // Clamped to soFar (Shyam, 2026-09-28): a negative expRest/paceRatio edge
     // case — refunds pulling soFar or expSoFar below zero — could otherwise
     // project a heading total below what's already booked, which the
     // thermometer can't render sensibly (booked can't un-book itself).
+    // Rescale per-clinic sums to the rep-level P75 (2026-10-12).
+    const rb = args.sales ? await repBaseline(ctx, args.periodId, args.sales, cfg.gen ?? 0) : null;
+    if (rb && expSoFar > 0) {
+      const sc = rb.rev / expSoFar;
+      expRest *= sc;
+      plan += fullP75 * (sc - 1); // only P75-derived plan scales; clinicPlan targets kept
+      expSoFar = rb.rev;
+    }
     const paceRatio = expSoFar ? soFar / expSoFar : 1;
     const heading = Math.max(soFar, soFar + expRest * paceRatio);
     return {

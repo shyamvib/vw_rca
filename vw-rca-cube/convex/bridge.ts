@@ -1,3 +1,4 @@
+import { geoKeyOf } from "./geoKey";
 import { loadCfg } from "./config";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import {
@@ -114,6 +115,10 @@ async function computeBridge(ctx: QueryCtx) {
     .query("stateBaseline")
     .withIndex("by_gen", q => q.eq("gen", gen))
     .collect();
+  // Top-down geo plan [Shyam, 2026-10-12]: lens D state chart uses the same
+  // overall → state allocation as the tree/rep views.
+  const rawGeoMap: Record<string, string> = {};
+  const geoAllocBy = new Map<string, Array<{ geo: string; expectedRevenue: number; actualRevenue: number }>>();
   const cohortDaily = await ctx.db
     .query("cohortDaily")
     .withIndex("by_gen", q => q.eq("gen", gen))
@@ -340,16 +345,30 @@ async function computeBridge(ctx: QueryCtx) {
 
     // Lens D — states
     const stateDelta = new Map<string, number>();
-    for (const sb of stateBaseline) {
-      let exp = 0;
-      for (const d of days) exp += sb.rates[dow(d)] * sc(d);
-      stateDelta.set(sb.state, -exp);
-    }
-    for (const d of days) {
-      const m = stateActual.get(d);
-      if (!m) continue;
-      for (const [st, rev] of m) {
-        stateDelta.set(st, (stateDelta.get(st) ?? 0) + rev);
+    const ga = geoAllocBy.get(id);
+    if (ga && ga.length) {
+      // expected = top-down plan; actual = stateDaily (same source as headline)
+      for (const g of ga) stateDelta.set(g.geo, -g.expectedRevenue);
+      for (const d of days) {
+        const m = stateActual.get(d);
+        if (!m) continue;
+        for (const [st, rev] of m) {
+          const g = rawGeoMap[st] ?? geoKeyOf({ state: st, country: "" }).key;
+          stateDelta.set(g, (stateDelta.get(g) ?? 0) + rev);
+        }
+      }
+    } else {
+      for (const sb of stateBaseline) {
+        let exp = 0;
+        for (const d of days) exp += sb.rates[dow(d)] * sc(d);
+        stateDelta.set(sb.state, -exp);
+      }
+      for (const d of days) {
+        const m = stateActual.get(d);
+        if (!m) continue;
+        for (const [st, rev] of m) {
+          stateDelta.set(st, (stateDelta.get(st) ?? 0) + rev);
+        }
       }
     }
     const sorted = [...stateDelta].sort((a, b) => a[1] - b[1]);

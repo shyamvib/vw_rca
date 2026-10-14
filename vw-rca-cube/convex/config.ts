@@ -114,6 +114,11 @@ export const write = internalMutation({
       .query("config")
       .withIndex("by_key", q => q.eq("key", "main"))
       .unique();
+    // Never lower genSeq: a slower overlapping refresh finishing late used to
+    // reset it, so the next refresh re-reserved an in-flight gen and wrote
+    // duplicate rows into it (2x data -> bridge "too many operations").
+    if (args.genSeq !== undefined)
+      args = { ...args, genSeq: Math.max(args.genSeq, row?.genSeq ?? 0) };
     if (row) await ctx.db.patch(row._id, args);
     else await ctx.db.insert("config", { key: "main", ...args });
   },

@@ -159,10 +159,14 @@ const schema = defineSchema({
     // 2026-09-28, Provider Retention Funnel): MIN(customer_signup_time)
     // across the clinic's order rows. Undefined when unreadable.
     signupDate: v.optional(v.string()),
-    // Only the two specifically approved Power BI Note badges are sourced
-    // externally: High Ticket Volume and Buying Overdue. All other Note
-    // titles are intentionally ignored; those remain RCA-computed.
+    // DEPRECATED, never written or read (Power BI Note import removed
+    // 2026-10-12). Kept optional so rows from older refresh generations
+    // still validate until they are pruned.
     importedHealthFlags: v.optional(v.array(v.string())),
+    // Buying Overdue inputs (business days, as of cutoff); undefined when
+    // the clinic has <3 distinct order dates.
+    medianGapBd: v.optional(v.number()),
+    bdSinceLastOrder: v.optional(v.number()),
     // Refresh generation; readers only see rows from the current one.
     gen: v.optional(v.number()),
   })
@@ -226,6 +230,22 @@ const schema = defineSchema({
     gen: v.optional(v.number()),
   })
     .index("by_gen", ["gen"])
+    .index("by_gen_period", ["gen", "periodId"]),
+
+  // Top-down allocated plan per geography (sales="") and per rep×geo cell
+  // [Shyam, 2026-10-12]: geo rows sum to company; cells sum to their geo.
+  geoPeriodBaseline: defineTable({
+    periodId: v.string(),
+    geo: v.string(),
+    sales: v.string(),
+    expectedRevenue: v.number(),
+    expectedOrders: v.number(),
+    actualRevenue: v.optional(v.number()),
+    geoJson: v.optional(v.string()), // sales="#": compact {geo:[exp,act]} for bridge
+    gen: v.optional(v.number()),
+  })
+    .index("by_gen", ["gen"])
+    .index("by_gen_sales", ["gen", "sales"])
     .index("by_gen_period", ["gen", "periodId"]),
 
   // Baseline revenue/order rates per product family, by weekday.
@@ -423,6 +443,22 @@ const schema = defineSchema({
   // Daily lead-signup counts by owning salesperson (customers_bq[sales_id],
   // MIN(customer_signup_time) per lead), for the Provider Retention Funnel's
   // top "Signup" bar — a broader population than clinics that ever ordered.
+  // One row per lead signup in the refresh window (Shyam, 2026-10-13):
+  // lets the Sankey / funnel list the signups that never placed order 1.
+  signupLead: defineTable({
+    date: v.string(),
+    sales: v.string(),
+    customerId: v.string(),
+    name: v.string(),
+    state: v.optional(v.string()),
+    firstOrder: v.optional(v.string()),
+    clinic: v.optional(v.string()),
+    practice: v.optional(v.string()),
+    gen: v.optional(v.number()),
+  })
+    .index("by_gen", ["gen"])
+    .index("by_gen_sales", ["gen", "sales"]),
+
   signupDaily: defineTable({
     date: v.string(),
     sales: v.string(),
@@ -510,7 +546,9 @@ const schema = defineSchema({
     message: v.string(),
     dataThrough: v.optional(v.string()),
     rows: v.optional(v.number()),
-  }).index("by_started", ["startedAt"]).index("by_scope_started", ["scope", "startedAt"]),
+  })
+    .index("by_started", ["startedAt"])
+    .index("by_scope_started", ["scope", "startedAt"]),
 
   // An in-progress independent refresh can reserve a generation before its
   // config pointer is switched. The team cleanup must never delete it.
@@ -519,13 +557,31 @@ const schema = defineSchema({
     createdAt: v.number(),
   }).index("by_gen", ["gen"]),
 
-
   // Structured Business Feed insight cards (Shyam's format: fact / inference
   // / evidence / confidence / related / action / status). Auto-populated on
   // every refresh from the same feed items AlertRail already renders, but
   // persisted (not gen-scoped — these survive refreshes so history and
   // "related insights" links accumulate over time) and independently
   // editable. Never regenerate a field listed in `edited`.
+  // Gut Zoomer / Total Tox STOPPED clinics per month-end (convex/familyStops.ts).
+  // Replace-all after each live refresh; not gen-scoped.
+  familyStops: defineTable({
+    month: v.string(),
+    family: v.string(),
+    clinic: v.string(),
+    name: v.string(),
+    state: v.string(),
+    sales: v.string(),
+    teamLead: v.optional(v.string()),
+    priorOrders: v.number(),
+    lastOrder: v.string(),
+    resumedOn: v.string(),
+    priorStart: v.string(),
+    recentStart: v.string(),
+    asOf: v.string(),
+    builtAt: v.number(),
+  }).index("by_month", ["month"]),
+
   insights: defineTable({
     insightId: v.string(), // e.g. REV-2026-0914-003 — stable once assigned
     date: v.string(), // YYYY-MM-DD data-as-of date this snapshot represents

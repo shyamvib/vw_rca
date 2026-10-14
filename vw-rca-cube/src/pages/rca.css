@@ -2201,3 +2201,7 @@ select.rca-select,
 .rca-topbar-right .rca-rep-badge { white-space: nowrap; margin-right: 6px; }
 .rca-topbar-right .rca-topwin { flex-wrap: nowrap; white-space: nowrap; }
 .rca-top-push { margin-left: auto; }
+
+/* GZ / Total Tox stopped clinics in the clinic list (famstops focus, 2026-10-13) */
+.rca-stop-chips { flex-wrap: wrap; gap: 6px; }
+.rca-stop-cell > div + div { margin-top: 2px; }

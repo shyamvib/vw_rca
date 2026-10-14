@@ -5,6 +5,7 @@ import { drill } from "./clinics";
 import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedAction, gatedQuery, scopedQuery } from "./gated";
+import { loadStops } from "./familyStops";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -645,6 +646,41 @@ export async function build(
         q: "How much sits behind STOPPED portfolio lines?",
         a: `${INT(stopped.length)} clinics have at least one stopped test line; together they are ${MONEY(stoppedDelta)}.`,
         detail: "Open any clinic in the drill to see which test lines stopped.",
+      });
+    }
+  }
+
+  // Gut Zoomer / Total Tox stopped clinics, month by month (Shyam,
+  // 2026-10-13). Live feed only — the table is rebuilt from the latest
+  // refresh, so historical snapshots must not read it. Clicking opens the
+  // regular clinic list with focus "famstops" (clinics.ts drill()).
+  if (!configKey || configKey === "main") {
+    const stops = await loadStops(ctx, teamLead);
+    const months = [...new Set(stops.map(r => r.month))].sort();
+    const latest = months[months.length - 1];
+    if (latest) {
+      const MON = (ym: string) =>
+        new Date(`${ym}-15T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+      const count = (ym: string, fam: string) =>
+        stops.filter(r => r.month === ym && r.family === fam).length;
+      const famTotal = (fam: string) => stops.filter(r => r.family === fam).length;
+      const clinics = new Set(stops.map(r => r.clinic));
+      const gzSet = new Set(stops.filter(r => r.family === "Gut Zoomer").map(r => r.clinic));
+      const both = stops.filter(r => r.family === "Total Tox" && gzSet.has(r.clinic)).length;
+      const trend = (fam: string) => months.map(m => `${MON(m)} ${INT(count(m, fam))}`).join(" + ");
+      const top = [...stops]
+        .sort((a, b) => b.priorOrders - a.priorOrders)
+        .slice(0, 5)
+        .map(r => `${r.name} (${r.sales}) — ${r.family === "Gut Zoomer" ? "GZ" : "TT"} ${r.priorOrders} orders in prior 90d, last ${r.lastOrder}, out since ${MON(r.month)}`);
+      items.push({
+        id: "famstops",
+        tag: "Portfolio",
+        tone: "watch",
+        focus: "famstops",
+        focusLabel: "Gut Zoomer / Total Tox stopped clinics",
+        q: "Which clinics stopped ordering Gut Zoomer or Total Tox?",
+        a: `${INT(famTotal("Gut Zoomer"))} clinics stopped Gut Zoomer and ${INT(famTotal("Total Tox"))} stopped Total Tox since May and still haven't reordered (${INT(both)} both; ${INT(clinics.size)} clinics) — ≥3 orders in the prior 90 days, then none since. Click to open them in the clinic list, filterable by family and month stopped.`,
+        detail: [`Gut Zoomer: ${trend("Gut Zoomer")}`, `Total Tox: ${trend("Total Tox")}`, ...top].join(" | "),
       });
     }
   }

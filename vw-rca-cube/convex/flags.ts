@@ -4,8 +4,8 @@
  * Replaces the imported `clinic_dimension[Note]` text (Power BI) with the
  * same flag titles and thresholds, computed here from RCA's own
  * selected-period actual/expected values (performance flags), from source
- * metrics carried on the clinic's `clinicMeta` row (operational flags), and
- * only the two approved external-source flags from Power BI's Note field.
+ * metrics carried on the clinic's `clinicMeta` row (operational flags).
+ * Nothing is imported from Power BI's clinic_dimension[Note].
  *
  * Approved by Thiru (#internal-test, 2026-09-21): keep the exact flag
  * titles and thresholds; no MTD override, no 7-business-day pacing hold —
@@ -14,12 +14,12 @@
  * conditions or threshold explanations are surfaced in the UI — the badges
  * are the title strings below and nothing else.
  *
- * High Ticket Volume and Buying Overdue are sourced from the Revenue
- * Intelligence clinic_dimension[Note] field, as newly approved; all other
- * flags remain RCA-computed.
+ * Thiru (2026-10-12): High Ticket Volume is removed from RCA entirely;
+ * Buying Overdue is computed natively from the clinic's own order-date
+ * history in business days (see `buyingRhythm`).
  */
 
-import { diffDays } from "./dateUtils";
+import { addDays, diffDays, isWeekday } from "./dateUtils";
 
 export const FLAG = {
   FAILED_TO_LAUNCH: "🚨 Failed to Launch",
@@ -32,30 +32,98 @@ export const FLAG = {
   ORDERS_BLEED: "📉 Orders Bleed (>25% Drop)",
   HIGH_VA: "🎯 High VA Dependency",
   HIGH_MARGIN_BLEED: "💸 High Margin Bleed (>25% Deductions)",
-  HIGH_TICKET_VOLUME: "⚠️ High Ticket Volume",
   BUYING_OVERDUE: "⏰ Buying Overdue",
   NURTURE: "🌱 Nurture (First 45 Days)",
   HEALTHY: "✅ Healthy",
 } as const;
 
-/**
- * Exact imported flags allowed from clinic_dimension[Note].
- *
- * These flags are imported verbatim from the source's existing Note string
- * because the source ticket row key is blank, and the owner explicitly
- * approved these two Revenue Intelligence flags as exceptions. Never import
- * any other Note title here: performance and all remaining operational
- * alerts remain RCA-owned.
- */
-export const IMPORTED_FLAG_SET: ReadonlySet<string> = new Set([
-  FLAG.HIGH_TICKET_VOLUME,
-  FLAG.BUYING_OVERDUE,
-]);
+/** Mon-Fri days in (a, b] — 0 when b <= a. Weekend dates count as no day. */
+const pad = (n: number) => String(n).padStart(2, "0");
+const ymd = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
+const dow = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+function nthWeekday(y: number, m: number, wd: number, n: number): string {
+  const first = dow(y, m, 1);
+  return ymd(y, m, 1 + ((wd - first + 7) % 7) + (n - 1) * 7);
+}
+function lastWeekday(y: number, m: number, wd: number): string {
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return ymd(y, m, last - ((dow(y, m, last) - wd + 7) % 7));
+}
+function observed(y: number, m: number, d: number): string {
+  const w = dow(y, m, d);
+  const t = new Date(Date.UTC(y, m - 1, d + (w === 6 ? -1 : w === 0 ? 1 : 0)));
+  return t.toISOString().slice(0, 10);
+}
+const holidayCache = new Map<number, Set<string>>();
+/** Observed US federal (OPM) holidays falling in `year`, incl. next year's
+ * Jan 1 when observed on Dec 31. Distinct from dateUtils FIXED_DATE_HOLIDAYS
+ * (baseline shadow days). */
+export function federalHolidays(year: number): Set<string> {
+  const hit = holidayCache.get(year);
+  if (hit) return hit;
+  const all = [
+    observed(year, 1, 1), nthWeekday(year, 1, 1, 3), nthWeekday(year, 2, 1, 3),
+    lastWeekday(year, 5, 1), observed(year, 6, 19), observed(year, 7, 4),
+    nthWeekday(year, 9, 1, 1), nthWeekday(year, 10, 1, 2), observed(year, 11, 11),
+    nthWeekday(year, 11, 4, 4), observed(year, 12, 25), observed(year + 1, 1, 1),
+  ].filter(d => d.startsWith(`${year}-`));
+  const set = new Set(all);
+  holidayCache.set(year, set);
+  return set;
+}
+export function isFederalHoliday(d: string): boolean {
+  return federalHolidays(Number(d.slice(0, 4))).has(d);
+}
 
-export function approvedImportedFlags(
-  values: readonly string[] = [],
-): string[] {
-  return [...new Set(values.filter(value => IMPORTED_FLAG_SET.has(value)))];
+/** Business days in (a, b]: Mon–Fri excluding observed US federal holidays. */
+export function businessDaysBetween(a: string, b: string): number {
+  const total = diffDays(a, b);
+  if (total <= 0) return 0;
+  const weeks = Math.floor(total / 7);
+  let n = weeks * 5;
+  for (let d = addDays(a, weeks * 7 + 1); d <= b; d = addDays(d, 1)) {
+    if (isWeekday(d)) n++;
+  }
+  const y0 = Number(a.slice(0, 4)), y1 = Number(b.slice(0, 4));
+  for (let y = y0; y <= y1; y++) {
+    for (const h of federalHolidays(y)) if (h > a && h <= b && isWeekday(h)) n--;
+  }
+  return n;
+}
+
+/**
+ * Buying-rhythm inputs from a clinic's order dates up to `cutoff`: needs >=3
+ * distinct order dates; gaps between consecutive distinct dates in business
+ * days; median of those gaps; business days from the last order to cutoff.
+ * Returns undefined when ineligible.
+ */
+export function buyingRhythm(
+  orderDates: readonly string[],
+  cutoff: string,
+): { medianGapBd: number; bdSinceLastOrder: number } | undefined {
+  const dates = [...new Set(orderDates.filter(d => d && d <= cutoff))].sort();
+  if (dates.length < 3) return undefined;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    gaps.push(businessDaysBetween(dates[i - 1], dates[i]));
+  }
+  gaps.sort((x, y) => x - y);
+  const mid = gaps.length >> 1;
+  const medianGapBd =
+    gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2;
+  return {
+    medianGapBd,
+    bdSinceLastOrder: businessDaysBetween(dates[dates.length - 1], cutoff),
+  };
+}
+
+/** Buying Overdue: business days since last order / max(median gap, 2) >= 3. */
+export function isBuyingOverdue(
+  medianGapBd: number | undefined,
+  bdSinceLastOrder: number | undefined,
+): boolean {
+  if (medianGapBd === undefined || bdSinceLastOrder === undefined) return false;
+  return bdSinceLastOrder / Math.max(medianGapBd, 2) >= 3;
 }
 
 export type PerformanceInputs = {
@@ -86,6 +154,9 @@ export type OperationalInputs = {
   lastTouchDate?: string;
   /** Whether ANY touchpoint was mappable to this clinic at all. */
   touchDataAvailable: boolean;
+  /** Buying-rhythm inputs (business days), undefined when ineligible. */
+  medianGapBd?: number;
+  bdSinceLastOrder?: number;
 };
 
 function daysSince(
@@ -108,9 +179,7 @@ export function evaluateFlags(
   cutoff: string,
   op: OperationalInputs,
   perf: PerformanceInputs,
-  importedFlags: readonly string[] = [],
 ): string[] {
-  const imported = approvedImportedFlags(importedFlags);
   const daysSinceLastOrder = daysSince(cutoff, op.lastOrderAllTime);
   const daysSinceFirstOrder = daysSince(cutoff, op.firstOrder);
 
@@ -120,10 +189,7 @@ export function evaluateFlags(
   const noHistory = daysSinceLastOrder === null;
   const ancientChurn = daysSinceLastOrder !== null && daysSinceLastOrder > 365;
   const noYtdData = op.ytdOrders === 0 && op.ytdRevenue === 0 && noHistory;
-  // These two flags come from the Power BI Note's own eligibility logic.
-  // Preserve them even when the RCA no-history / ancient-churn guard would
-  // otherwise suppress all RCA-evaluated flags.
-  if (noHistory || ancientChurn || noYtdData) return imported;
+  if (noHistory || ancientChurn || noYtdData) return [];
 
   const flags: string[] = [];
 
@@ -214,7 +280,13 @@ export function evaluateFlags(
     }
   }
 
-  if (flags.length > 0) return [...flags, ...imported];
+  // Buying Overdue — anchored at cutoff; ineligible/missing = no flag and
+  // does not block Healthy.
+  if (isBuyingOverdue(op.medianGapBd, op.bdSinceLastOrder)) {
+    flags.push(FLAG.BUYING_OVERDUE);
+  }
+
+  if (flags.length > 0) return flags;
 
   // Fallback: Nurture/Healthy only when every check that COULD have fired
   // actually ran with real data. A clinic that was ELIGIBLE for a check
@@ -222,13 +294,10 @@ export function evaluateFlags(
   // YTD orders or revenue) but whose input was missing/unverifiable is left
   // unflagged rather than called Healthy/Nurture — "missing must not
   // misclassify".
-  if (ghostedUnknown || vaUnknown || marginUnknown) return imported;
-  // Source alerts are already a substantive classification; don't append a
-  // mutually misleading Healthy/Nurture fallback beside them.
-  if (imported.length > 0) return imported;
+  if (ghostedUnknown || vaUnknown || marginUnknown) return [];
 
   if (daysSinceFirstOrder !== null && daysSinceFirstOrder <= 45) {
-    return [...imported, FLAG.NURTURE];
+    return [FLAG.NURTURE];
   }
-  return [...imported, FLAG.HEALTHY];
+  return [FLAG.HEALTHY];
 }
