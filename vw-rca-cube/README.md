@@ -1,3 +1,17 @@
+# Vibrant RCA dashboard
+
+Revenue root-cause dashboard. Three parts:
+
+- **Frontend** (`src/`, Vite + React) on Vercel.
+- **Convex** (`convex/`) holds app state only: logins, settings, plans, eligibility, insights, refresh log.
+- **Analytics service** (`engine/`, handlers in `analytics/`) serves everything computed from the data from an in-memory snapshot rebuilt from Cube.
+
+See [DEPLOY_VERCEL_CONVEX.md](DEPLOY_VERCEL_CONVEX.md) for deployment and [CUBE_MIGRATION.md](CUBE_MIGRATION.md) for the Cube side.
+
+---
+
+*Original template notes follow.*
+
 # Convex + Vite + React + shadcn/ui Starter
 
 A production-ready full-stack web app template.
