@@ -1,9 +1,9 @@
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import { GeoMap, GeoRsmTable, type GeoRow } from "./GeoMap";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api } from "../../convex/_generated/api";
+import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
@@ -387,7 +387,7 @@ export function AlertRail({
     password: pw(),
     teamLead: teamLead || undefined,
   });
-  const raiseQuestion = useAction(api.feed.raiseQuestion);
+  const raiseQuestion = useRcaAction(api.feed.raiseQuestion);
   const [open, setOpen] = useState(true);
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [tag, setTag] = useState<string>("all");
@@ -1100,10 +1100,9 @@ function scopePeriod(
 
 export function RcaDashboardPage() {
   const data = useRcaQuery(api.bridge.bridge, { password: pw() });
-  const refresh = useAction(api.refresh.refreshNow);
+  const refresh = useRcaAction(api.refresh.refreshNow);
   const setWindow = useMutation(api.config.setWindow);
   const setTarget = useMutation(api.config.setTarget);
-  const setRepWindowM = useMutation(api.config.setRepWindow);
   const clearRepWindowM = useMutation(api.config.clearRepWindow);
   const repWin = useQuery(api.config.repWindow, { password: pw() });
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
@@ -1452,18 +1451,24 @@ export function RcaDashboardPage() {
     (autoEndDraft !== null && autoEndDraft !== cfg.autoEnd) ||
     (modeDraft !== null && modeDraft !== base.mode);
 
+  // One shared window for everyone: Apply stores it and rebuilds the snapshot.
   const applyRepWindow = async () => {
     setBusy(true);
     try {
-      const result = await setRepWindowM({
+      await setWindow({
         password: pw(),
         currentStart: startDraft ?? cfg.currentStart,
         currentEnd: endDraft ?? cfg.currentEnd,
+        autoEnd: false,
+        lagDays: cfg.lagDays ?? 1,
+        baselineMode: base.mode,
       });
       setSelected("all");
       setStartDraft(null);
       setEndDraft(null);
-      toast.success(result.queued ? "Calculating your dates…" : "Already showing those dates.");
+      toast.success("Window saved. Recalculating for everyone…");
+      const res = await refresh({ password: pw() });
+      toast.success(`Recalculated — data through ${res.dataThrough}`);
     } catch (e) {
       toast.error(String(e).replace(/^.*Error: /, "").slice(0, 160));
     } finally {
@@ -1475,10 +1480,8 @@ export function RcaDashboardPage() {
     (endDraft !== null && endDraft !== cfg.currentEnd);
   const repCalculating = repWin?.status === "running";
 
-  // Per-person windows (Shyam, 2026-09-30): an admin's Apply recomputes only
-  // their own view, never the shared team window.
   const applyWindow = applyRepWindow;
-  void setWindow; void autoEndDraft; void setAutoEndDraft; void modeDraft; void setModeDraft;
+  void autoEndDraft; void setAutoEndDraft; void modeDraft; void setModeDraft;
 
   const doRefresh = async () => {
     setBusy(true);
@@ -1671,43 +1674,6 @@ export function RcaDashboardPage() {
                 value={provSearch}
                 onChange={e => setProvSearch(e.target.value)}
               />
-              <div className="rca-topwin">
-                <input
-                  type="date"
-                  aria-label="Window starts"
-                  value={startDraft ?? cfg.currentStart}
-                  onChange={e => setStartDraft(e.target.value)}
-                />
-                <span className="rca-topwin-dash">→</span>
-                <input
-                  type="date"
-                  aria-label="Window ends"
-                  value={endDraft ?? cfg.currentEnd}
-                  onChange={e => setEndDraft(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="rca-btn rca-btn-ghost"
-                  disabled={busy || !repDirty}
-                  onClick={applyRepWindow}
-                >
-                  {busy ? "Applying…" : "Apply"}
-                </button>
-                {repWin && repWin.status !== "none" ? (
-                  <button
-                    type="button"
-                    className="rca-btn rca-btn-ghost"
-                    title="Go back to the team's default dates"
-                    onClick={() => {
-                      setStartDraft(null);
-                      setEndDraft(null);
-                      void clearRepWindowM({ password: pw() });
-                    }}
-                  >
-                    Reset
-                  </button>
-                ) : null}
-              </div>
               <button
                 type="button"
                 className="rca-btn rca-btn-ghost rca-top-push"
@@ -3772,7 +3738,7 @@ function ClinicPanel({
       (r.stops ?? []).some(s => (!fam || s.family === fam) && (!ym || s.month === ym)),
     ).length;
   const filters = useClinicFilters(stopRows);
-  const plan = useQuery(api.plan.list, { password: pw() });
+  const plan = useRcaQuery(api.plan.list, { password: pw() });
   const current = useMemo(() => {
     const m = new Map<string, { revWeek: number; ordWeek: number }>();
     for (const c of plan?.current ?? []) m.set(c.clinic, c);

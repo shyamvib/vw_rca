@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getEmailPasswordSignInAvailable } from "@/lib/viktor-spaces-access/config";
-import { api } from "../../convex/_generated/api";
+import { api } from "@/lib/api";
 
 // eslint-disable-next-line complexity
 export function SettingsPage() {

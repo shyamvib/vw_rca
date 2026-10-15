@@ -27,6 +27,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { ConvexHttpClient } from "convex/browser";
 import { Host, loadExport } from "./host";
+import { verifyPassword } from "../analytics/password";
+import type { Mode } from "./builder";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR ?? "./data");
@@ -34,9 +36,9 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
 const ORIGINS = (process.env.ALLOWED_ORIGINS ?? "*").split(",").map(s => s.trim());
 const SNAP = path.join(DATA_DIR, "snapshot");
 
-type Loaded = { host: Host; builtAt: number; dataThrough: string | null; rows: Record<string, number> };
+type Loaded = { host: Host; builtAt: number; dataThrough: string | null; rows: Record<string, number>; total?: number };
 let current: Loaded | null = null;
-let building: { startedAt: number } | null = null;
+let building: { startedAt: number; done: Promise<void> } | null = null;
 let lastBuild: { ok: boolean; at: number; secs?: number; error?: string } | null = null;
 
 // ---- Convex bridge (app state: rep sessions) ------------------------------------------
@@ -88,7 +90,7 @@ async function syncAppState() {
 }
 
 // ---- snapshot lifecycle ----------------------------------------------------------------
-function readMeta(dir: string): { builtAt: number; dataThrough: string | null } {
+function readMeta(dir: string): { builtAt: number; dataThrough: string | null; rows?: number } {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "meta.json"), "utf8"));
   } catch {
@@ -103,15 +105,17 @@ async function loadSnapshot(dir: string): Promise<Loaded> {
   const meta = readMeta(dir);
   const rows: Record<string, number> = {};
   for (const [t, d] of Object.entries(db.dump())) rows[t] = d.length;
-  return { host, rows, ...meta };
+  const { rows: total, ...rest } = meta;
+  return { host, rows, total, ...rest };
 }
 
-function runBuilder(): Promise<{ secs: number }> {
+function runBuilder(mode: Mode = "daily"): Promise<{ secs: number }> {
   return new Promise((resolve, reject) => {
     const out = SNAP + ".new";
-    fs.rmSync(out, { recursive: true, force: true });
+    if (mode === "daily") fs.rmSync(out, { recursive: true, force: true });
     const t0 = Date.now();
-    const child = spawn(process.execPath, ["--import", "tsx", path.resolve(__dirname_, "builder.ts"), process.env.SEED_DIR ?? "", out], {
+    const args = [path.resolve(__dirname_, "builder.ts"), process.env.SEED_DIR ?? "", out, mode, SNAP];
+    const child = spawn(process.execPath, ["--import", "tsx", ...args], {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -126,9 +130,28 @@ function runBuilder(): Promise<{ secs: number }> {
 }
 const __dirname_ = path.dirname(new URL(import.meta.url).pathname);
 
-export async function rebuild(): Promise<void> {
-  if (building) return;
-  building = { startedAt: Date.now() };
+/** Rebuild the served snapshot from Cube; resolves when done. A rebuild already in flight is joined, not repeated. */
+export function rebuild(): Promise<void> {
+  if (building) return building.done;
+  const done = doRebuild().finally(() => {
+    building = null;
+  });
+  building = { startedAt: Date.now(), done };
+  return done;
+}
+
+/** Weekly / monthly insight snapshots: generated off the live window and pushed to Convex; nothing is swapped in. */
+async function runCadence(mode: Mode) {
+  if (building) await building.done;
+  try {
+    const { secs } = await runBuilder(mode);
+    console.log(`${mode} insight snapshot done in ${secs}s`);
+  } catch (e) {
+    console.error(`${mode} insight snapshot failed:`, String(e).slice(0, 300));
+  }
+}
+
+async function doRebuild(): Promise<void> {
   try {
     const { secs } = await runBuilder();
     const next = await loadSnapshot(SNAP + ".new");
@@ -141,9 +164,30 @@ export async function rebuild(): Promise<void> {
   } catch (e) {
     lastBuild = { ok: false, at: Date.now(), error: String(e).slice(0, 400) };
     console.error("rebuild failed:", e);
-  } finally {
-    building = null;
   }
+}
+
+// ---- schedule (UTC): daily refresh 13:00 (6am PT), weekly insights Mon 13:45, monthly insights 1st 14:00 ----
+function startScheduler() {
+  const fired = new Set<string>();
+  const tick = () => {
+    const d = new Date();
+    const day = d.toISOString().slice(0, 10);
+    const hm = d.getUTCHours() * 60 + d.getUTCMinutes();
+    const once = (key: string, fn: () => void) => {
+      if (fired.has(key)) return;
+      fired.add(key);
+      fn();
+    };
+    if (hm >= 13 * 60) once(`daily|${day}`, () => void rebuild());
+    if (d.getUTCDay() === 1 && hm >= 13 * 60 + 45) once(`weekly|${day}`, () => void runCadence("weekly"));
+    if (d.getUTCDate() === 1 && hm >= 14 * 60) once(`monthly|${day}`, () => void runCadence("monthly"));
+  };
+  // A snapshot older than a day (service was down at 13:00, first start) is rebuilt right away.
+  if (!current || Date.now() - current.builtAt > 26 * 3600_000) void rebuild();
+  // Mark today's daily slot as handled when a fresh snapshot is already loaded, so a restart after 13:00 doesn't rebuild twice.
+  if (current && Date.now() - current.builtAt < 26 * 3600_000) fired.add(`daily|${new Date().toISOString().slice(0, 10)}`);
+  setInterval(tick, 60_000);
 }
 
 // ---- http ------------------------------------------------------------------------------
@@ -194,6 +238,13 @@ const server = http.createServer(async (req, res) => {
       const { name, args } = await readBody(req);
       if (typeof name !== "string" || !args || typeof args !== "object") return send(res, 400, { error: "bad request" });
       const cred = String(args.password ?? "");
+      if (name === "refresh:refreshNow") {
+        // Manual Refresh button: team only. Rebuilds the snapshot from Cube (about a minute) and reports the result.
+        if (cred.startsWith("rs:") || !(await verifyPassword(cred))) return send(res, 403, { error: "Not authorized — wrong dashboard password." });
+        await rebuild();
+        if (lastBuild && !lastBuild.ok) return send(res, 500, { error: lastBuild.error ?? "refresh failed" });
+        return send(res, 200, { value: { dataThrough: current?.dataThrough ?? "", rows: current?.total ?? 0 } });
+      }
       if (cred.startsWith("rs:")) {
         const s = await repSession(cred);
         if (s) await mirrorRep(current, cred, s);
@@ -217,5 +268,6 @@ if (process.argv[1]?.endsWith("server.ts")) {
   }
   setInterval(() => void syncAppState(), 60_000);
   void syncAppState();
+  if (process.env.DISABLE_SCHEDULER !== "1") startScheduler();
   server.listen(PORT, () => console.log(`rca analytics service on :${PORT}`));
 }

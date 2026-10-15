@@ -69,25 +69,6 @@ export const resolveSession = internalQuery({
   handler: async (ctx, { credential }) => await resolveRepToken(ctx, credential),
 });
 
-/** Salesperson that owns a clinic in the current data generation. */
-export const clinicSales = internalQuery({
-  args: { clinic: v.string() },
-  returns: v.union(v.null(), v.string()),
-  handler: async (ctx, { clinic }) => {
-    const cfg = await ctx.db
-      .query("config")
-      .withIndex("by_key", q => q.eq("key", "main"))
-      .unique();
-    const gen = cfg?.gen ?? 0;
-    const rows = await ctx.db
-      .query("clinicMeta")
-      .withIndex("by_clinic", q => q.eq("clinic", clinic))
-      .collect();
-    const row = rows.find(r => (r.gen ?? 0) === gen) ?? rows[0];
-    return row?.sales ?? null;
-  },
-});
-
 /**
  * One sign-in for everyone. If the email has a rep account, only that
  * account's password works and the result is a rep session; otherwise the
@@ -184,30 +165,6 @@ export const list = query({
       });
     }
     return out.sort((a, b) => a.rep.localeCompare(b.rep));
-  },
-});
-
-/** Salesperson names present in the current data, for the admin dropdown. */
-export const repNames = query({
-  args: { adminPassword: v.string() },
-  returns: v.union(v.null(), v.array(v.string())),
-  handler: async (ctx, { adminPassword }) => {
-    if (!(await verifyAdminPassword(adminPassword))) return null;
-    const cfg = await ctx.db
-      .query("config")
-      .withIndex("by_key", q => q.eq("key", "main"))
-      .unique();
-    const gen = cfg?.gen ?? 0;
-    const clinics = await ctx.db
-      .query("clinicMeta")
-      .withIndex("by_gen", q => q.eq("gen", gen))
-      .collect();
-    const names = new Set<string>();
-    for (const c of clinics) {
-      const n = (c.sales ?? "").trim();
-      if (n && n !== "—") names.add(n);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b));
   },
 });
 

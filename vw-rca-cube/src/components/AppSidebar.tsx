@@ -4,7 +4,7 @@ import { LayoutDashboard, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { useTheme } from "@/contexts/ThemeContext";
 import { APP_NAME } from "@/lib/constants";
-import { api } from "../../convex/_generated/api";
+import { api } from "@/lib/api";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
   DropdownMenu,

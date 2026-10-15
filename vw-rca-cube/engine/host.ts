@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getFunctionName } from "convex/server";
-import schema from "../convex/schema";
+import schema from "../analytics/schema";
 import { MemDb, type Doc } from "./memdb";
 
 type AnyFn = ((...a: any[]) => any) & {
@@ -32,7 +32,11 @@ export const SERVED_MODULES = [
   "newClinicTouches",
   "families",
   "clinicalTouch",
+  "plan",
 ];
+
+/** Individual functions served from otherwise internal modules (the admin rep dropdown reads names from the snapshot). */
+const EXTRA_SERVED = ["repAuth:repNames"];
 
 /** Registered so handlers can runQuery them, but never served over /rpc. */
 const HELPER_MODULES = ["config", "repAuth", "ingest"];
@@ -85,13 +89,13 @@ export class Host {
 
   private async init() {
     for (const mod of this.modules) {
-      const m: Record<string, AnyFn> = await import(`../convex/${mod}.ts`);
+      const m: Record<string, AnyFn> = await import(`../analytics/${mod}.ts`);
       for (const [name, fn] of Object.entries(m)) {
         if (typeof fn !== "function" || !fn._handler) continue;
         const kind = fn.isQuery ? "query" : fn.isMutation ? "mutation" : fn.isAction ? "action" : null;
         if (kind && this.kinds.includes(kind)) {
           this.registry.set(`${mod}:${name}`, fn);
-          if (SERVED_MODULES.includes(mod) && (fn as any).isPublic) this.served.add(`${mod}:${name}`);
+          if ((SERVED_MODULES.includes(mod) && (fn as any).isPublic) || EXTRA_SERVED.includes(`${mod}:${name}`)) this.served.add(`${mod}:${name}`);
         }
       }
     }

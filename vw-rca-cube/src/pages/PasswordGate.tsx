@@ -7,7 +7,7 @@
  */
 import { useConvex } from "convex/react";
 import { type ReactNode, useState } from "react";
-import { api } from "../../convex/_generated/api";
+import { api } from "@/lib/api";
 import { clearPw, pw, setEmail, setPw, setRepSession } from "./gatePw";
 import "./rca.css";
 

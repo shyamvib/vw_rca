@@ -6,11 +6,11 @@
  * "Sales perf KPIs v2" + KPI library). Numbers come from convex/repView.ts.
  */
 const SHOW_SANKEY = true;
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { api } from "../../convex/_generated/api";
+import { api } from "@/lib/api";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import { pw } from "./gatePw";
 import "./repview.css";
@@ -1578,7 +1578,7 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
 }
 
 function Targets({ b }: { b: Book }) {
-  const plan = useQuery(api.plan.list, { password: pw() });
+  const plan = useRcaQuery(api.plan.list, { password: pw() });
   const save = useMutation(api.plan.setPlan);
   const planBy = new Map((plan?.plans ?? []).map(p => [p.clinic, p]));
   const [draft, setDraft] = useState<Record<string, number>>({});
@@ -3177,7 +3177,7 @@ function pstat(b: Book): string | null {
   return c.length ? c.map(([k2, n]) => `${n} ${k2.toLowerCase()}`).join(" · ") : null;
 }
 function usePG(sales?: string, periodId?: string) {
-  const run = useAction(api.productGrowth.productGrowth);
+  const run = useRcaAction(api.productGrowth.productGrowth);
   const eligQ = useQuery(api.productGrowth.eligible, sales ? { password: pw(), sales } : "skip");
   const [data, setData] = useState<{ clinics: PGClinic[] } | null>(null);
   useEffect(() => {
@@ -3376,7 +3376,7 @@ function LeadTable({ leads, onClose }: { leads: { id: string; name: string; date
 }
 
 function NewClinicFlow({ ids, onList, signups = 0, leadCount, onLeads }: { ids: string[][]; onList: (label: string, ids: string[]) => void; signups?: number; leadCount?: number; onLeads?: () => void }) {
-  const run = useAction(api.newClinicTouches.newClinicTouches);
+  const run = useRcaAction(api.newClinicTouches.newClinicTouches);
   const seq = useRcaQuery(api.newClinicFunnel.seqFor, ids[0]?.length ? { password: pw(), clinics: ids[0] } : "skip");
   const [touch, setTouch] = useState<Record<string, Touch & { ev?: { d: string; k: string }[] }> | null>(null);
   const key = (ids[0] ?? []).join(",");
