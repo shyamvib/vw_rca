@@ -234,3 +234,46 @@ export const genRows = internalAction({
     return out;
   },
 });
+
+/** JSON bytes per gen-scoped table for one generation (approximates stored size, minus indexes). */
+export const genBytesPage = internalQuery({
+  args: { table: v.string(), gen: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { table, gen, cursor }) => {
+    const res = await (ctx.db as any)
+      .query(table)
+      .withIndex("by_gen", (q: any) => q.eq("gen", gen))
+      .paginate({ numItems: 1500, cursor });
+    let bytes = 0;
+    for (const r of res.page) bytes += JSON.stringify(r).length;
+    return { count: res.page.length as number, bytes, isDone: res.isDone as boolean, cursor: res.continueCursor as string };
+  },
+});
+
+export const genBytes = internalAction({
+  args: {},
+  handler: async (ctx): Promise<Record<string, unknown>> => {
+    const cfg: { gen: number } = await ctx.runQuery(internal.diag.currentGen, {});
+    const out: Record<string, { rows: number; MiB: number }> = {};
+    let total = 0;
+    for (const table of ALL_GEN_TABLES) {
+      let cursor: string | null = null, rows = 0, bytes = 0;
+      for (;;) {
+        const r: { count: number; bytes: number; isDone: boolean; cursor: string } =
+          await ctx.runQuery(internal.diag.genBytesPage, { table, gen: cfg.gen, cursor });
+        rows += r.count; bytes += r.bytes;
+        if (r.isDone) break;
+        cursor = r.cursor;
+      }
+      total += bytes;
+      out[table] = { rows, MiB: +(bytes / 1048576).toFixed(2) };
+    }
+    return { gen: cfg.gen, totalMiB: +(total / 1048576).toFixed(1), tables: out };
+  },
+});
+
+const ALL_GEN_TABLES = [
+  "projection","dailyTotals","stateDaily","cohortDaily","cohortBaseline","stateBaseline",
+  "clinicMeta","clinicPeriod","leadPeriodBaseline","salesPeriodBaseline","geoPeriodBaseline",
+  "familyBaseline","familyPeriod","familyLeadSeries","familySalesSeries","channelDaily",
+  "channelBaseline","newLogoBaseline","vaClinicTarget","newClinicOrderSeq","signupDaily","signupLead",
+] as const;
