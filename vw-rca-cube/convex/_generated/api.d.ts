@@ -10,6 +10,7 @@
 
 import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
 import type * as access from "../access.js";
+import type * as appState from "../appState.js";
 import type * as auth from "../auth.js";
 import type * as bridge from "../bridge.js";
 import type * as clinicalTouch from "../clinicalTouch.js";
@@ -66,6 +67,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   ViktorSpacesEmail: typeof ViktorSpacesEmail;
   access: typeof access;
+  appState: typeof appState;
   auth: typeof auth;
   bridge: typeof bridge;
   clinicalTouch: typeof clinicalTouch;
