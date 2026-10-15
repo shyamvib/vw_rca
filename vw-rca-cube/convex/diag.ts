@@ -277,3 +277,53 @@ const ALL_GEN_TABLES = [
   "familyBaseline","familyPeriod","familyLeadSeries","familySalesSeries","channelDaily",
   "channelBaseline","newLogoBaseline","vaClinicTarget","newClinicOrderSeq","signupDaily","signupLead",
 ] as const;
+
+/** clinicPeriod rows/bytes by period kind (all, q:, m:, w:, d:) for the live generation. */
+export const periodKindPage = internalQuery({
+  args: { gen: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { gen, cursor }) => {
+    const res = await ctx.db
+      .query("clinicPeriod")
+      .withIndex("by_gen", q => q.eq("gen", gen))
+      .paginate({ numItems: 6000, cursor });
+    const kinds: Record<string, { rows: number; bytes: number; periods: string[] }> = {};
+    for (const r of res.page) {
+      const k = r.periodId === "all" ? "all" : r.periodId.slice(0, 2);
+      const e = (kinds[k] ??= { rows: 0, bytes: 0, periods: [] });
+      e.rows++;
+      e.bytes += JSON.stringify(r).length;
+      if (!e.periods.includes(r.periodId) && e.periods.length < 400) e.periods.push(r.periodId);
+    }
+    return { kinds, isDone: res.isDone, cursor: res.continueCursor };
+  },
+});
+
+export const periodKinds = internalAction({
+  args: {},
+  handler: async (ctx): Promise<Record<string, unknown>> => {
+    const cfg: { gen: number } = await ctx.runQuery(internal.diag.currentGen, {});
+    const agg: Record<string, { rows: number; bytes: number; periods: Set<string> }> = {};
+    let cursor: string | null = null;
+    for (;;) {
+      const r: {
+        kinds: Record<string, { rows: number; bytes: number; periods: string[] }>;
+        isDone: boolean;
+        cursor: string;
+      } = await ctx.runQuery(internal.diag.periodKindPage, { gen: cfg.gen, cursor });
+      for (const [k, x] of Object.entries(r.kinds)) {
+        const a = (agg[k] ??= { rows: 0, bytes: 0, periods: new Set() });
+        a.rows += x.rows;
+        a.bytes += x.bytes;
+        x.periods.forEach(p => a.periods.add(p));
+      }
+      if (r.isDone) break;
+      cursor = r.cursor;
+    }
+    return Object.fromEntries(
+      Object.entries(agg).map(([k, a]) => [
+        k,
+        { rows: a.rows, MiB: +(a.bytes / 1048576).toFixed(2), distinctPeriods: a.periods.size },
+      ]),
+    );
+  },
+});

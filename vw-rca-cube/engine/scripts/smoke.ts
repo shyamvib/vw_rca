@@ -1,0 +1,10 @@
+import { Host, loadExport } from "../host";
+const t0 = Date.now();
+const db = loadExport(process.argv[2]);
+console.log("loaded export in", Date.now() - t0, "ms");
+const host = new Host(db);
+await host.ready;
+console.log(host.names().length, "functions:", host.names().slice(0, 8).join(", "), "...");
+const t1 = Date.now();
+const r: any = await host.invoke("geo:geoSummary", { password: "vw-rca-2026", periodId: "all" });
+console.log("geoSummary ->", r.ready, "rows", r.rows?.length, "total", Math.round(r.total), "in", Date.now() - t1, "ms");
