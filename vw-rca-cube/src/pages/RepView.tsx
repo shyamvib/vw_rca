@@ -5,6 +5,7 @@
  * lenses, effort, leaderboard, weekly targets), Scorecard (6×4 KPI matrix from
  * "Sales perf KPIs v2" + KPI library). Numbers come from convex/repView.ts.
  */
+const SHOW_SANKEY = true;
 import { useAction, useMutation, useQuery } from "convex/react";
 import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
@@ -125,6 +126,14 @@ export function RepView(props: {
     setScWin({ periodId: pid, label });
     setTab("scorecard");
   };
+  // Prior same-shape window for the scorecard's WoW/MoM/QoQ chips (Shyam, 2026-10-13).
+  const scPrev = (() => {
+    for (const list of [days, weeks, months, quarters] as Array<Array<{ id: string; label: string }>>) {
+      const i = list.findIndex(x => x.id === scWin.periodId);
+      if (i > 0) return list[i - 1];
+    }
+    return undefined;
+  })();
   const bookQ = useQuery(
     api.repView.book,
     sales ? { password: pw(), periodId, sales } : "skip",
@@ -411,6 +420,8 @@ export function RepView(props: {
                 />
               ) : null}
               b={tb}
+              sales={sales}
+              listPeriod={periodId}
               wins={winsToday}
               health={health}
               onHealth={setHealth}
@@ -506,7 +517,7 @@ export function RepView(props: {
         ) : !scb ? (
           <div className="rv-loading">Loading scorecard…</div>
         ) : (
-          <ScorecardTab key={`${scWin.periodId}|${scFocus ?? ""}`} b={scb} fams={scFams} periodLabel={scWin.label} focus={scFocus} sales={sales} periodId={scWin.periodId} />
+          <ScorecardTab key={`${scWin.periodId}|${scFocus ?? ""}`} b={scb} fams={scFams} periodLabel={scWin.label} focus={scFocus} sales={sales} periodId={scWin.periodId} prevId={scPrev?.id} prevLabel={scPrev?.label} />
         )}
       </main>
       {clinicSel ? (
@@ -652,6 +663,7 @@ function paceTooEarly(p: Pace) {
 }
 
 function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pace | null; winLabel: string }) {
+  const [mStyle, setMStyle] = useMeterStyle();
   if (!pace) return <div className="rv-rail-sec rv-dim">Loading {winLabel}…</div>;
   if (paceTooEarly(pace))
     return (
@@ -682,7 +694,10 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
   const trackEnd = polar(0, RADIUS);
   return (
     <div className="rv-rail-sec">
-      <div className="rv-eyebrow">{winLabel} vs plan<Info k="gauge" /></div>
+      <div className="rv-eyebrow rv-eyebrow-row">{winLabel} vs plan<Info k="gauge" /><MeterToggle v={mStyle} set={setMStyle} /></div>
+      {mStyle === "bar" ? (
+        <div style={{ margin: "10px 0 6px" }}><MiniMeter soFar={pace.soFar} heading={pace.heading} plan={pace.plan} style="bar" big /></div>
+      ) : (<>
       <div className="rv-gauge-cap">
         Scale zoomed to {KT(vmin)}–{KT(vmax)} so the gap to plan reads clearly.
       </div>
@@ -716,6 +731,7 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
         <line x1={CX} y1={CY} x2={soFarTip.x} y2={soFarTip.y} className="rv-gauge-needle rv-gauge-needle-sofar" />
         <circle cx={CX} cy={CY} r={5} className="rv-gauge-hub" />
       </svg>
+      </>)}
       {lastPace && lastPace.plan ? (
         <p className="rv-dim rv-small" style={{ marginTop: 0 }}>
           Prior window finished at {P(lastPace.heading / lastPace.plan, 1)}.
@@ -788,7 +804,11 @@ function TodayTab({
   onScorecard,
   isRep,
   agenda,
+  sales,
+  listPeriod,
 }: {
+  sales: string;
+  listPeriod: string;
   agenda?: React.ReactNode;
   isRep: boolean;
   b: Book;
@@ -804,6 +824,8 @@ function TodayTab({
 }) {
   const first = b.callFirst[0];
   const f = b.funnel;
+  const [fl, setFl] = useState<{ label: string; ids: string[] } | null>(null);
+  const flQ = useQuery(api.repView.rowsByFocus, fl && fl.ids.length ? { password: pw(), periodId: listPeriod, sales, focus: `ids:${fl.ids.join(",")}` } : "skip");
   void wins;
   // Getting-to-order-4 window: only clinics stuckMin–stuckMax days since
   // their last order are "about to fall off", ranked order 4 → order 1
@@ -903,14 +925,26 @@ function TodayTab({
             [f.o2, "Placed order 2"],
             [f.o3, "Placed order 3"],
             [f.o4, "Placed order 4"],
-          ].map(([n, l], i) => (
-            <div key={l as string} className={`rv-step s${i}`}>
-              <b>{n}</b>
-              <span>{l}</span>
-              {i > 0 && f.o1 ? <em>{P((n as number) / f.o1)} of order 1</em> : null}
-            </div>
-          ))}
+          ].map(([n, l], i) => {
+            const ids: string[][] = f.ids ?? [[], [], [], []];
+            const reached = ids[i] ?? [];
+            return (
+              <div key={l as string} className={`rv-step s${i} rv-step-click`} role="button" tabIndex={0}
+                onClick={() => setFl({ label: `${l} · ${reached.length} clinics`, ids: reached })}
+                onKeyDown={e => e.key === "Enter" && setFl({ label: `${l} · ${reached.length} clinics`, ids: reached })}>
+                <b>{n}</b>
+                <span>{l}</span>
+                {i > 0 && f.o1 ? <em>{P((n as number) / f.o1)} of order 1</em> : null}
+
+              </div>
+            );
+          })}
         </div>
+        {fl ? (
+          <div id="nc-fl">
+            <FocusTable label={fl.label} rows={flQ?.ready ? flQ.rows : null} onClose={() => setFl(null)} periodId={listPeriod} sales={sales} />
+          </div>
+        ) : null}
         <div className="rv-sec-head">
           <div className="rv-dim rv-small">
             Due for their next order in the next {stuckWin.min}–{stuckWin.max} days, order 4 first:
@@ -1412,6 +1446,10 @@ function TrendPct({ value, label, title }: { value: number | null; label: string
 function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
   const [touchFilter, setTouchFilter] = useState<"" | "touched" | "untouched">("");
   const [clinicalFilter, setClinicalFilter] = useState<"" | "touched" | "untouched">("");
+  const [fview, setFview] = useState<"funnel" | "sankey">("funnel");
+  const [rl, setRl] = useState<{ label: string; ids: string[] } | null>(null);
+  const [showLeads, setShowLeads] = useState(false);
+  const rlQ = useQuery(api.repView.rowsByFocus, rl && rl.ids.length ? { password: pw(), periodId, sales, focus: `ids:${rl.ids.join(",")}` } : "skip");
   const data = useQuery(api.newClinicFunnel.orderRetentionFunnel, {
     password: pw(),
     periodId,
@@ -1428,6 +1466,8 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
     ...data.stages.map(s => ({
       label: STAGE_LABEL[s.n - 1],
       n: s.clinics,
+      ids: s.ids,
+      next: data.stages.find(x => x.n === s.n + 1)?.ids,
       pct: data.signups ? Math.round((s.clinics / data.signups) * 100) : 0,
       medianDays: s.medianDays,
       totalRevenue: s.totalRevenue,
@@ -1478,7 +1518,12 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
           </button>
         ))}
       </div>
-      <div className="rv-retention-funnel">
+      <div className="rv-chips" role="group" aria-label="Funnel or Sankey">
+        {(["funnel", "sankey"] as const).map(v => (
+          <button key={v} type="button" className={fview === v ? "is-on" : ""} onClick={() => setFview(v)}>{v === "funnel" ? "Funnel" : "Sankey (with touches)"}</button>
+        ))}
+      </div>
+      {fview === "funnel" ? <div className="rv-retention-funnel">
         {bars.map((r, i) => (
           <div className="rv-rf-row" key={r.label}>
             <div className="rv-rf-label">
@@ -1487,7 +1532,7 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
                 <span className="rv-dim rv-small">median {Math.round(r.medianDays)}d</span>
               ) : null}
             </div>
-            <div className="rv-rf-bar-track">
+            <div className="rv-rf-bar-track rv-step-click" role="button" tabIndex={0} onClick={() => "ids" in r && r.ids && setRl({ label: `${r.label} · ${r.ids.length} clinics`, ids: r.ids })}>
               <div className="rv-rf-bar" style={{ width: `${Math.max(2, (r.n / top) * 100)}%` }}>
                 <b>{r.n.toLocaleString()}</b>
               </div>
@@ -1499,6 +1544,12 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
                   {K(r.totalRevenue)} · rev {r.medianRevenue !== undefined ? K(Math.round(r.medianRevenue)) : "—"} median
                 </span>
               ) : null}
+              {i === 0 && data.noOrderLeads?.length ? (
+                <button type="button" className="rv-drop" onClick={() => { setRl(null); setShowLeads(true); }}>↘ {data.noOrderLeads.length} signed up, no order yet</button>
+              ) : null}
+              {"ids" in r && r.ids && r.next ? (() => { const nx = new Set(r.next); const dr = r.ids.filter(c => !nx.has(c)); const nn = Number(r.label.slice(6)) + 1; return (
+                <button type="button" className="rv-drop" onClick={() => setRl({ label: `Placed order ${nn - 1} but not order ${nn} · ${dr.length} clinics`, ids: dr })}>↘ {dr.length} didn't place order {nn}</button>
+              ); })() : null}
               {"momPct" in r ? (
                 <span className="rv-dim rv-small">
                   <TrendPct value={r.momPct} label="MoM" title={`${data.trendPrevM} → ${data.trendCurM}`} />
@@ -1509,7 +1560,10 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
+      {fview === "sankey" && SHOW_SANKEY && data.stages.length >= 4 ? <NewClinicFlow signups={data.signups} leadCount={data.noOrderLeads?.length} onLeads={() => { setRl(null); setShowLeads(true); }} ids={data.stages.slice(0, 4).map(x => x.ids)} onList={(label, ids) => { setShowLeads(false); setRl({ label: `${label} · ${ids.length} clinics`, ids }); }} /> : null}
+      {showLeads && !rl ? <LeadTable leads={data.noOrderLeads ?? []} onClose={() => setShowLeads(false)} /> : null}
+      {rl ? <FocusTable label={rl.label} rows={rlQ?.ready ? rlQ.rows : null} onClose={() => setRl(null)} periodId={periodId} sales={sales} /> : null}
       <p className="rv-dim rv-small" style={{ marginTop: 12 }}>
         Signup = leads assigned to you in this window (Power BI). Order stages are cumulative new-clinic
         counts reaching that order, ranked order 1 → 5; each bar's % is of signups. The call/meeting filter
@@ -1585,7 +1639,7 @@ function Targets({ b }: { b: Book }) {
   );
 }
 
-type Cell = { label: string; value: string; sub: string; tone: Tone; ids?: string[] };
+type Cell = { label: string; value: string; sub: string; tone: Tone; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
 const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
@@ -1614,6 +1668,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
           value: K(k.newRevenue),
           sub: `${k.newCustomers} new clinics · ${P(k.newRevShare)} of revenue`,
           ids: b.newIds,
+          n: k.newRevenue, u: "$", flow: true, better: 1,
           tone: "act",
         },
         NA("Pipeline", "needs CRM pipeline data"),
@@ -1628,10 +1683,11 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
           label: "AOV",
           value: k.aov ? K(k.aov) : "—",
           sub: `${SK((k.aov ?? 0) - k.baseAov)} vs baseline`,
+          ids: b.activeIds, n: k.aov, u: "$", better: 1,
           tone: vsTone(k.aov && k.baseAov ? k.aov / k.baseAov : null, 0.97),
         },
         NA("Stack penetration", "needs per-order panel mix"),
-        { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids },
+        { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids, n: k.lowAov, u: "n", better: -1 },
         NA("Stack mix", "needs per-order panel mix"),
       ],
     },
@@ -1643,6 +1699,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
               label: "Target Product Orders",
               value: hz.orders.toFixed(0),
               sub: `${hz.family} · ${hz.expectedOrders.toFixed(0)} expected`,
+              ids: pg?.buyerIds, n: hz.orders, u: "n", flow: true, better: 1,
               tone: vsTone(hz.expectedOrders ? hz.orders / hz.expectedOrders : null),
             }
           : NA("Target Product Orders", `no ${pg?.family ?? "Hormone Zoomer"} orders in this book`),
@@ -1651,7 +1708,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
               label: "Product adoption",
               value: P(pg.adoption),
               sub: `${pg.adoptN} of ${pg.newN} new clinics ordered ${pg.family}`,
-              ids: pg.adoptIds,
+              ids: pg.adoptIds, n: pg.adoption, u: "%", better: 1,
               tone: pg.adoption === null ? "na" : pg.adoption >= 0.5 ? "good" : pg.adoption >= 0.3 ? "watch" : "bad",
             }
           : NA("Product adoption", "loading product mix…"),
@@ -1669,7 +1726,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
               label: "Repeat product rate",
               value: P(pg.repeat),
               sub: `${pg.repN} of ${pg.pairN} ${pg.family} clinics ordered it 2+ times`,
-              ids: pg.repIds,
+              ids: pg.repIds, n: pg.repeat, u: "%", better: 1,
               tone: pg.repeat === null ? "na" : pg.repeat >= 0.5 ? "good" : pg.repeat >= 0.35 ? "watch" : "bad",
             }
           : NA("Repeat product rate", "loading product mix…"),
@@ -1682,21 +1739,22 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
           label: "Revenue Retention",
           value: P(k.revenueRetention),
           sub: "existing clinics' baseline $ kept",
+          ids: b.existingIds, n: k.revenueRetention, u: "%", better: 1,
           tone: vsTone(k.revenueRetention, 0.9),
         },
         {
           label: "Repeat ordering",
           value: P(k.repeatRate),
           sub: `${k.repeatCount} of ${k.activeCount} ordered 2+ times`,
-          ids: k.repeatIds,
+          ids: k.repeatIds, n: k.repeatRate, u: "%", better: 1,
           tone: k.repeatRate === null ? "na" : k.repeatRate >= 0.7 ? "good" : k.repeatRate >= 0.55 ? "watch" : "bad",
         },
-        { label: "At-risk customers", value: String(k.atRisk), sub: `${K(k.atRiskRev)} below baseline`, tone: "act", ids: b.opp?.atRisk?.ids },
+        { label: "At-risk customers", value: String(k.atRisk), sub: `${K(k.atRiskRev)} below baseline`, tone: "act", ids: b.opp?.atRisk?.ids, n: k.atRisk, u: "n", better: -1 },
         {
           label: "Customer churn",
           value: P(k.churnRate, 1),
           sub: `${k.churned} of ${k.existingCount} clinics`,
-          ids: k.churnedIds,
+          ids: k.churnedIds, n: k.churnRate, u: "%", better: -1,
           tone: k.churnRate === null ? "na" : k.churnRate <= 0.05 ? "good" : k.churnRate <= 0.1 ? "watch" : "bad",
         },
       ],
@@ -1704,14 +1762,14 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
     {
       pillar: "Expansion",
       cells: [
-        { label: "Expansion Revenue", value: SK(k.expansionRev), sub: `${k.growing} clinics growing`, tone: "good", ids: b.opp?.growing?.ids },
+        { label: "Expansion Revenue", value: SK(k.expansionRev), sub: `${k.growing} clinics growing`, tone: "good", ids: b.opp?.growing?.ids, n: k.expansionRev, u: "$", flow: true, better: 1 },
         pg
-          ? { label: "Products per customer", value: pg.ppcRange, sub: `families per clinic (middle 50%) · ${pg.activeN} clinics`, ids: pg.activeIds, tone: pg.ppc === null ? "na" : pg.ppc >= 2 ? "good" : pg.ppc >= 1.5 ? "watch" : "bad" }
+          ? { label: "Products per customer", value: pg.ppcRange, sub: `families per clinic (middle 50%) · ${pg.activeN} clinics`, ids: pg.activeIds, n: pg.ppc, u: "n", better: 1, tone: pg.ppc === null ? "na" : pg.ppc >= 2 ? "good" : pg.ppc >= 1.5 ? "watch" : "bad" }
           : NA("Products per customer", "loading product mix…"),
         pg
           ? { label: "Cross-sell candidates", value: String(pg.xs.length), sub: `${K(pg.xsUp)} upside · active clinics on 1–2 families`, tone: "act", ids: pg.xs.map(x => x.clinic) }
           : NA("Cross-sell candidates", "loading product mix…"),
-        { label: "NRR", value: P(k.nrr), sub: "existing clinics vs baseline", tone: vsTone(k.nrr) },
+        { label: "NRR", value: P(k.nrr), sub: "existing clinics vs baseline", tone: vsTone(k.nrr), ids: b.existingIds, n: k.nrr, u: "%", better: 1 },
       ],
     },
     {
@@ -1721,19 +1779,22 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
           label: "Net Revenue Growth",
           value: SP(k.netGrowth ?? 0),
           sub: `${SK(b.totals.delta)} vs baseline`,
+          ids: b.allIds, n: k.netGrowth, u: "%", better: 1,
           tone: vsTone(k.netGrowth === null ? null : 1 + k.netGrowth),
         },
         {
           label: "Growth run-rate",
           value: k.runRate ? `${K(k.runRate)}/wk` : "—",
           sub: `baseline ${K(k.runRatePlan ?? 0)}/wk`,
+          ids: b.allIds, n: k.runRate, u: "$", better: 1,
           tone: vsTone(k.runRate && k.runRatePlan ? k.runRate / k.runRatePlan : null),
         },
-        { label: "Revenue opportunity", value: K(k.opportunity), sub: "at-risk + low-AOV gap", tone: "act" },
+        { label: "Revenue opportunity", value: K(k.opportunity), sub: "at-risk + low-AOV gap", tone: "act", ids: b.oppIds },
         {
           label: "Growth decomposition",
           value: `${SK(k.volume)} / ${SK(k.aovEffect)}`,
           sub: "volume / AOV",
+          ids: b.allIds,
           tone: "act",
         },
       ],
@@ -1749,8 +1810,12 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
   return out;
 }
 
-function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string }) {
+function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
   const k = b.kpi;
+  const prevQ = useQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
+  const scPaceQ = useQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const prevB = prevQ?.ready ? prevQ : null;
+  const cmpTag = prevId ? ({ d: "DoD", w: "WoW", m: "MoM", q: "QoQ" } as Record<string, string>)[prevId.split(":")[0]] ?? "vs prior" : null;
   const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
   const totalRev = b.totals.actual;
   const pgd = usePG(sales, periodId);
@@ -1764,6 +1829,34 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Boo
   const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
   const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
   const rows = scoreRows(b, fams, pg);
+  const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
+  const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
+  const deltaOf = (c: Cell) => {
+    const pc = prevCell(c.label);
+    if (c.n == null || pc?.n == null || !cmpTag || !prevB) return null;
+    const cur = c.flow ? c.n / Math.max(1, b.days) : c.n;
+    const prv = c.flow ? pc.n / Math.max(1, prevB.days) : pc.n;
+    if (c.u === "%") {
+      const d = (cur - prv) * 100;
+      return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(1)}pt`, good: c.better ? Math.sign(d) === c.better : null };
+    }
+    if (!prv) return null;
+    const d = cur / prv - 1;
+    return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d * 100).toFixed(1)}%`, good: c.better ? Math.sign(d) === c.better : null };
+  };
+  const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
+  const scale = scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1;
+  const newCo = (b.lenses?.cohorts ?? []).find((c: Book) => /new/i.test(c.key));
+  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string }> = [
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue, heading: k.newRevenue * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline" },
+    { pillar: "AOV", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
+    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: "expected" }] : []),
+    { pillar: "Retention", label: "Revenue Retention", soFar: (k.revenueRetention ?? 0) * 100, heading: (k.revenueRetention ?? 0) * 100, plan: 100, fmt: (n: number) => `${n.toFixed(1)}%`, planLbl: "100% kept" },
+    { pillar: "Expansion", label: "Expansion Revenue", soFar: k.expansionRev, heading: k.expansionRev * scale, plan: (k.revenueChurn + k.contraction) * scale, fmt: K, planLbl: "losses to offset" },
+    ...(scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
+  ];
+  const [mStyle, setMStyle] = useMeterStyle();
+  const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
   const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
   const [pillar, setPillar] = useState(focusPillar ?? "Combined");
   useEffect(() => {
@@ -1804,12 +1897,36 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Boo
           <span><i className="na" />Not in data yet</span>
         </div>
       </div>
-      {pillar === "Product Growth" && famList.length ? (
-        <div className="rv-famchips">
-          <span className="rv-dim rv-small">Product Growth for:</span>
-          {famList.map(f => (
-            <button type="button" key={f} className={f === family ? "on" : ""} onClick={() => setWsFam(f)}>{f}</button>
-          ))}
+      <div className="rv-sec-head" style={{ marginTop: 8 }}>
+        <h2>Outcomes vs heading to &amp; plan</h2>
+        <MeterToggle v={mStyle} set={setMStyle} />
+      </div>
+      <div className="rv-outmeters">
+        {outcomeMeters.map(m => (
+          <button type="button" key={m.pillar} className={`rv-outm${pillar === m.pillar ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
+            <div className="rv-eyebrow">{m.pillar}</div>
+            <b>{m.label}</b>
+            <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} />
+            <div className="rv-outm-nums">
+              <span><i className="sw sofar" />So far <b>{m.fmt(m.soFar)}</b></span>
+              <span><i className="sw heading" />Heading <b>{m.fmt(m.heading)}</b></span>
+              <span><i className="sw plan" />{m.planLbl} <b>{m.fmt(m.plan)}</b></span>
+            </div>
+          </button>
+        ))}
+      </div>
+      {pillar === "Product Growth" && famCards.length ? (
+        <div className="rv-famcards">
+          {famCards.map(f => {
+            const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
+            return (
+              <button type="button" key={f.family} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
+                <span>{f.family}</span>
+                <b>{f.orders.toFixed(0)} orders</b>
+                <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
+              </button>
+            );
+          })}
         </div>
       ) : null}
       <div className="rv-matrix">
@@ -1843,6 +1960,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Boo
                 </div>
                 <div className="rv-mx-v">{c.value}</div>
                 <div className="rv-mx-s">{c.sub}</div>
+                {(() => { const d = deltaOf(c); return d ? <div className={`rv-mx-d ${d.good === null ? "" : d.good ? "up" : "dn"}`}>{cmpTag} {d.txt}{c.flow ? " /day" : ""} <span>vs {prevLabel}</span></div> : null; })()}
               </div>
             ))}
           </div>
@@ -1876,7 +1994,6 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Boo
       {pillar === "Product Growth" ? (
         <>
           <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />
-          <ProductFamilies fams={fams} />
         </>
       ) : null}
       {pillar === "Expansion" ? <CrossSellList pg={pg} /> : null}
@@ -1884,7 +2001,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId }: { b: Boo
   );
 }
 
-function ProductFamilies({ fams }: { fams: Wins }) {
+export function ProductFamilies({ fams }: { fams: Wins }) {
   const all: Fam[] = fams?.ready ? fams.all : [];
   if (!fams?.ready) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product families…</p>;
   if (all.length === 0) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>No product-family orders in this window.</p>;
@@ -3051,7 +3168,7 @@ type PGClinic = { clinic: string; name: string; win: Record<string, number>; lif
 type PGStats = {
   family: string; adoption: number | null; adoptN: number; newN: number;
   repeat: number | null; repN: number; pairN: number; wsN: number; eligN: number; wsIds: string[];
-  ppc: number | null; ppcRange: string; activeN: number; adoptIds: string[]; repIds: string[]; activeIds: string[]; xs: XSell[]; xsUp: number;
+  ppc: number | null; ppcRange: string; activeN: number; adoptIds: string[]; repIds: string[]; activeIds: string[]; buyerIds: string[]; xs: XSell[]; xsUp: number;
 };
 type XSell = { clinic: string; name: string; has: string[]; suggest: string; up: number; rev: number };
 function pstat(b: Book): string | null {
@@ -3116,7 +3233,7 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   return {
     family, adoption: newOrd.length ? adoptN / newOrd.length : null, adoptN, newN: newOrd.length,
     repeat: pairN ? repN / pairN : null, repN, pairN, wsN: wsIds.length, eligN: el.length, wsIds,
-    ppc, ppcRange, activeN: active.length, adoptIds, repIds, activeIds, xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
+    ppc, ppcRange, activeN: active.length, adoptIds, repIds, activeIds, buyerIds: buyers.map(c => c.clinic), xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
   };
 }
 function WhitespacePlanner({ sales, clinics, elig, family, famList, setFamily }: {
@@ -3184,3 +3301,153 @@ function CrossSellList({ pg }: { pg: PGStats | null }) {
     </div>
   );
 }
+
+
+/* ── Dial / progress-bar meters (Shyam, 2026-10-13) ───────────────────── */
+type MeterStyle = "dial" | "bar";
+const meterStore = { v: ((typeof localStorage !== "undefined" && localStorage.getItem("rv-meter")) || "dial") as MeterStyle, subs: new Set<() => void>() };
+function useMeterStyle(): [MeterStyle, (v: MeterStyle) => void] {
+  const v = useSyncExternalStore(f => { meterStore.subs.add(f); return () => { meterStore.subs.delete(f); }; }, () => meterStore.v);
+  return [v, (n: MeterStyle) => { meterStore.v = n; try { localStorage.setItem("rv-meter", n); } catch { /* ignore */ } meterStore.subs.forEach(f => f()); }];
+}
+function MeterToggle({ v, set }: { v: MeterStyle; set: (v: MeterStyle) => void }) {
+  return (
+    <span className="rv-mtoggle" onClick={e => e.stopPropagation()}>
+      <button type="button" className={v === "dial" ? "is-on" : ""} onClick={() => set("dial")}>Dial</button>
+      <button type="button" className={v === "bar" ? "is-on" : ""} onClick={() => set("bar")}>Bar</button>
+    </span>
+  );
+}
+function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; heading: number; plan: number; style: MeterStyle; big?: boolean }) {
+  const hi = Math.max(plan, heading, soFar, 1e-9) * 1.05;
+  const tone = plan ? (heading >= plan ? "good" : heading >= plan * 0.95 ? "watch" : "bad") : "na";
+  if (style === "bar") {
+    const pct = (n: number) => `${Math.max(0, Math.min(100, (n / hi) * 100))}%`;
+    return (
+      <div className={`rv-mbar ${tone}${big ? " big" : ""}`}>
+        <i className="fill" style={{ width: pct(soFar) }} />
+        <i className="head" style={{ left: pct(heading) }} />
+        <i className="plan" style={{ left: pct(plan) }} />
+      </div>
+    );
+  }
+  const R = 38, cx = 50, cy = 48;
+  const lo = Math.max(0, Math.min(plan, heading, soFar) * 0.6);
+  const ang = (n: number) => Math.PI - Math.max(0, Math.min(1, (n - lo) / (hi - lo || 1))) * Math.PI;
+  const pt = (n: number, r: number) => ({ x: cx + r * Math.cos(ang(n)), y: cy - r * Math.sin(ang(n)) });
+  const sf = pt(soFar, R - 6), hd = pt(heading, R - 6), pl = pt(plan, R);
+  return (
+    <svg viewBox="0 0 100 56" className={`rv-mdial ${tone}`}>
+      <path d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`} className="trk" />
+      <circle cx={pl.x} cy={pl.y} r={3.5} className="pl" />
+      <line x1={cx} y1={cy} x2={hd.x} y2={hd.y} className="hd" />
+      <line x1={cx} y1={cy} x2={sf.x} y2={sf.y} className="sf" />
+      <circle cx={cx} cy={cy} r={3} className="hub" />
+    </svg>
+  );
+}
+
+/* ── New-clinic drop-off + touch Sankey (Shyam, 2026-10-13) ─────────────── */
+type Touch = { call: number; meeting: number; consult: number; vct: number };
+function LeadTable({ leads, onClose }: { leads: { id: string; name: string; date: string; state: string | null; practice: string | null }[]; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const days = (d: string) => Math.round((Date.parse(today) - Date.parse(d)) / 864e5);
+  const rows = leads.filter(l => !q || `${l.name} ${l.practice ?? ""} ${l.state ?? ""}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="rca-card rca-drill rv-focus-table">
+      <div className="rca-drill-head">
+        <div>
+          <div className="rca-eyebrow">Signups behind this number</div>
+          <div className="rca-drill-title">Signed up, no order yet · {leads.length} signups</div>
+          <div className="rca-sub">Signed up in this window and no order by the window end</div>
+        </div>
+        <div className="rca-drill-actions"><button type="button" className="rca-tab" onClick={onClose}>close</button></div>
+      </div>
+      <input className="rca-search-input rca-filter-search" placeholder="Find signup…" value={q} onChange={e => setQ(e.target.value)} />
+      <table className="rca-table"><thead><tr><th>Signup</th><th>Practice</th><th>State</th><th>Signed up</th><th>Days since</th></tr></thead>
+        <tbody>{rows.slice(0, 300).map(l => (
+          <tr key={l.id}><td>{l.name}</td><td>{l.practice ?? "—"}</td><td>{l.state ?? "—"}</td><td>{l.date}</td><td>{days(l.date)}</td></tr>
+        ))}</tbody></table>
+      {rows.length > 300 ? <p className="rv-dim rv-small">Showing the 300 most recent of {rows.length}.</p> : null}
+    </div>
+  );
+}
+
+function NewClinicFlow({ ids, onList, signups = 0, leadCount, onLeads }: { ids: string[][]; onList: (label: string, ids: string[]) => void; signups?: number; leadCount?: number; onLeads?: () => void }) {
+  const run = useAction(api.newClinicTouches.newClinicTouches);
+  const seq = useQuery(api.newClinicFunnel.seqFor, ids[0]?.length ? { password: pw(), clinics: ids[0] } : "skip");
+  const [touch, setTouch] = useState<Record<string, Touch & { ev?: { d: string; k: string }[] }> | null>(null);
+  const key = (ids[0] ?? []).join(",");
+  useEffect(() => {
+    let live = true;
+    setTouch(null);
+    if (!ids[0]?.length) { setTouch({}); return; }
+    run({ password: pw(), clinics: ids[0] }).then(r => live && setTouch(r)).catch(() => live && setTouch({}));
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, run]);
+  if (!ids[0]?.length) return null;
+  if (!touch || !seq) return <p className="rv-dim rv-small">Loading calls, meetings, consults and VCTs…</p>;
+  const reach = (c: string) => (ids[3].includes(c) ? 4 : ids[2].includes(c) ? 3 : ids[1].includes(c) ? 2 : 1);
+  const RANK: Record<string, number> = { vct: 4, consult: 3, meeting: 2, call: 1 };
+  const LBL = ["No touch", "Call", "Meeting", "Clinical consult", "VCT"];
+  // strongest touch in (from, to]; from undefined = open start, to undefined = open end
+  const tIn = (c: string, from?: string, to?: string) => {
+    let best = 0;
+    for (const e of touch[c]?.ev ?? []) if ((!from || e.d > from) && (!to || e.d <= to)) best = Math.max(best, RANK[e.k] ?? 0);
+    return LBL[best];
+  };
+  // columns: Signup | touch | Order 1 | touch | Order 2 | touch | Order 3 | touch | Order 4
+  const cols: string[][] = [["Signup"], [...LBL.slice().reverse(), "No order yet"], ["Order 1", "Didn't place order 1"]];
+  for (let n = 2; n <= 4; n++) cols.push(LBL.slice().reverse(), [`Order ${n}`, `Didn't place order ${n}`]);
+  const paths = new Map<string, (string | null)[]>();
+  for (const c of ids[0]) {
+    const od = seq[c]?.orders ?? [];
+    const r = reach(c);
+    const p: (string | null)[] = ["Signup", tIn(c, seq[c]?.signup ? addDaysStr(seq[c]!.signup!, -1) : undefined, od[0]), "Order 1"];
+    for (let n = 2; n <= 4; n++) {
+      if (r < n - 1) { p.push(null, null); continue; }
+      p.push(tIn(c, od[n - 2], r >= n ? od[n - 1] : undefined), r >= n ? `Order ${n}` : `Didn't place order ${n}`);
+    }
+    paths.set(c, p);
+  }
+  const leads = Array.from({ length: leadCount ?? Math.max(0, signups - ids[0].length) }, (_, i) => `__lead${i}`);
+  for (const c of leads) paths.set(c, ["Signup", "No order yet", "Didn't place order 1", null, null, null, null, null, null]);
+  const all = [...ids[0], ...leads];
+  const total = all.length;
+  const W = 1000, H = 300, nw = 10, gap = 6;
+  const colX = (i: number) => 20 + i * ((W - 140) / (cols.length - 1));
+  const unit = (H - gap * 5) / total;
+  const members = cols.map((col, ci) => col.map(nm => all.filter(c => paths.get(c)![ci] === nm)));
+  const real = (l: string[]) => l.filter(c => !c.startsWith("__"));
+  const pos = members.map(col => { let y = 0; return col.map(m => { const r = { y, h: m.length * unit }; y += m.length ? m.length * unit + gap : 0; return r; }); });
+  const out: React.ReactNode[] = [];
+  for (let ci = 0; ci < cols.length - 1; ci++) {
+    const sOff = pos[ci].map(n => n.y), tOff = pos[ci + 1].map(n => n.y);
+    cols[ci].forEach((sn, si) => cols[ci + 1].forEach((tn, ti) => {
+      const list = members[ci][si].filter(c => paths.get(c)![ci + 1] === tn);
+      if (!list.length) return;
+      const h = list.length * unit, y0 = sOff[si] + h / 2, y1 = tOff[ti] + h / 2;
+      sOff[si] += h; tOff[ti] += h;
+      const x0 = colX(ci) + nw, x1 = colX(ci + 1);
+      const drop = tn.startsWith("Didn't");
+      out.push(<path key={`${ci}-${sn}-${tn}`} d={`M${x0},${y0} C${(x0 + x1) / 2},${y0} ${(x0 + x1) / 2},${y1} ${x1},${y1}`} className={`rv-sk-link${drop ? " o0" : tn.startsWith("Order") ? " o3" : ""}`} strokeWidth={Math.max(1, h)} onClick={() => real(list).length ? onList(`${sn} → ${tn}`, real(list)) : list.length && onLeads?.()}><title>{`${sn} → ${tn}: ${list.length} clinics`}</title></path>);
+    }));
+  }
+  return (
+    <div className="rv-sankey">
+      <div className="rv-dim rv-small">Signup → order 1 → order 2 → order 3 → order 4, with the strongest touch (VCT &gt; consult &gt; meeting &gt; call) between each step. Red = didn't place the next order. Click a band or node for the clinics.</div>
+      <svg viewBox={`0 0 ${W} ${H + 20}`} width="100%">
+        {out}
+        {cols.map((col, ci) => col.map((nm, i) => members[ci][i].length ? (
+          <g key={`${ci}${nm}`} className={`rv-sk-node${nm.startsWith("Didn't") ? " o0" : nm.startsWith("Order") || nm === "Signup" ? " o3" : ""}`} onClick={() => real(members[ci][i]).length ? onList(nm, real(members[ci][i])) : members[ci][i].length && onLeads?.()}>
+            <rect x={colX(ci)} y={pos[ci][i].y} width={nw} height={Math.max(2, pos[ci][i].h)} />
+            <text x={colX(ci) + nw + 3} y={pos[ci][i].y + pos[ci][i].h / 2 + 4} fontSize="10">{nm.replace("Didn't place order", "Dropped")} ({members[ci][i].length})</text>
+          </g>
+        ) : null))}
+      </svg>
+    </div>
+  );
+}
+const addDaysStr = (d: string, n: number) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };

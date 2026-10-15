@@ -3749,7 +3749,28 @@ function ClinicPanel({
     teamLead,
     sales,
   });
-  const filters = useClinicFilters(data?.rows ?? []);
+  const isStops = !!focus?.startsWith("famstops");
+  const [stopFam, setStopFam] = useState("");
+  const [stopMonth, setStopMonth] = useState("");
+  const stopRows = useMemo(() => {
+    const all = (data?.rows ?? []) as (DrillClinic & StopFields)[];
+    if (!isStops) return all;
+    return all.filter(r =>
+      (r.stops ?? []).some(
+        s => (!stopFam || s.family === stopFam) && (!stopMonth || s.month === stopMonth),
+      ),
+    );
+  }, [data, isStops, stopFam, stopMonth]);
+  const stopMonths = useMemo(
+    () =>
+      [...new Set(((data?.rows ?? []) as StopFields[]).flatMap(r => (r.stops ?? []).map(s => s.month)))].sort(),
+    [data],
+  );
+  const stopCount = (fam: string, ym: string) =>
+    ((data?.rows ?? []) as StopFields[]).filter(r =>
+      (r.stops ?? []).some(s => (!fam || s.family === fam) && (!ym || s.month === ym)),
+    ).length;
+  const filters = useClinicFilters(stopRows);
   const plan = useQuery(api.plan.list, { password: pw() });
   const current = useMemo(() => {
     const m = new Map<string, { revWeek: number; ordWeek: number }>();
@@ -3788,9 +3809,10 @@ function ClinicPanel({
       "baseline_aov",
       "bundle_delta",
       "attributed_metric",
+      ...(isStops ? ["stopped_families", "stopped_in", "last_order", "days_since", "prior_90d_orders"] : []),
     ];
     const lines = [head.join(",")];
-    data.rows.forEach((r, i) => {
+    (isStops ? (filters.rows as unknown as typeof data.rows) : data.rows).forEach((r, i) => {
       lines.push(
         [
           i + 1,
@@ -3814,6 +3836,12 @@ function ClinicPanel({
           Math.round(r.baseAov),
           Math.round(r.bundleDelta),
           Math.round(r.metric),
+          ...(isStops
+            ? (() => {
+                const x = r as unknown as StopFields;
+                return [x.stopFamilies ?? "", x.stopMonth ?? "", x.stopLastOrder ?? "", x.stopDays ?? "", x.stopPrior ?? ""];
+              })()
+            : []),
         ].join(","),
       );
     });
@@ -3821,7 +3849,9 @@ function ClinicPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `clinics_${lens}_${periodId.replace(":", "-")}.csv`;
+    a.download = isStops
+      ? `clinics_gz_tt_stopped.csv`
+      : `clinics_${lens}_${periodId.replace(":", "-")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -3836,13 +3866,16 @@ function ClinicPanel({
           </div>
           <div className="rca-sub">
             {data?.ready
-              ? dropOffOrder
+              ? isStops
+                ? `${INT(filters.rows.length)} clinics stopped ${stopFam || "Gut Zoomer or Total Tox"}${stopMonth ? ` in ${monLabel(stopMonth)}` : " since May"} and still haven't reordered: ≥3 orders of the family in the 90 days before, none in the last 30 days as of month end, and none since. Each clinic is listed under the month it first stopped; the RCA columns are for ${periodLabel}.`
+                : dropOffOrder
                 ? `${INT(data.count)} new clinics reached order ${Number(dropOffOrder) - 1} but did not reach order ${dropOffOrder} within the analysis window.`
                 : `${INT(data.count)} clinics carry ${METRIC_TITLE[lens] ?? "this node"}, netting ${lens === "traffic" ? PATIENTS_FMT(data.total) : MONEY(data.total)}. Ranked by contribution; the listed ${INT(Math.min(limit, data.rows.length))} account for ${lens === "traffic" ? PATIENTS_FMT(data.rows.reduce((s, r) => s + r.metric, 0)) : MONEY(data.rows.reduce((s, r) => s + r.metric, 0))}.`
               : "Loading clinic detail…"}
           </div>
           {data?.ready &&
           lens !== "traffic" &&
+          !isStops &&
           data.posCount > 0 &&
           data.negCount > 0 ? (
             <div className="rca-drill-split">
@@ -3862,7 +3895,7 @@ function ClinicPanel({
           ) : null}
         </div>
         <div className="rca-drill-actions">
-          {[25, 50, 100, 250].map(n => (
+          {(isStops ? [] : [25, 50, 100, 250]).map(n => (
             <button
               type="button"
               key={n}
@@ -3881,6 +3914,33 @@ function ClinicPanel({
         </div>
       </div>
 
+      {data?.ready && isStops ? (
+        <div className="rca-filters rca-stop-chips">
+          <span className="rca-filter-label">Family</span>
+          {["", "Gut Zoomer", "Total Tox"].map(f => (
+            <button
+              type="button"
+              key={f || "both"}
+              className={`rca-tab${stopFam === f ? " is-active" : ""}`}
+              onClick={() => setStopFam(f)}
+            >
+              {f || "Both"} ({INT(stopCount(f, stopMonth))})
+            </button>
+          ))}
+          <span className="rca-filter-label">Stopped in</span>
+          {["", ...stopMonths].map(m => (
+            <button
+              type="button"
+              key={m || "all"}
+              className={`rca-tab${stopMonth === m ? " is-active" : ""}`}
+              onClick={() => setStopMonth(m)}
+            >
+              {m ? monLabel(m) : "All"} ({INT(stopCount(stopFam, m))})
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {data?.ready ? filters.bar : null}
 
       {data?.ready ? (
@@ -3889,10 +3949,19 @@ function ClinicPanel({
             <thead>
               <tr>
                 <th>#</th>
-                <th>Clinic</th>
-                <th>State</th>
-                <th>Owner</th>
-                <th>Cohort</th>
+                {filters.th("Clinic", "name", true)}
+                {filters.th("State", "state", true)}
+                {filters.th("Owner", "sales", true)}
+                {filters.th("Cohort", "cohort", true)}
+                {isStops ? (
+                  <>
+                    {filters.th("Stopped", "stopFamilies", true)}
+                    {filters.th("Stopped in", "stopMonthNum")}
+                    {filters.th("Last order", "stopLastNum")}
+                    {filters.th("Days since", "stopDays")}
+                    {filters.th("Prior 90d orders", "stopPrior")}
+                  </>
+                ) : null}
                 {filters.th("Expected", "expected")}
                 {filters.th("Actual", "actual")}
                 {filters.th("Orders", "orders")}
@@ -3915,7 +3984,7 @@ function ClinicPanel({
                       groupBy={filters.groupBy as "state" | "owner"}
                       count={g.count}
                       total={g.total}
-                      colSpan={16}
+                      colSpan={isStops ? 21 : 16}
                       isPatients={lens === "traffic"}
                     />,
                     ...g.rows.map(r => (
@@ -3927,6 +3996,7 @@ function ClinicPanel({
                         current={current.get(r.clinic)}
                         target={targets.get(r.clinic)}
                         lens={lens}
+                        showStops={isStops}
                         scope={
                           lens === "bundle"
                             ? "bundle"
@@ -3946,6 +4016,7 @@ function ClinicPanel({
                       current={current.get(r.clinic)}
                       target={targets.get(r.clinic)}
                       lens={lens}
+                      showStops={isStops}
                       scope={
                         lens === "bundle"
                           ? "bundle"
@@ -4506,6 +4577,37 @@ function ClinicRowWithCustomers({
   );
 }
 
+type StopFields = {
+  stops?: { family: string; month: string; lastOrder: string; priorOrders: number }[];
+  stopFamilies?: string;
+  stopMonth?: string;
+  stopMonthNum?: number;
+  stopLastOrder?: string;
+  stopLastNum?: number;
+  stopDays?: number;
+  stopPrior?: number;
+};
+
+const monLabel = (ym: string) =>
+  new Date(`${ym}-15T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+
+/** GZ / Total Tox stop columns; one line per stopped family. */
+function StopCells({ row }: { row: DrillClinic & StopFields }) {
+  const ss = row.stops ?? [];
+  const short = (f: string) => (f === "Gut Zoomer" ? "Gut Zoomer" : "Total Tox");
+  const lines = (pick: (s: (typeof ss)[number]) => string | number) =>
+    ss.map((s, i) => <div key={i}>{pick(s)}</div>);
+  return (
+    <>
+      <td className="rca-stop-cell">{lines(s => short(s.family))}</td>
+      <td className="rca-num rca-stop-cell">{lines(s => monLabel(s.month))}</td>
+      <td className="rca-num rca-stop-cell">{lines(s => s.lastOrder)}</td>
+      <td className="rca-num">{INT(row.stopDays ?? 0)}</td>
+      <td className="rca-num rca-stop-cell">{lines(s => INT(s.priorOrders))}</td>
+    </>
+  );
+}
+
 type DrillClinic = {
   clinic: string;
   health?: string[];
@@ -4551,9 +4653,12 @@ function ClinicPanelRow({
   target,
   scope,
   lens,
+  showStops,
 }: {
   rank: number;
   row: DrillClinic;
+  /** Extra GZ / Total Tox stop columns (famstops focus). */
+  showStops?: boolean;
   periodId: string;
   /** The clinic's current weekly rate across the window. */
   current?: { revWeek: number; ordWeek: number };
@@ -4593,6 +4698,7 @@ function ClinicPanelRow({
         <td>{row.state}</td>
         <td>{row.sales}</td>
         <td>{COHORT_SHORT[row.cohort] ?? row.cohort}</td>
+        {showStops ? <StopCells row={row as DrillClinic & StopFields} /> : null}
         <td className="rca-num">{MONEY_PLAIN(row.expected)}</td>
         <td className="rca-num">{MONEY_PLAIN(row.actual)}</td>
         <td className="rca-num">
@@ -4633,7 +4739,7 @@ function ClinicPanelRow({
       </tr>
       {open ? (
         <tr className="rca-subrow">
-          <td colSpan={17}>
+          <td colSpan={showStops ? 22 : 17}>
             <ClinicPortfolio
               clinic={row.clinic}
               periodId={periodId}
@@ -4932,6 +5038,12 @@ function useClinicFilters<
       </div>
     );
 
+  const valOf = (r: T, key: string): number | string => {
+    const o = r as unknown as Record<string, unknown>;
+    const v = o[key];
+    if (typeof v === "string") return v.toLowerCase();
+    return numOf(r, key);
+  };
   const numOf = (r: T, key: string): number => {
     const o = r as unknown as Record<string, number>;
     if (key === "orderDelta") return (o.orders ?? 0) - (o.expectedOrders ?? 0);
@@ -4939,7 +5051,15 @@ function useClinicFilters<
     return o[key] ?? 0;
   };
   const sorted = sort
-    ? [...filtered].sort((a, b) => (numOf(a, sort.key) - numOf(b, sort.key)) * sort.dir)
+    ? [...filtered].sort((a, b) => {
+        const x = valOf(a, sort.key);
+        const y = valOf(b, sort.key);
+        const c =
+          typeof x === "string" || typeof y === "string"
+            ? String(x).localeCompare(String(y))
+            : x - y;
+        return c * sort.dir;
+      })
     : filtered;
 
   // Rank stays tied to the overall sorted list (contribution order, or the
@@ -4975,10 +5095,10 @@ function useClinicFilters<
         })();
 
   /** Sortable numeric header cell. Click cycles ascending → descending. */
-  const th = (label: string, key: string) => (
+  const th = (label: string, key: string, text = false) => (
     <th
       key={key}
-      className={`rca-num rca-th-sort${sort?.key === key ? " is-sorted" : ""}`}
+      className={`${text ? "" : "rca-num "}rca-th-sort${sort?.key === key ? " is-sorted" : ""}`}
       onClick={() =>
         setSort(
           sort && sort.key === key

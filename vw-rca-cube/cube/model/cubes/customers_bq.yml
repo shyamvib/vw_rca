@@ -11,6 +11,8 @@ cubes:
       - { name: country, sql: country, type: string }
       - { name: zipcode, sql: zipcode, type: string }
       - { name: credential, sql: customer_suffix, type: string }
+      - { name: first_name, sql: customer_first_name, type: string }
+      - { name: last_name, sql: customer_last_name, type: string }
       - { name: referral_source, sql: referral_source, type: string }
       - { name: customer_type, sql: customer_type, type: string }
       - { name: is_lead, sql: is_lead, type: boolean }

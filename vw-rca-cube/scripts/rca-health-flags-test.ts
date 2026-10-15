@@ -60,16 +60,20 @@ runTest("RCA clinic health flags", async helper => {
     }
   }
 
-  // Buying Overdue is one of the two allowlisted source Note flags. Verify
-  // it travels through the same shared clinic-list/search path as RCA flags.
-  await page.locator(".rca-search-input").first().fill("Kash Khan Official");
+  // Buying Overdue is computed natively in RCA (business-day rhythm). Verify
+  // it travels through the same shared clinic-list/search path as other flags.
+  // High Ticket Volume was removed and must never render.
+  await page.locator(".rca-search-input").first().fill("Next Health Aventura");
   await page.waitForTimeout(1000);
   const importedHit = await page.locator(".rca-search-hit").first().innerText();
   if (!importedHit.includes("Buying Overdue")) {
     throw new Error(
-      `expected imported Buying Overdue chip in search hit, got: ${importedHit}`,
+      `expected Buying Overdue chip in search hit, got: ${importedHit}`,
     );
   }
 
+  if (importedHit.includes("High Ticket Volume")) {
+    throw new Error("High Ticket Volume must not render anymore");
+  }
   console.log("health chips rendered:", chipTexts, importedHit);
 }).catch(() => process.exit(1));

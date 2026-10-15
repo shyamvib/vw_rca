@@ -8,6 +8,7 @@ import { DEFAULTS } from "./config";
 import {
   addDays,
   type BaselineMode,
+  baselinePlan,
   baselineWindow,
   bucketing,
   computeP75Factors,
@@ -23,10 +24,11 @@ import {
   quarterKey,
   ratesFrom,
   rollingBaseline,
-  baselinePlan,
   weekStart,
 } from "./dateUtils";
+import { buyingRhythm } from "./flags";
 import { gatedAction } from "./gated";
+import { topDownAllocate, scaleClinicsToReps } from "./topDown";
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
@@ -73,6 +75,34 @@ async function runAll(limit: number, tasks: Array<() => Promise<unknown>>) {
     },
   );
   await Promise.all(workers);
+}
+
+/**
+ * Distinct order dates per clinic up to `cutoff` (no future leak), pulled in
+ * month slices from the first order date to keep each DAX payload small.
+ */
+async function fetchOrderDateHistory(
+  cutoff: string,
+): Promise<Map<string, string[]>> {
+  const first = await ordersRows({ start: "2000-01-01", end: cutoff, m: { first: "first_order" } });
+  const start = String(first[0]?.["[first]"] ?? "").slice(0, 10);
+  const out = new Map<string, string[]>();
+  if (!start) return out;
+  await runAll(
+    4,
+    monthSlices(`${start.slice(0, 7)}-01`, cutoff).map(([a, b]) => async () => {
+      const rows = await ordersRows({ by: ["clinic_id"], day: true, start: a, end: b, m: { ord: "orders" } });
+      for (const r of rows) {
+        const id = String(r[`${TABLE}[clinic_id]`] ?? "");
+        const d = String(r[`${TABLE}[order_date]`] ?? "").slice(0, 10);
+        if (!id || !d || d > cutoff) continue;
+        const list = out.get(id);
+        if (list) list.push(d);
+        else out.set(id, [d]);
+      }
+    }),
+  );
+  return out;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -231,12 +261,44 @@ export const refreshData = internalAction({
       // day in JS below. Bounded to the refresh window to keep row count
       // small (~1-2k, not the whole company's lifetime lead list).
       const pSignups = cubeRows({
-          dimensions: ["customers.customer_id", "customers.sales_id", "customers.signup_time"],
+          dimensions: ["customers.customer_id", "customers.sales_id", "customers.signup_time",
+            "customers.first_name", "customers.last_name", "customers.credential", "customers.state"],
           timeDimensions: [{ dimension: "customers.signup_time", dateRange: [currentStart, currentEnd] }],
         }, {
           "customers.customer_id": "customers_bq[customer_id]",
           "customers.sales_id": "customers_bq[sales_id]",
           "customers.signup_time": "customers_bq[customer_signup_time]",
+          "customers.first_name": "customers_bq[customer_first_name]",
+          "customers.last_name": "customers_bq[customer_last_name]",
+          "customers.credential": "customers_bq[customer_suffix]",
+          "customers.state": "customers_bq[state]",
+        });
+      // First order per window signup (Shyam, 2026-10-13): which leads never
+      // ordered. rfm_orders carries customer_signup_time per customer; Cube
+      // has no MIN over dimensions, so group by clinic/practice and keep the
+      // smallest per customer (DAX MIN() equivalent).
+      const pSignupOrd = cubeRows({
+          measures: ["rfm_orders.first_order"],
+          dimensions: ["rfm_orders.customer_id", "rfm_orders.clinic_id", "rfm_orders.practice_name"],
+          timeDimensions: [{ dimension: "rfm_orders.customer_signup_time", dateRange: [currentStart, currentEnd] }],
+        }, {
+          "rfm_orders.customer_id": `${TABLE}[customer_id]`,
+          "rfm_orders.clinic_id": "cl",
+          "rfm_orders.practice_name": "pr",
+          "rfm_orders.first_order": "fo",
+        }).then(rs => {
+          const best = new Map<string, Record<string, unknown>>();
+          for (const r of rs) {
+            const id = String(r[`${TABLE}[customer_id]`] ?? "");
+            const b = best.get(id);
+            if (!b) { best.set(id, { ...r }); continue; }
+            if (String(r.fo ?? "") && (!String(b.fo ?? "") || String(r.fo) < String(b.fo))) b.fo = r.fo;
+            if (r.cl != null && (b.cl == null || Number(r.cl) < Number(b.cl))) b.cl = r.cl;
+            if (r.pr != null && (b.pr == null || String(r.pr) < String(b.pr))) b.pr = r.pr;
+          }
+          return [...best.values()].map(r => ({
+            [`${TABLE}[customer_id]`]: r[`${TABLE}[customer_id]`], "[fo]": r.fo, "[cl]": r.cl, "[pr]": r.pr,
+          }));
         });
       const pPortfolio = cubeRows({ dimensions: ["portfolio_changes.clinic_id", "portfolio_changes.status"] }, {
         "portfolio_changes.clinic_id": "Portfolio Changes[Clinic Id]",
@@ -277,10 +339,8 @@ export const refreshData = internalAction({
       // Thiru approved exactly these two source-owned flags from the
       // Revenue Intelligence dashboard: import only their titles from Note;
       // every other source Note flag remains RCA-computed (or omitted).
-      const pImportedClinicFlags = cubeRows({ dimensions: ["clinic_dimension.clinic_id", "clinic_dimension.note"],
-          filters: [{ member: "clinic_dimension.note", operator: "set" }] }, {
-        "clinic_dimension.clinic_id": "clinic_dimension[clinic_id]",
-        "clinic_dimension.note": "[note]" });
+      // Buying Overdue: every distinct (clinic, order date) up to cutoff.
+      const pOrderDateHistory = fetchOrderDateHistory(currentEnd);
 
       // Ghosted VIP's "last HubSpot touch": the model's OWN relationship
       // (verified live via `INFO.VIEW.RELATIONSHIPS()`, 2026-09-21) is
@@ -418,7 +478,10 @@ export const refreshData = internalAction({
         ordRates: ratesFrom(b.ord, baseCounts, bucket),
       }));
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 480 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 480 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 4. Clinic cohorts: baseline clinic-days (aggregated per weekday) + current clinic-days.
       type ClinicBase = {
         rev: number[];
@@ -445,7 +508,11 @@ export const refreshData = internalAction({
         orders: number;
       }> = [];
       // OOM fix 2026-10-08: drop the promise array so raw DAX rows are GC'd after this loop
-      for (const rows of await (async () => { const r = await Promise.all(pClinicBase!); pClinicBase = null; return r; })()) {
+      for (const rows of await (async () => {
+        const r = await Promise.all(pClinicBase!);
+        pClinicBase = null;
+        return r;
+      })()) {
         for (const r of rows) {
           const id = String(r[`${TABLE}[clinic_id]`]);
           const d = dateOf(r, "order_date");
@@ -475,7 +542,12 @@ export const refreshData = internalAction({
           b.orders += ord;
           b.patients += pat;
           baseByClinic.set(id, b);
-          clinicBaseDays.push({ clinic: id, date: d, revenue: rev, orders: ord });
+          clinicBaseDays.push({
+            clinic: id,
+            date: d,
+            revenue: rev,
+            orders: ord,
+          });
         }
       }
 
@@ -489,7 +561,11 @@ export const refreshData = internalAction({
         patients: number;
       }> = [];
       // OOM fix 2026-10-08: drop the promise array so raw DAX rows are GC'd after this loop
-      for (const rows of await (async () => { const r = await Promise.all(pClinicCur!); pClinicCur = null; return r; })()) {
+      for (const rows of await (async () => {
+        const r = await Promise.all(pClinicCur!);
+        pClinicCur = null;
+        return r;
+      })()) {
         for (const r of rows) {
           clinicDays.push({
             clinic: String(r[`${TABLE}[clinic_id]`]),
@@ -622,7 +698,10 @@ export const refreshData = internalAction({
         return { date, cohort, revenue };
       });
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 681 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 681 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 4c. Product families (level 2 under volume / product mix).
       // product_family lives on the line-level test table but resolves to one
       // combination string per order, so revenue and orders reconcile exactly
@@ -671,7 +750,11 @@ export const refreshData = internalAction({
       // under the product-mix branch only shows families inside bundle orders
       // (and vice versa), instead of repeating the volume branch's list.
       // OOM fix 2026-10-08: drop the promise array so raw DAX rows are GC'd after this loop
-      for (const rows of await (async () => { const r = await Promise.all(pFamBase!); pFamBase = null; return r; })()) {
+      for (const rows of await (async () => {
+        const r = await Promise.all(pFamBase!);
+        pFamBase = null;
+        return r;
+      })()) {
         for (const r of rows) {
           const fams = splitFamilies(familyOf(r));
           const i = dow(dateOf(r, "order_date"));
@@ -732,7 +815,11 @@ export const refreshData = internalAction({
         orders: number;
       }> = [];
       // OOM fix 2026-10-08: drop the promise array so raw DAX rows are GC'd after this loop
-      for (const rows of await (async () => { const r = await Promise.all(pFamCur!); pFamCur = null; return r; })()) {
+      for (const rows of await (async () => {
+        const r = await Promise.all(pFamCur!);
+        pFamCur = null;
+        return r;
+      })()) {
         for (const r of rows) {
           const fams = splitFamilies(familyOf(r));
           const date = dateOf(r, "order_date");
@@ -996,7 +1083,10 @@ export const refreshData = internalAction({
         baseOrders: e.baseOrders,
       }));
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 1052 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 1052 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 4b. Clinic identity (practice name, dominant state, owning salesperson).
       // salesName was already built above, right before the family split.
       const identityRows = await pIdentity;
@@ -1052,23 +1142,14 @@ export const refreshData = internalAction({
         })
         .filter(row => row.vaOrders > 0);
 
-      // Only the two specifically approved source flags come from the
-      // newline-separated clinic_dimension[Note] field; do not carry over
-      // any other source Note title. The shared RCA evaluator combines this
-      // allowlisted subset with RCA-computed flags at query time.
-      const importedFlagRows = await pImportedClinicFlags;
-      const importedFlagsOf = new Map<string, string[]>();
-      for (const r of importedFlagRows) {
-        const clinic = String(r["clinic_dimension[clinic_id]"] ?? "");
-        const note = String(r["[note]"] ?? "");
-        if (!clinic || !note) continue;
-        const flags = note
-          .split(/\r?\n/)
-          .filter(
-            flag =>
-              flag === "⚠️ High Ticket Volume" || flag === "⏰ Buying Overdue",
-          );
-        if (flags.length) importedFlagsOf.set(clinic, [...new Set(flags)]);
+      const orderDatesOf = await pOrderDateHistory;
+      const rhythmOf = new Map<
+        string,
+        { medianGapBd: number; bdSinceLastOrder: number }
+      >();
+      for (const [clinic, dates] of orderDatesOf) {
+        const r = buyingRhythm(dates, currentEnd);
+        if (r) rhythmOf.set(clinic, r);
       }
 
       const lastOrderRows = await pLastOrderAsOf;
@@ -1136,7 +1217,9 @@ export const refreshData = internalAction({
       const touchDatesOf = new Map<string, string[]>();
       for (const r of await pTouchDatesRaw) {
         const contact = String(r["customer_journey_final[contact_id]"] ?? "");
-        const date = String(r["customer_journey_final[touchpoint_date]"] ?? "").slice(0, 10);
+        const date = String(
+          r["customer_journey_final[touchpoint_date]"] ?? "",
+        ).slice(0, 10);
         if (!contact || !date) continue;
         const clinic = clinicOfHubspotId.get(contact)?.clinic;
         if (!clinic) continue;
@@ -1150,7 +1233,9 @@ export const refreshData = internalAction({
       const clinicalTouchDatesOf = new Map<string, string[]>();
       for (const r of await pClinicalTouchDatesRaw) {
         const contact = String(r["customer_journey_final[contact_id]"] ?? "");
-        const date = String(r["customer_journey_final[touchpoint_date]"] ?? "").slice(0, 10);
+        const date = String(
+          r["customer_journey_final[touchpoint_date]"] ?? "",
+        ).slice(0, 10);
         if (!contact || !date) continue;
         const clinic = clinicOfHubspotId.get(contact)?.clinic;
         if (!clinic) continue;
@@ -1391,7 +1476,8 @@ export const refreshData = internalAction({
           lifetimeDeductionRate: lifetimeDedRateOf.get(clinic),
           lastTouchDate: lastTouchOf.get(clinic),
           touchDataAvailable: lastTouchOf.has(clinic),
-          importedHealthFlags: importedFlagsOf.get(clinic) ?? [],
+          medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
+          bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
           signupDate: clinicSignupOf.get(clinic),
         };
       });
@@ -1411,8 +1497,12 @@ export const refreshData = internalAction({
       // clinics) exist for the comparison regardless of the window selected.
       // The headline funnel still filters on firstOrder-in-window, so its
       // numbers are unchanged.
-      const seqStart = baselineStart < currentStart ? baselineStart : currentStart;
-      const daysByClinic = new Map<string, Array<{ date: string; revenue: number }>>();
+      const seqStart =
+        baselineStart < currentStart ? baselineStart : currentStart;
+      const daysByClinic = new Map<
+        string,
+        Array<{ date: string; revenue: number }>
+      >();
       const seenDay = new Set<string>();
       for (const row of [...clinicBaseDays, ...clinicDays]) {
         if (row.orders <= 0) continue;
@@ -1459,8 +1549,11 @@ export const refreshData = internalAction({
       const signupDayMap = new Map<string, number>();
       for (const r of await pSignups) {
         const id = String(r["customers_bq[sales_id]"] ?? "").trim();
-        const sales = id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
-        const date = String(r["customers_bq[customer_signup_time]"] ?? "").slice(0, 10);
+        const sales =
+          id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
+        const date = String(
+          r["customers_bq[customer_signup_time]"] ?? "",
+        ).slice(0, 10);
         if (!date) continue;
         const key = `${date}|${sales}`;
         signupDayMap.set(key, (signupDayMap.get(key) ?? 0) + 1);
@@ -1469,8 +1562,39 @@ export const refreshData = internalAction({
         const [date, sales] = key.split("|");
         return { date, sales, count };
       });
+      const ordOf = new Map<string, { fo: string; cl: string; pr: string }>();
+      for (const r of await pSignupOrd) {
+        ordOf.set(String(r[`${TABLE}[customer_id]`]), {
+          fo: String(r["[fo]"] ?? "").slice(0, 10),
+          cl: String(r["[cl]"] ?? ""),
+          pr: String(r["[pr]"] ?? ""),
+        });
+      }
+      const signupLead = (await pSignups).flatMap(r => {
+        const date = String(r["customers_bq[customer_signup_time]"] ?? "").slice(0, 10);
+        if (!date) return [];
+        const id = String(r["customers_bq[sales_id]"] ?? "").trim();
+        const sales = id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
+        const customerId = String(r["customers_bq[customer_id]"] ?? "");
+        const nm = [r["customers_bq[customer_first_name]"], r["customers_bq[customer_last_name]"]]
+          .map(x => String(x ?? "").trim()).filter(x => x && x !== "null").join(" ");
+        const suf = String(r["customers_bq[customer_suffix]"] ?? "").trim();
+        const st = String(r["customers_bq[state]"] ?? "").trim();
+        const o = ordOf.get(customerId);
+        return [{
+          date, sales, customerId,
+          name: (nm || `Customer ${customerId}`) + (suf && suf !== "null" ? `, ${suf}` : ""),
+          ...(st && st !== "null" ? { state: st } : {}),
+          ...(o?.fo ? { firstOrder: o.fo } : {}),
+          ...(o?.cl && o.cl !== "null" ? { clinic: o.cl } : {}),
+          ...(o?.pr && o.pr !== "null" ? { practice: o.pr } : {}),
+        }];
+      });
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 1525 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 1525 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 4c. Year-end projection.
       const ytdRow = (await pYtd)[0] ?? {};
       const ytdRevenue = num(ytdRow, "rev");
@@ -1579,7 +1703,10 @@ export const refreshData = internalAction({
         })
         .filter(l => l.lead !== "—");
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 1633 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 1633 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 4d. Rolling P75 baselines scoped to clinic / team lead / RSM
       // (2026-09-28, Thiru: the earlier company-wide rolling-P75 fix left
       // these scoped views on the old static day-of-week-rate × flat P75
@@ -1597,7 +1724,12 @@ export const refreshData = internalAction({
       // day-of-week averages only.
       const clinicDateRev = new Map<string, Map<string, number>>();
       const clinicDateOrd = new Map<string, Map<string, number>>();
-      const addClinicDay = (clinic: string, date: string, rev: number, ord: number) => {
+      const addClinicDay = (
+        clinic: string,
+        date: string,
+        rev: number,
+        ord: number,
+      ) => {
         const rm = clinicDateRev.get(clinic) ?? new Map<string, number>();
         rm.set(date, (rm.get(date) ?? 0) + rev);
         clinicDateRev.set(clinic, rm);
@@ -1605,8 +1737,10 @@ export const refreshData = internalAction({
         om.set(date, (om.get(date) ?? 0) + ord);
         clinicDateOrd.set(clinic, om);
       };
-      for (const r of clinicBaseDays) addClinicDay(r.clinic, r.date, r.revenue, r.orders);
-      for (const r of clinicDays) addClinicDay(r.clinic, r.date, r.revenue, r.orders);
+      for (const r of clinicBaseDays)
+        addClinicDay(r.clinic, r.date, r.revenue, r.orders);
+      for (const r of clinicDays)
+        addClinicDay(r.clinic, r.date, r.revenue, r.orders);
 
       // Same daily history, aggregated by team lead and by RSM (sales rep)
       // via the identity map already built above — this is the "filter by
@@ -1656,8 +1790,10 @@ export const refreshData = internalAction({
       // rebuilt for every clinic×period and baselines were computed for
       // pairs with no clinicPeriod row. Build each plan once; only compute
       // needed pairs.
-      const planOf = new Map(defs.map((d) => [d.id, baselinePlan(d.kind, d.days)]));
-      const defById = new Map(defs.map((d) => [d.id, d]));
+      const planOf = new Map(
+        defs.map(d => [d.id, baselinePlan(d.kind, d.days)]),
+      );
+      const defById = new Map(defs.map(d => [d.id, d]));
       for (const row of clinicPeriod) {
         const key = `${row.periodId}|${row.clinic}`;
         if (clinicBaselineMap.has(key)) continue;
@@ -1667,8 +1803,18 @@ export const refreshData = internalAction({
         const om = clinicDateOrd.get(row.clinic)!;
         const plan = planOf.get(def.id)!;
         clinicBaselineMap.set(key, {
-          expectedRevenue: rollingBaseline(def.kind, def.days, (d) => rm.get(d) ?? 0, plan),
-          expectedOrders: rollingBaseline(def.kind, def.days, (d) => om.get(d) ?? 0, plan),
+          expectedRevenue: rollingBaseline(
+            def.kind,
+            def.days,
+            d => rm.get(d) ?? 0,
+            plan,
+          ),
+          expectedOrders: rollingBaseline(
+            def.kind,
+            def.days,
+            d => om.get(d) ?? 0,
+            plan,
+          ),
         });
       }
       for (const row of clinicPeriod) {
@@ -1678,113 +1824,28 @@ export const refreshData = internalAction({
           row.expectedOrdersP75 = b.expectedOrders;
         }
       }
-      const leadPeriodBaseline: Array<{
-        periodId: string;
-        lead: string;
-        expectedRevenue: number;
-        expectedOrders: number;
-      }> = [];
-      for (const lead of leadDateRev.keys()) {
-        const revOn = (d: string) => leadDateRev.get(lead)?.get(d) ?? 0;
-        const ordOn = (d: string) => leadDateOrd.get(lead)?.get(d) ?? 0;
-        for (const { id, kind, days } of defs) {
-          leadPeriodBaseline.push({
-            periodId: id,
-            lead,
-            expectedRevenue: rollingBaseline(kind, days, revOn, planOf.get(id)),
-            expectedOrders: rollingBaseline(kind, days, ordOn, planOf.get(id)),
-          });
-        }
-      }
-      const salesPeriodBaseline: Array<{
-        periodId: string;
-        sales: string;
-        expectedRevenue: number;
-        expectedOrders: number;
-      }> = [];
-      for (const sales of salesDateRev.keys()) {
-        const revOn = (d: string) => salesDateRev.get(sales)?.get(d) ?? 0;
-        const ordOn = (d: string) => salesDateOrd.get(sales)?.get(d) ?? 0;
-        for (const { id, kind, days } of defs) {
-          salesPeriodBaseline.push({
-            periodId: id,
-            sales,
-            expectedRevenue: rollingBaseline(kind, days, revOn, planOf.get(id)),
-            expectedOrders: rollingBaseline(kind, days, ordOn, planOf.get(id)),
-          });
-        }
-      }
-
-      // Top-down allocation [Shyam, 2026-09-30]: summing independent P75s
-      // over-states targets, so the company rolling P75 is the one plan.
-      // Reps get company × (rep P75 share), leads = sum of their reps, and
-      // clinics get rep × (clinic P75 share) — every level adds up exactly.
-      {
-        const coRev = new Map<string, number>();
-        const coOrd = new Map<string, number>();
-        const unRev = new Map<string, number>();
-        const unOrd = new Map<string, number>();
-        for (const r of allClinicDays) {
-          coRev.set(r.date, (coRev.get(r.date) ?? 0) + r.revenue);
-          coOrd.set(r.date, (coOrd.get(r.date) ?? 0) + r.orders);
-          if ((identity.get(r.clinic)?.sales ?? "—") === "—") {
-            unRev.set(r.date, (unRev.get(r.date) ?? 0) + r.revenue);
-            unOrd.set(r.date, (unOrd.get(r.date) ?? 0) + r.orders);
-          }
-        }
-        const salesOfClinic = (c: string) => identity.get(c)?.sales ?? "—";
-        const leadOfSales = new Map<string, string>();
-        for (const idty of identity.values()) {
-          if (idty?.sales && idty.sales !== "—" && idty.teamLead && idty.teamLead !== "—")
-            leadOfSales.set(idty.sales, idty.teamLead);
-        }
-        const salesAlloc = new Map<string, { r: number; o: number }>();
-        for (const { id, kind, days } of defs) {
-          const coR = rollingBaseline(kind, days, (d) => coRev.get(d) ?? 0);
-          const coO = rollingBaseline(kind, days, (d) => coOrd.get(d) ?? 0);
-          const reps = salesPeriodBaseline.filter((x) => x.periodId === id);
-          const unR = rollingBaseline(kind, days, (d) => unRev.get(d) ?? 0);
-          const unO = rollingBaseline(kind, days, (d) => unOrd.get(d) ?? 0);
-          const totR = reps.reduce((a, x) => a + x.expectedRevenue, 0) + unR;
-          const totO = reps.reduce((a, x) => a + x.expectedOrders, 0) + unO;
-          const fR = totR > 0 ? coR / totR : 1;
-          const fO = totO > 0 ? coO / totO : 1;
-          for (const x of reps) {
-            x.expectedRevenue *= fR;
-            x.expectedOrders *= fO;
-            salesAlloc.set(`${id}|${x.sales}`, { r: x.expectedRevenue, o: x.expectedOrders });
-          }
-          salesAlloc.set(`${id}|—`, { r: unR * fR, o: unO * fO });
-          for (const l of leadPeriodBaseline.filter((x) => x.periodId === id)) {
-            let r = 0, o = 0;
-            for (const x of reps) if (leadOfSales.get(x.sales) === l.lead) { r += x.expectedRevenue; o += x.expectedOrders; }
-            l.expectedRevenue = r;
-            l.expectedOrders = o;
-          }
-        }
-        const clinicSum = new Map<string, { r: number; o: number }>();
-        for (const row of clinicPeriod) {
-          const k = `${row.periodId}|${salesOfClinic(row.clinic)}`;
-          const c = clinicSum.get(k) ?? { r: 0, o: 0 };
-          c.r += row.expectedRevenue ?? 0;
-          c.o += row.expectedOrdersP75 ?? 0;
-          clinicSum.set(k, c);
-        }
-        for (const row of clinicPeriod) {
-          if (row.expectedRevenue === undefined) continue;
-          const k = `${row.periodId}|${salesOfClinic(row.clinic)}`;
-          const a = salesAlloc.get(k);
-          const c = clinicSum.get(k);
-          if (!a || !c) continue;
-          row.expectedRevenue = c.r > 0 ? row.expectedRevenue * (a.r / c.r) : 0;
-          if (row.expectedOrdersP75 !== undefined)
-            row.expectedOrdersP75 = c.o > 0 ? row.expectedOrdersP75 * (a.o / c.o) : 0;
-        }
-      }
+      // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
+      // reps/leads are sums of their cells. Clinic P75 stays unscaled.
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity });
+      const leadPeriodBaseline = td.lead;
+      const salesPeriodBaseline = td.sales;
+      scaleClinicsToReps({
+        rows: clinicPeriod as any,
+        td,
+        identity,
+        histRev: c => { let t = 0; for (const v of clinicDateRev.get(c)?.values() ?? []) t += v; return t; },
+        histOrd: c => { let t = 0; for (const v of clinicDateOrd.get(c)?.values() ?? []) t += v; return t; },
+      });
+      // Reverted state layer [Shyam, 2026-10-12]: no geo plan rows; geo views
+      // sum the (top-down scaled) clinic rows instead.
+      const geoPeriodBaseline: Array<any> = [];
 
       const pullSecs = Math.round((Date.now() - startedAt) / 1000);
 
-      await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… phase 1828 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss/1e6)}MB` });
+      await ctx.runMutation(internal.ingest.progressLog, {
+        id: logId,
+        message: `Refreshing… phase 1828 @${Math.round((Date.now() - startedAt) / 1000)}s rss ${Math.round((globalThis as any).process.memoryUsage().rss / 1e6)}MB`,
+      });
       // 5. Swap in the new data. Rows carry a generation number and readers
       // only see the current one, so we insert first, flip the pointer, and
       // delete the previous generation afterwards off the critical path —
@@ -1822,11 +1883,18 @@ export const refreshData = internalAction({
         ),
         ...chunk(newClinicOrderSeq, 500).map(
           rows => () =>
-            ctx.runMutation(internal.ingest.putNewClinicOrderSeq, { rows, gen }),
+            ctx.runMutation(internal.ingest.putNewClinicOrderSeq, {
+              rows,
+              gen,
+            }),
         ),
         ...chunk(signupDaily, 1000).map(
           rows => () =>
             ctx.runMutation(internal.ingest.putSignupDaily, { rows, gen }),
+        ),
+        ...chunk(signupLead, 500).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putSignupLead, { rows, gen }),
         ),
         ...chunk(vaClinicTarget, 500).map(
           rows => () =>
@@ -1849,6 +1917,10 @@ export const refreshData = internalAction({
               rows,
               gen,
             }),
+        ),
+        ...chunk(geoPeriodBaseline, 150).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putGeoPeriodBaseline, { rows, gen }),
         ),
         () =>
           ctx.runMutation(internal.ingest.putFamilyBaseline, {
@@ -1910,7 +1982,10 @@ export const refreshData = internalAction({
           await sleep(200);
           doneWrites++;
           if (doneWrites % 25 === 0) {
-            await ctx.runMutation(internal.ingest.progressLog, { id: logId, message: `Refreshing… writes ${doneWrites}/${writes.length} @${Math.round((Date.now() - startedAt) / 1000)}s` });
+            await ctx.runMutation(internal.ingest.progressLog, {
+              id: logId,
+              message: `Refreshing… writes ${doneWrites}/${writes.length} @${Math.round((Date.now() - startedAt) / 1000)}s`,
+            });
           }
         }),
       );
@@ -1959,6 +2034,15 @@ export const refreshData = internalAction({
       } catch (e) {
         console.error("insight generation failed", e);
       }
+      // Gut Zoomer / Total Tox stopped-clinic lists (Shyam, 2026-10-13):
+      // own action so its Power BI pulls never count against this one.
+      try {
+        await ctx.scheduler.runAfter(0, internal.familyStops.rebuild, {
+          dataEnd: currentEnd,
+        });
+      } catch (e) {
+        console.error("familyStops schedule failed", e);
+      }
 
       const rowCount =
         daily.length +
@@ -1994,7 +2078,10 @@ export const refreshSnapshot = internalAction({
     start: v.optional(v.string()),
     requestAt: v.optional(v.number()),
   },
-  handler: async (ctx, { asOf, cadence, repKey, start, requestAt }): Promise<{ dataThrough: string; rows: number }> => {
+  handler: async (
+    ctx,
+    { asOf, cadence, repKey, start, requestAt },
+  ): Promise<{ dataThrough: string; rows: number }> => {
     let logId: Id<"refreshLog">;
     let reservedRepGen: number | undefined;
     let repGenCommitted = false;
@@ -2009,7 +2096,11 @@ export const refreshSnapshot = internalAction({
       // Another refresh holds the lock: a rep window just waits its turn.
       if (repKey && String(e).includes("REFRESH_IN_PROGRESS")) {
         await ctx.scheduler.runAfter(45_000, internal.refresh.refreshSnapshot, {
-          asOf, cadence, repKey, start, requestAt,
+          asOf,
+          cadence,
+          repKey,
+          start,
+          requestAt,
         });
         return { dataThrough: asOf, rows: 0 };
       }
@@ -2134,12 +2225,44 @@ export const refreshSnapshot = internalAction({
       // day in JS below. Bounded to the refresh window to keep row count
       // small (~1-2k, not the whole company's lifetime lead list).
       const pSignups = cubeRows({
-          dimensions: ["customers.customer_id", "customers.sales_id", "customers.signup_time"],
+          dimensions: ["customers.customer_id", "customers.sales_id", "customers.signup_time",
+            "customers.first_name", "customers.last_name", "customers.credential", "customers.state"],
           timeDimensions: [{ dimension: "customers.signup_time", dateRange: [currentStart, currentEnd] }],
         }, {
           "customers.customer_id": "customers_bq[customer_id]",
           "customers.sales_id": "customers_bq[sales_id]",
           "customers.signup_time": "customers_bq[customer_signup_time]",
+          "customers.first_name": "customers_bq[customer_first_name]",
+          "customers.last_name": "customers_bq[customer_last_name]",
+          "customers.credential": "customers_bq[customer_suffix]",
+          "customers.state": "customers_bq[state]",
+        });
+      // First order per window signup (Shyam, 2026-10-13): which leads never
+      // ordered. rfm_orders carries customer_signup_time per customer; Cube
+      // has no MIN over dimensions, so group by clinic/practice and keep the
+      // smallest per customer (DAX MIN() equivalent).
+      const pSignupOrd = cubeRows({
+          measures: ["rfm_orders.first_order"],
+          dimensions: ["rfm_orders.customer_id", "rfm_orders.clinic_id", "rfm_orders.practice_name"],
+          timeDimensions: [{ dimension: "rfm_orders.customer_signup_time", dateRange: [currentStart, currentEnd] }],
+        }, {
+          "rfm_orders.customer_id": `${TABLE}[customer_id]`,
+          "rfm_orders.clinic_id": "cl",
+          "rfm_orders.practice_name": "pr",
+          "rfm_orders.first_order": "fo",
+        }).then(rs => {
+          const best = new Map<string, Record<string, unknown>>();
+          for (const r of rs) {
+            const id = String(r[`${TABLE}[customer_id]`] ?? "");
+            const b = best.get(id);
+            if (!b) { best.set(id, { ...r }); continue; }
+            if (String(r.fo ?? "") && (!String(b.fo ?? "") || String(r.fo) < String(b.fo))) b.fo = r.fo;
+            if (r.cl != null && (b.cl == null || Number(r.cl) < Number(b.cl))) b.cl = r.cl;
+            if (r.pr != null && (b.pr == null || String(r.pr) < String(b.pr))) b.pr = r.pr;
+          }
+          return [...best.values()].map(r => ({
+            [`${TABLE}[customer_id]`]: r[`${TABLE}[customer_id]`], "[fo]": r.fo, "[cl]": r.cl, "[pr]": r.pr,
+          }));
         });
       const pPortfolio = cubeRows({ dimensions: ["portfolio_changes.clinic_id", "portfolio_changes.status"] }, {
         "portfolio_changes.clinic_id": "Portfolio Changes[Clinic Id]",
@@ -2180,10 +2303,8 @@ export const refreshSnapshot = internalAction({
       // Thiru approved exactly these two source-owned flags from the
       // Revenue Intelligence dashboard: import only their titles from Note;
       // every other source Note flag remains RCA-computed (or omitted).
-      const pImportedClinicFlags = cubeRows({ dimensions: ["clinic_dimension.clinic_id", "clinic_dimension.note"],
-          filters: [{ member: "clinic_dimension.note", operator: "set" }] }, {
-        "clinic_dimension.clinic_id": "clinic_dimension[clinic_id]",
-        "clinic_dimension.note": "[note]" });
+      // Buying Overdue: every distinct (clinic, order date) up to cutoff.
+      const pOrderDateHistory = fetchOrderDateHistory(currentEnd);
 
       // Ghosted VIP's "last HubSpot touch": the model's OWN relationship
       // (verified live via `INFO.VIEW.RELATIONSHIPS()`, 2026-09-21) is
@@ -2375,7 +2496,12 @@ export const refreshSnapshot = internalAction({
           b.orders += ord;
           b.patients += pat;
           baseByClinic.set(id, b);
-          clinicBaseDays.push({ clinic: id, date: d, revenue: rev, orders: ord });
+          clinicBaseDays.push({
+            clinic: id,
+            date: d,
+            revenue: rev,
+            orders: ord,
+          });
         }
       }
 
@@ -2947,23 +3073,14 @@ export const refreshSnapshot = internalAction({
         })
         .filter(row => row.vaOrders > 0);
 
-      // Only the two specifically approved source flags come from the
-      // newline-separated clinic_dimension[Note] field; do not carry over
-      // any other source Note title. The shared RCA evaluator combines this
-      // allowlisted subset with RCA-computed flags at query time.
-      const importedFlagRows = await pImportedClinicFlags;
-      const importedFlagsOf = new Map<string, string[]>();
-      for (const r of importedFlagRows) {
-        const clinic = String(r["clinic_dimension[clinic_id]"] ?? "");
-        const note = String(r["[note]"] ?? "");
-        if (!clinic || !note) continue;
-        const flags = note
-          .split(/\r?\n/)
-          .filter(
-            flag =>
-              flag === "⚠️ High Ticket Volume" || flag === "⏰ Buying Overdue",
-          );
-        if (flags.length) importedFlagsOf.set(clinic, [...new Set(flags)]);
+      const orderDatesOf = await pOrderDateHistory;
+      const rhythmOf = new Map<
+        string,
+        { medianGapBd: number; bdSinceLastOrder: number }
+      >();
+      for (const [clinic, dates] of orderDatesOf) {
+        const r = buyingRhythm(dates, currentEnd);
+        if (r) rhythmOf.set(clinic, r);
       }
 
       const lastOrderRows = await pLastOrderAsOf;
@@ -3031,7 +3148,9 @@ export const refreshSnapshot = internalAction({
       const touchDatesOf = new Map<string, string[]>();
       for (const r of await pTouchDatesRaw) {
         const contact = String(r["customer_journey_final[contact_id]"] ?? "");
-        const date = String(r["customer_journey_final[touchpoint_date]"] ?? "").slice(0, 10);
+        const date = String(
+          r["customer_journey_final[touchpoint_date]"] ?? "",
+        ).slice(0, 10);
         if (!contact || !date) continue;
         const clinic = clinicOfHubspotId.get(contact)?.clinic;
         if (!clinic) continue;
@@ -3045,7 +3164,9 @@ export const refreshSnapshot = internalAction({
       const clinicalTouchDatesOf = new Map<string, string[]>();
       for (const r of await pClinicalTouchDatesRaw) {
         const contact = String(r["customer_journey_final[contact_id]"] ?? "");
-        const date = String(r["customer_journey_final[touchpoint_date]"] ?? "").slice(0, 10);
+        const date = String(
+          r["customer_journey_final[touchpoint_date]"] ?? "",
+        ).slice(0, 10);
         if (!contact || !date) continue;
         const clinic = clinicOfHubspotId.get(contact)?.clinic;
         if (!clinic) continue;
@@ -3286,7 +3407,8 @@ export const refreshSnapshot = internalAction({
           lifetimeDeductionRate: lifetimeDedRateOf.get(clinic),
           lastTouchDate: lastTouchOf.get(clinic),
           touchDataAvailable: lastTouchOf.has(clinic),
-          importedHealthFlags: importedFlagsOf.get(clinic) ?? [],
+          medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
+          bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
           signupDate: clinicSignupOf.get(clinic),
         };
       });
@@ -3306,8 +3428,12 @@ export const refreshSnapshot = internalAction({
       // clinics) exist for the comparison regardless of the window selected.
       // The headline funnel still filters on firstOrder-in-window, so its
       // numbers are unchanged.
-      const seqStart = baselineStart < currentStart ? baselineStart : currentStart;
-      const daysByClinic = new Map<string, Array<{ date: string; revenue: number }>>();
+      const seqStart =
+        baselineStart < currentStart ? baselineStart : currentStart;
+      const daysByClinic = new Map<
+        string,
+        Array<{ date: string; revenue: number }>
+      >();
       const seenDay = new Set<string>();
       for (const row of [...clinicBaseDays, ...clinicDays]) {
         if (row.orders <= 0) continue;
@@ -3354,8 +3480,11 @@ export const refreshSnapshot = internalAction({
       const signupDayMap = new Map<string, number>();
       for (const r of await pSignups) {
         const id = String(r["customers_bq[sales_id]"] ?? "").trim();
-        const sales = id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
-        const date = String(r["customers_bq[customer_signup_time]"] ?? "").slice(0, 10);
+        const sales =
+          id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
+        const date = String(
+          r["customers_bq[customer_signup_time]"] ?? "",
+        ).slice(0, 10);
         if (!date) continue;
         const key = `${date}|${sales}`;
         signupDayMap.set(key, (signupDayMap.get(key) ?? 0) + 1);
@@ -3363,6 +3492,34 @@ export const refreshSnapshot = internalAction({
       const signupDaily = [...signupDayMap].map(([key, count]) => {
         const [date, sales] = key.split("|");
         return { date, sales, count };
+      });
+      const ordOf = new Map<string, { fo: string; cl: string; pr: string }>();
+      for (const r of await pSignupOrd) {
+        ordOf.set(String(r[`${TABLE}[customer_id]`]), {
+          fo: String(r["[fo]"] ?? "").slice(0, 10),
+          cl: String(r["[cl]"] ?? ""),
+          pr: String(r["[pr]"] ?? ""),
+        });
+      }
+      const signupLead = (await pSignups).flatMap(r => {
+        const date = String(r["customers_bq[customer_signup_time]"] ?? "").slice(0, 10);
+        if (!date) return [];
+        const id = String(r["customers_bq[sales_id]"] ?? "").trim();
+        const sales = id && id !== "null" ? (salesName.get(id) ?? `Sales ${id}`) : "—";
+        const customerId = String(r["customers_bq[customer_id]"] ?? "");
+        const nm = [r["customers_bq[customer_first_name]"], r["customers_bq[customer_last_name]"]]
+          .map(x => String(x ?? "").trim()).filter(x => x && x !== "null").join(" ");
+        const suf = String(r["customers_bq[customer_suffix]"] ?? "").trim();
+        const st = String(r["customers_bq[state]"] ?? "").trim();
+        const o = ordOf.get(customerId);
+        return [{
+          date, sales, customerId,
+          name: (nm || `Customer ${customerId}`) + (suf && suf !== "null" ? `, ${suf}` : ""),
+          ...(st && st !== "null" ? { state: st } : {}),
+          ...(o?.fo ? { firstOrder: o.fo } : {}),
+          ...(o?.cl && o.cl !== "null" ? { clinic: o.cl } : {}),
+          ...(o?.pr && o.pr !== "null" ? { practice: o.pr } : {}),
+        }];
       });
 
       // 4c. Year-end projection.
@@ -3490,7 +3647,12 @@ export const refreshSnapshot = internalAction({
       // day-of-week averages only.
       const clinicDateRev = new Map<string, Map<string, number>>();
       const clinicDateOrd = new Map<string, Map<string, number>>();
-      const addClinicDay = (clinic: string, date: string, rev: number, ord: number) => {
+      const addClinicDay = (
+        clinic: string,
+        date: string,
+        rev: number,
+        ord: number,
+      ) => {
         const rm = clinicDateRev.get(clinic) ?? new Map<string, number>();
         rm.set(date, (rm.get(date) ?? 0) + rev);
         clinicDateRev.set(clinic, rm);
@@ -3498,8 +3660,10 @@ export const refreshSnapshot = internalAction({
         om.set(date, (om.get(date) ?? 0) + ord);
         clinicDateOrd.set(clinic, om);
       };
-      for (const r of clinicBaseDays) addClinicDay(r.clinic, r.date, r.revenue, r.orders);
-      for (const r of clinicDays) addClinicDay(r.clinic, r.date, r.revenue, r.orders);
+      for (const r of clinicBaseDays)
+        addClinicDay(r.clinic, r.date, r.revenue, r.orders);
+      for (const r of clinicDays)
+        addClinicDay(r.clinic, r.date, r.revenue, r.orders);
 
       // Same daily history, aggregated by team lead and by RSM (sales rep)
       // via the identity map already built above — this is the "filter by
@@ -3549,8 +3713,10 @@ export const refreshSnapshot = internalAction({
       // rebuilt for every clinic×period and baselines were computed for
       // pairs with no clinicPeriod row. Build each plan once; only compute
       // needed pairs.
-      const planOf = new Map(defs.map((d) => [d.id, baselinePlan(d.kind, d.days)]));
-      const defById = new Map(defs.map((d) => [d.id, d]));
+      const planOf = new Map(
+        defs.map(d => [d.id, baselinePlan(d.kind, d.days)]),
+      );
+      const defById = new Map(defs.map(d => [d.id, d]));
       for (const row of clinicPeriod) {
         const key = `${row.periodId}|${row.clinic}`;
         if (clinicBaselineMap.has(key)) continue;
@@ -3560,8 +3726,18 @@ export const refreshSnapshot = internalAction({
         const om = clinicDateOrd.get(row.clinic)!;
         const plan = planOf.get(def.id)!;
         clinicBaselineMap.set(key, {
-          expectedRevenue: rollingBaseline(def.kind, def.days, (d) => rm.get(d) ?? 0, plan),
-          expectedOrders: rollingBaseline(def.kind, def.days, (d) => om.get(d) ?? 0, plan),
+          expectedRevenue: rollingBaseline(
+            def.kind,
+            def.days,
+            d => rm.get(d) ?? 0,
+            plan,
+          ),
+          expectedOrders: rollingBaseline(
+            def.kind,
+            def.days,
+            d => om.get(d) ?? 0,
+            plan,
+          ),
         });
       }
       for (const row of clinicPeriod) {
@@ -3571,109 +3747,21 @@ export const refreshSnapshot = internalAction({
           row.expectedOrdersP75 = b.expectedOrders;
         }
       }
-      const leadPeriodBaseline: Array<{
-        periodId: string;
-        lead: string;
-        expectedRevenue: number;
-        expectedOrders: number;
-      }> = [];
-      for (const lead of leadDateRev.keys()) {
-        const revOn = (d: string) => leadDateRev.get(lead)?.get(d) ?? 0;
-        const ordOn = (d: string) => leadDateOrd.get(lead)?.get(d) ?? 0;
-        for (const { id, kind, days } of defs) {
-          leadPeriodBaseline.push({
-            periodId: id,
-            lead,
-            expectedRevenue: rollingBaseline(kind, days, revOn, planOf.get(id)),
-            expectedOrders: rollingBaseline(kind, days, ordOn, planOf.get(id)),
-          });
-        }
-      }
-      const salesPeriodBaseline: Array<{
-        periodId: string;
-        sales: string;
-        expectedRevenue: number;
-        expectedOrders: number;
-      }> = [];
-      for (const sales of salesDateRev.keys()) {
-        const revOn = (d: string) => salesDateRev.get(sales)?.get(d) ?? 0;
-        const ordOn = (d: string) => salesDateOrd.get(sales)?.get(d) ?? 0;
-        for (const { id, kind, days } of defs) {
-          salesPeriodBaseline.push({
-            periodId: id,
-            sales,
-            expectedRevenue: rollingBaseline(kind, days, revOn, planOf.get(id)),
-            expectedOrders: rollingBaseline(kind, days, ordOn, planOf.get(id)),
-          });
-        }
-      }
-
-      // Top-down allocation [Shyam, 2026-09-30]: summing independent P75s
-      // over-states targets, so the company rolling P75 is the one plan.
-      // Reps get company × (rep P75 share), leads = sum of their reps, and
-      // clinics get rep × (clinic P75 share) — every level adds up exactly.
-      {
-        const coRev = new Map<string, number>();
-        const coOrd = new Map<string, number>();
-        const unRev = new Map<string, number>();
-        const unOrd = new Map<string, number>();
-        for (const r of allClinicDays) {
-          coRev.set(r.date, (coRev.get(r.date) ?? 0) + r.revenue);
-          coOrd.set(r.date, (coOrd.get(r.date) ?? 0) + r.orders);
-          if ((identity.get(r.clinic)?.sales ?? "—") === "—") {
-            unRev.set(r.date, (unRev.get(r.date) ?? 0) + r.revenue);
-            unOrd.set(r.date, (unOrd.get(r.date) ?? 0) + r.orders);
-          }
-        }
-        const salesOfClinic = (c: string) => identity.get(c)?.sales ?? "—";
-        const leadOfSales = new Map<string, string>();
-        for (const idty of identity.values()) {
-          if (idty?.sales && idty.sales !== "—" && idty.teamLead && idty.teamLead !== "—")
-            leadOfSales.set(idty.sales, idty.teamLead);
-        }
-        const salesAlloc = new Map<string, { r: number; o: number }>();
-        for (const { id, kind, days } of defs) {
-          const coR = rollingBaseline(kind, days, (d) => coRev.get(d) ?? 0);
-          const coO = rollingBaseline(kind, days, (d) => coOrd.get(d) ?? 0);
-          const reps = salesPeriodBaseline.filter((x) => x.periodId === id);
-          const unR = rollingBaseline(kind, days, (d) => unRev.get(d) ?? 0);
-          const unO = rollingBaseline(kind, days, (d) => unOrd.get(d) ?? 0);
-          const totR = reps.reduce((a, x) => a + x.expectedRevenue, 0) + unR;
-          const totO = reps.reduce((a, x) => a + x.expectedOrders, 0) + unO;
-          const fR = totR > 0 ? coR / totR : 1;
-          const fO = totO > 0 ? coO / totO : 1;
-          for (const x of reps) {
-            x.expectedRevenue *= fR;
-            x.expectedOrders *= fO;
-            salesAlloc.set(`${id}|${x.sales}`, { r: x.expectedRevenue, o: x.expectedOrders });
-          }
-          salesAlloc.set(`${id}|—`, { r: unR * fR, o: unO * fO });
-          for (const l of leadPeriodBaseline.filter((x) => x.periodId === id)) {
-            let r = 0, o = 0;
-            for (const x of reps) if (leadOfSales.get(x.sales) === l.lead) { r += x.expectedRevenue; o += x.expectedOrders; }
-            l.expectedRevenue = r;
-            l.expectedOrders = o;
-          }
-        }
-        const clinicSum = new Map<string, { r: number; o: number }>();
-        for (const row of clinicPeriod) {
-          const k = `${row.periodId}|${salesOfClinic(row.clinic)}`;
-          const c = clinicSum.get(k) ?? { r: 0, o: 0 };
-          c.r += row.expectedRevenue ?? 0;
-          c.o += row.expectedOrdersP75 ?? 0;
-          clinicSum.set(k, c);
-        }
-        for (const row of clinicPeriod) {
-          if (row.expectedRevenue === undefined) continue;
-          const k = `${row.periodId}|${salesOfClinic(row.clinic)}`;
-          const a = salesAlloc.get(k);
-          const c = clinicSum.get(k);
-          if (!a || !c) continue;
-          row.expectedRevenue = c.r > 0 ? row.expectedRevenue * (a.r / c.r) : 0;
-          if (row.expectedOrdersP75 !== undefined)
-            row.expectedOrdersP75 = c.o > 0 ? row.expectedOrdersP75 * (a.o / c.o) : 0;
-        }
-      }
+      // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
+      // reps/leads are sums of their cells. Clinic P75 stays unscaled.
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity });
+      const leadPeriodBaseline = td.lead;
+      const salesPeriodBaseline = td.sales;
+      scaleClinicsToReps({
+        rows: clinicPeriod as any,
+        td,
+        identity,
+        histRev: c => { let t = 0; for (const v of clinicDateRev.get(c)?.values() ?? []) t += v; return t; },
+        histOrd: c => { let t = 0; for (const v of clinicDateOrd.get(c)?.values() ?? []) t += v; return t; },
+      });
+      // Reverted state layer [Shyam, 2026-10-12]: no geo plan rows; geo views
+      // sum the (top-down scaled) clinic rows instead.
+      const geoPeriodBaseline: Array<any> = [];
 
       const pullSecs = Math.round((Date.now() - startedAt) / 1000);
 
@@ -3681,7 +3769,9 @@ export const refreshSnapshot = internalAction({
       // only see the current one, so we insert first, flip the pointer, and
       // delete the previous generation afterwards off the critical path —
       // deleting ~85k rows inline used to cost about two minutes.
-      const gen: number = await ctx.runMutation(internal.config.reserveGen, { lease: !!repKey });
+      const gen: number = await ctx.runMutation(internal.config.reserveGen, {
+        lease: !!repKey,
+      });
       if (repKey) reservedRepGen = gen;
       const writes: Array<() => Promise<unknown>> = [
         ...chunk(daily, 500).map(
@@ -3715,11 +3805,18 @@ export const refreshSnapshot = internalAction({
         ),
         ...chunk(newClinicOrderSeq, 500).map(
           rows => () =>
-            ctx.runMutation(internal.ingest.putNewClinicOrderSeq, { rows, gen }),
+            ctx.runMutation(internal.ingest.putNewClinicOrderSeq, {
+              rows,
+              gen,
+            }),
         ),
         ...chunk(signupDaily, 1000).map(
           rows => () =>
             ctx.runMutation(internal.ingest.putSignupDaily, { rows, gen }),
+        ),
+        ...chunk(signupLead, 500).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putSignupLead, { rows, gen }),
         ),
         ...chunk(vaClinicTarget, 500).map(
           rows => () =>
@@ -3742,6 +3839,10 @@ export const refreshSnapshot = internalAction({
               rows,
               gen,
             }),
+        ),
+        ...chunk(geoPeriodBaseline, 150).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putGeoPeriodBaseline, { rows, gen }),
         ),
         () =>
           ctx.runMutation(internal.ingest.putFamilyBaseline, {
@@ -3807,29 +3908,38 @@ export const refreshSnapshot = internalAction({
       // gen — it writes under a "snapshot" config key, extracts insights,
       // then deletes just its own gen. The live dashboard is untouched.
       if (repKey) {
-        const committed = await ctx.runMutation(internal.config.finishRepWindow, {
-          key: repKey,
-          currentStart,
-          currentEnd,
-          baselineStart,
-          baselineEnd,
-          baselineMode: mode,
-          p75,
-          gen,
-          reqStart: start ?? currentStart,
-          reqEnd: asOf,
-          requestAt,
-          baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
-          baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
-        });
+        const committed = await ctx.runMutation(
+          internal.config.finishRepWindow,
+          {
+            key: repKey,
+            currentStart,
+            currentEnd,
+            baselineStart,
+            baselineEnd,
+            baselineMode: mode,
+            p75,
+            gen,
+            reqStart: start ?? currentStart,
+            reqEnd: asOf,
+            requestAt,
+            baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
+            baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
+          },
+        );
         // A completed window is protected by config.gen; stale/reset windows
         // schedule deleteGen, which releases their lease after deletion.
         // Leave this lease until the deletion check is safe to avoid a cleanup
         // race with a simultaneous main purge.
         repGenCommitted = committed;
-        if (committed) await ctx.runMutation(internal.ingest.releaseGenLease, { gen });
+        if (committed)
+          await ctx.runMutation(internal.ingest.releaseGenLease, { gen });
         for (let i = 0; i < 20; i++) {
-          if (await ctx.runMutation(internal.ingest.clearCachePrefix, { prefix: repKey })) break;
+          if (
+            await ctx.runMutation(internal.ingest.clearCachePrefix, {
+              prefix: repKey,
+            })
+          )
+            break;
         }
         await ctx.runMutation(internal.ingest.finishLog, {
           id: logId,
@@ -3888,7 +3998,9 @@ export const refreshSnapshot = internalAction({
       });
       if (repKey) {
         if (reservedRepGen && !repGenCommitted) {
-          await ctx.scheduler.runAfter(0, internal.ingest.deleteGen, { gen: reservedRepGen });
+          await ctx.scheduler.runAfter(0, internal.ingest.deleteGen, {
+            gen: reservedRepGen,
+          });
         }
         await ctx.runMutation(internal.config.failRepWindow, {
           key: repKey,
@@ -3917,8 +4029,14 @@ export const weeklySnapshotTick = internalAction({
   args: {},
   handler: async ctx => {
     const cfg = await ctx.runQuery(internal.config.getInternal, {});
-    const asOf = addDays(cfg.currentEnd < todayStr() ? cfg.currentEnd : todayStr(), -1);
-    await ctx.runAction(internal.refresh.refreshSnapshot, { asOf, cadence: "weekly" });
+    const asOf = addDays(
+      cfg.currentEnd < todayStr() ? cfg.currentEnd : todayStr(),
+      -1,
+    );
+    await ctx.runAction(internal.refresh.refreshSnapshot, {
+      asOf,
+      cadence: "weekly",
+    });
   },
 });
 
@@ -3935,7 +4053,10 @@ export const monthlySnapshotTick = internalAction({
     const py = m === 1 ? y - 1 : y;
     const pm = m === 1 ? 12 : m - 1;
     const asOf = `${py}-${String(pm).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-    await ctx.runAction(internal.refresh.refreshSnapshot, { asOf, cadence: "monthly" });
+    await ctx.runAction(internal.refresh.refreshSnapshot, {
+      asOf,
+      cadence: "monthly",
+    });
   },
 });
 
@@ -3966,7 +4087,10 @@ export const backfillInsightHistory = internalAction({
       ),
     ),
   },
-  handler: async (ctx, { remaining }): Promise<{ done: boolean; remaining: number }> => {
+  handler: async (
+    ctx,
+    { remaining },
+  ): Promise<{ done: boolean; remaining: number }> => {
     let queue = remaining;
     if (!queue) {
       const cfg = await ctx.runQuery(internal.config.getInternal, {});
@@ -3987,7 +4111,9 @@ export const backfillInsightHistory = internalAction({
           y -= 1;
         }
         const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // day 0 of next month = last day of this one
-        monthly.push(`${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`);
+        monthly.push(
+          `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+        );
       }
       queue = [
         ...weekly.map(date => ({ date, cadence: "weekly" as const })),
@@ -4009,20 +4135,27 @@ export const backfillInsightHistory = internalAction({
         // The live dashboard's own daily refresh (or another snapshot) has
         // the write lock — re-queue this same item instead of dropping it,
         // and back off longer than a normal step.
-        console.log(`backfill: ${next.cadence} ${next.date} deferred (refresh in progress)`);
+        console.log(
+          `backfill: ${next.cadence} ${next.date} deferred (refresh in progress)`,
+        );
         requeue = [next, ...rest];
         retryDelayMs = 90_000;
       } else {
-        console.error(`backfill snapshot failed for ${next.cadence} ${next.date}`, e);
+        console.error(
+          `backfill snapshot failed for ${next.cadence} ${next.date}`,
+          e,
+        );
       }
     }
     if (requeue.length > 0) {
-      await ctx.scheduler.runAfter(retryDelayMs, internal.refresh.backfillInsightHistory, {
-        remaining: requeue,
-      });
+      await ctx.scheduler.runAfter(
+        retryDelayMs,
+        internal.refresh.backfillInsightHistory,
+        {
+          remaining: requeue,
+        },
+      );
     }
     return { done: requeue.length === 0, remaining: requeue.length };
   },
 });
-
-

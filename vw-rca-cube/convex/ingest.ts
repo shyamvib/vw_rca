@@ -15,6 +15,7 @@ const CLEARABLE = [
   "clinicPeriod",
   "leadPeriodBaseline",
   "salesPeriodBaseline",
+  "geoPeriodBaseline",
   "familyBaseline",
   "familyPeriod",
   "familyLeadSeries",
@@ -146,7 +147,8 @@ export const putClinicMeta = internalMutation({
         lifetimeDeductionRate: v.optional(v.number()),
         lastTouchDate: v.optional(v.string()),
         touchDataAvailable: v.optional(v.boolean()),
-        importedHealthFlags: v.optional(v.array(v.string())),
+        medianGapBd: v.optional(v.number()),
+        bdSinceLastOrder: v.optional(v.number()),
         signupDate: v.optional(v.string()),
       }),
     ),
@@ -190,6 +192,22 @@ export const putSignupDaily = internalMutation({
   },
   handler: async (ctx, { rows, gen }) => {
     for (const row of rows) await ctx.db.insert("signupDaily", { ...row, gen });
+  },
+});
+
+export const putSignupLead = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        date: v.string(), sales: v.string(), customerId: v.string(), name: v.string(),
+        state: v.optional(v.string()), firstOrder: v.optional(v.string()),
+        clinic: v.optional(v.string()), practice: v.optional(v.string()),
+      }),
+    ),
+    gen: v.number(),
+  },
+  handler: async (ctx, { rows, gen }) => {
+    for (const row of rows) await ctx.db.insert("signupLead", { ...row, gen });
   },
 });
 
@@ -297,6 +315,26 @@ export const putSalesPeriodBaseline = internalMutation({
   handler: async (ctx, { rows, gen }) => {
     for (const row of rows)
       await ctx.db.insert("salesPeriodBaseline", { ...row, gen });
+  },
+});
+
+export const putGeoPeriodBaseline = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        periodId: v.string(),
+        geo: v.string(),
+        sales: v.string(),
+        expectedRevenue: v.number(),
+        expectedOrders: v.number(),
+        actualRevenue: v.optional(v.number()),
+        geoJson: v.optional(v.string()),
+      }),
+    ),
+    gen: v.number(),
+  },
+  handler: async (ctx, { rows, gen }) => {
+    for (const row of rows) await ctx.db.insert("geoPeriodBaseline", { ...row, gen });
   },
 });
 
@@ -470,6 +508,7 @@ const GEN_TABLES = [
   "clinicPeriod",
   "leadPeriodBaseline",
   "salesPeriodBaseline",
+  "geoPeriodBaseline",
   "familyBaseline",
   "familyPeriod",
   "familyLeadSeries",
@@ -480,6 +519,7 @@ const GEN_TABLES = [
   "vaClinicTarget",
   "newClinicOrderSeq",
   "signupDaily",
+  "signupLead",
 ] as const;
 
 /**
@@ -497,13 +537,15 @@ export const purgeOldGens = internalMutation({
       .map(r => r.gen as number)
       .filter(g => g < keep);
     const leasedGens = (await ctx.db.query("generationLeases").collect())
-      .map(r => r.gen).filter(g => g < keep);
+      .map(r => r.gen)
+      .filter(g => g < keep);
     // Never erase the just-replaced main generation while an overlapping
     // rep cache may still be reading its daily rows. A main refresh swaps
     // config.gen before this scheduled purge begins; protection of a source
     // version must be via a lease, not merely a live config pointer.
-    const protectedGens = [...new Set([...repGens, ...leasedGens])]
-      .sort((a, b) => a - b);
+    const protectedGens = [...new Set([...repGens, ...leasedGens])].sort(
+      (a, b) => a - b,
+    );
     const bounds = [-1, ...protectedGens, keep];
     let budget = 4000;
     outer: for (const table of GEN_TABLES) {
@@ -530,14 +572,15 @@ export const purgeOldGens = internalMutation({
   },
 });
 
-
 /** Clears one rep's cached drill payloads (keys are prefixed "rep:<email>"). */
 export const clearCachePrefix = internalMutation({
   args: { prefix: v.string() },
   handler: async (ctx, { prefix }) => {
     const rows = await ctx.db
       .query("drillCache")
-      .withIndex("by_key", q => q.gte("key", prefix).lt("key", prefix + "\uffff"))
+      .withIndex("by_key", q =>
+        q.gte("key", prefix).lt("key", prefix + "\uffff"),
+      )
       .take(500);
     for (const r of rows) await ctx.db.delete(r._id);
     return rows.length < 500;
@@ -571,8 +614,10 @@ export const deleteGen = internalMutation({
     if (budget <= 0) {
       await ctx.scheduler.runAfter(0, internal.ingest.deleteGen, { gen });
     } else {
-      const lease = await ctx.db.query("generationLeases")
-        .withIndex("by_gen", q => q.eq("gen", gen)).unique();
+      const lease = await ctx.db
+        .query("generationLeases")
+        .withIndex("by_gen", q => q.eq("gen", gen))
+        .unique();
       if (lease) await ctx.db.delete(lease._id);
     }
   },
@@ -581,8 +626,10 @@ export const deleteGen = internalMutation({
 export const releaseGenLease = internalMutation({
   args: { gen: v.number() },
   handler: async (ctx, { gen }) => {
-    const lease = await ctx.db.query("generationLeases")
-      .withIndex("by_gen", q => q.eq("gen", gen)).unique();
+    const lease = await ctx.db
+      .query("generationLeases")
+      .withIndex("by_gen", q => q.eq("gen", gen))
+      .unique();
     if (lease) await ctx.db.delete(lease._id);
   },
 });
@@ -591,10 +638,13 @@ export const releaseGenLease = internalMutation({
 export const inspectGenerationProtection = internalQuery({
   args: { gen: v.number() },
   handler: async (ctx, { gen }) => {
-    const lease = await ctx.db.query("generationLeases")
-      .withIndex("by_gen", q => q.eq("gen", gen)).unique();
+    const lease = await ctx.db
+      .query("generationLeases")
+      .withIndex("by_gen", q => q.eq("gen", gen))
+      .unique();
     const owners = (await ctx.db.query("config").collect())
-      .filter(r => r.gen === gen).map(r => r.key);
+      .filter(r => r.gen === gen)
+      .map(r => r.key);
     return { leased: !!lease, owners };
   },
 });
@@ -604,10 +654,20 @@ export const inspectRepWindow = internalQuery({
   args: { key: v.string() },
   handler: async (ctx, { key }) => {
     if (!key.startsWith("rep:")) throw new Error("Rep key required");
-    const r = await ctx.db.query("config")
-      .withIndex("by_key", q => q.eq("key", key)).unique();
-    return r && { gen: r.gen, status: r.status, reqStart: r.reqStart,
-      reqEnd: r.reqEnd, currentStart: r.currentStart, currentEnd: r.currentEnd };
+    const r = await ctx.db
+      .query("config")
+      .withIndex("by_key", q => q.eq("key", key))
+      .unique();
+    return (
+      r && {
+        gen: r.gen,
+        status: r.status,
+        reqStart: r.reqStart,
+        reqEnd: r.reqEnd,
+        currentStart: r.currentStart,
+        currentEnd: r.currentEnd,
+      }
+    );
   },
 });
 
@@ -648,9 +708,11 @@ export const startLog = internalMutation({
   handler: async (ctx, { message, scope }) => {
     // Old rows have no scope and belong to the shared refresh lane.
     // A rep's run must neither lock nor mark the company refresh as running.
-    const last = await ctx.db.query("refreshLog")
+    const last = await ctx.db
+      .query("refreshLog")
       .withIndex("by_scope_started", q => q.eq("scope", scope))
-      .order("desc").first();
+      .order("desc")
+      .first();
     const STALE_MS = scope ? 5 * 60_000 : 90 * 1000;
     if (last && last.status === "running") {
       const age = Date.now() - last.startedAt;
@@ -695,11 +757,18 @@ export const latestRepRefresh = internalQuery({
   args: { scope: v.string() },
   handler: async (ctx, { scope }) => {
     if (!scope.startsWith("rep:")) throw new Error("Rep scope required");
-    const row = await ctx.db.query("refreshLog")
+    const row = await ctx.db
+      .query("refreshLog")
       .withIndex("by_scope_started", q => q.eq("scope", scope))
-      .order("desc").first();
+      .order("desc")
+      .first();
     return row
-      ? { startedAt: row.startedAt, finishedAt: row.finishedAt, status: row.status, message: row.message }
+      ? {
+          startedAt: row.startedAt,
+          finishedAt: row.finishedAt,
+          status: row.status,
+          message: row.message,
+        }
       : null;
   },
 });

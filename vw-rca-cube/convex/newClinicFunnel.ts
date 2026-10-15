@@ -159,6 +159,7 @@ export const orderRetentionFunnel = scopedQuery({
       return {
         n,
         clinics: reached.length,
+        ids: reached.map(r => r.clinic),
         totalRevenue: revenues.reduce((a, b) => a + b, 0),
         medianRevenue: median(revenues),
         // Median, not mean (Shyam, 2026-09-29): a handful of outlier gaps
@@ -175,6 +176,14 @@ export const orderRetentionFunnel = scopedQuery({
     const signups = signupRows
       .filter(r => r.date >= start && r.date <= end)
       .reduce((s, r) => s + r.count, 0);
+    // Signups in the window with no order by window end (Shyam, 2026-10-13).
+    const noOrderLeads = (await ctx.db
+      .query("signupLead")
+      .withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", args.sales))
+      .collect())
+      .filter(r => r.date >= start && r.date <= end && (!r.firstOrder || r.firstOrder > end))
+      .map(r => ({ id: r.customerId, name: r.name, date: r.date, state: r.state ?? null, practice: r.practice ?? null }))
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     // MoM / QoQ per stage — window-independent (Shyam, 2026-09-29): always
     // anchored on the MAIN refresh's latest data date and read from the MAIN
@@ -235,6 +244,7 @@ export const orderRetentionFunnel = scopedQuery({
       start,
       end,
       signups,
+      noOrderLeads,
       clinics: cohort.length,
       stages: stagesWithTrend,
       trendMonth: mKey,
@@ -246,5 +256,19 @@ export const orderRetentionFunnel = scopedQuery({
       trendCurQ: `${qStart}–${anchor}`,
       trendPrevQ: `${pqStart}–${pqEnd}`,
     };
+  },
+});
+
+/** Order dates + signup per clinic for the staged touch Sankey (Shyam, 2026-10-13). */
+export const seqFor = scopedQuery({
+  args: { clinics: v.array(v.string()) },
+  handler: async (ctx, { clinics }) => {
+    const cfg = await loadCfg(ctx);
+    const gen = cfg?.gen ?? 0;
+    const want = new Set(clinics);
+    const rows = await ctx.db.query("newClinicOrderSeq").withIndex("by_gen", q => q.eq("gen", gen)).collect();
+    const out: Record<string, { signup?: string; orders: string[] }> = {};
+    for (const r of rows) if (want.has(r.clinic)) out[r.clinic] = { signup: r.signupDate, orders: r.orderDates };
+    return out;
   },
 });

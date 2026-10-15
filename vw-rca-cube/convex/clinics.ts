@@ -1,6 +1,6 @@
-import { loadCfg } from "./config";
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
+import { loadCfg } from "./config";
 import {
   addDays,
   dayType,
@@ -12,6 +12,7 @@ import {
 } from "./dateUtils";
 import { evaluateFlags } from "./flags";
 import { scopedQuery } from "./gated";
+import { loadStops } from "./familyStops";
 import { geoKeyOf } from "./geoKey";
 
 /**
@@ -26,6 +27,15 @@ import { geoKeyOf } from "./geoKey";
 
 export type ClinicRow = {
   clinic: string;
+  /** Only set on the `famstops` focus (GZ / Total Tox still-out list). */
+  stops?: { family: string; month: string; lastOrder: string; priorOrders: number }[];
+  stopFamilies?: string;
+  stopMonth?: string;
+  stopMonthNum?: number;
+  stopLastOrder?: string;
+  stopLastNum?: number;
+  stopDays?: number;
+  stopPrior?: number;
   /** Total orders for this clinic over the entire refresh window. */
   windowOrders: number;
   /** Distinct order-DAYS over the entire refresh window (Shyam, 2026-09-28)
@@ -197,7 +207,8 @@ export function matchesFocus(
       if (groups.includes(group)) return true;
       return (
         groups.includes("f1") &&
-        (r.windowOrderDays ?? r.windowOrders ?? r.orders) >= Number(orderStage[1])
+        (r.windowOrderDays ?? r.windowOrders ?? r.orders) >=
+          Number(orderStage[1])
       );
     }
     return groups.includes(group);
@@ -226,7 +237,8 @@ type ClinicMetaRow = {
   lifetimeDeductionRate?: number;
   lastTouchDate?: string;
   touchDataAvailable?: boolean;
-  importedHealthFlags?: string[];
+  medianGapBd?: number;
+  bdSinceLastOrder?: number;
 };
 
 /**
@@ -358,9 +370,10 @@ export async function clinicHealthMap(
           lifetimeDeductionRate: m.lifetimeDeductionRate,
           lastTouchDate: m.lastTouchDate,
           touchDataAvailable: m.touchDataAvailable ?? false,
+          medianGapBd: m.medianGapBd,
+          bdSinceLastOrder: m.bdSinceLastOrder,
         },
         perf,
-        m.importedHealthFlags ?? [],
       ),
     );
   }
@@ -492,7 +505,8 @@ export async function drill(
   const actuals = await periodRows(args.periodId);
   const actualBy = new Map(actuals.map(a => [a.clinic, a]));
   const allWindowActuals =
-    (args.focus?.startsWith("newgrp:") || args.wantWindowOrders) && args.periodId !== "all"
+    (args.focus?.startsWith("newgrp:") || args.wantWindowOrders) &&
+    args.periodId !== "all"
       ? await periodRows("all")
       : actuals;
   const windowOrdersBy = new Map(
@@ -602,6 +616,8 @@ export async function drill(
         lifetimeDeductionRate: m.lifetimeDeductionRate,
         lastTouchDate: m.lastTouchDate,
         touchDataAvailable: m.touchDataAvailable ?? false,
+        medianGapBd: m.medianGapBd,
+        bdSinceLastOrder: m.bdSinceLastOrder,
       },
       {
         actual,
@@ -611,7 +627,6 @@ export async function drill(
         bundleOrders,
         expectedBundleOrders: expBundleOrd,
       },
-      m.importedHealthFlags ?? [],
     );
     const metric =
       lens === "volume"
@@ -697,15 +712,70 @@ export async function drill(
   // Alert focus: keep only the clinics the alert card was talking about, so
   // the totals under the list match the number quoted on the card.
   const focus = args.focus ?? "";
-  const focused = !focus ? [...rows] : rows.filter(r => matchesFocus(r, focus));
-  rows.length = 0;
-  rows.push(...focused);
+  // Gut Zoomer / Total Tox still-out clinics (Shyam, 2026-10-13): the feed
+  // card opens the regular clinic list narrowed to the familyStops clinics,
+  // with the stop details attached as extra columns. Every stopped clinic is
+  // returned (no top-N) so the family / month chips filter client-side.
+  let famstops = false;
+  if (focus.startsWith("famstops")) {
+    famstops = true;
+    const stops = await loadStops(ctx, args.teamLead);
+    const by = new Map<string, typeof stops>();
+    for (const s of stops) {
+      const arr = by.get(s.clinic);
+      if (arr) arr.push(s);
+      else by.set(s.clinic, [s]);
+    }
+    const end = cfg.currentEnd as string;
+    const dayNum = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86400000;
+    // Clinics with no row in this generation's clinicMeta (no baseline or
+    // window activity, e.g. last order in Feb) still belong on the list:
+    // add them with zero RCA columns so the count matches the feed card.
+    const present = new Set(rows.map(r => r.clinic));
+    for (const [clinic, ss] of by) {
+      if (present.has(clinic)) continue;
+      const s0 = ss[0];
+      if (args.sales && s0.sales !== args.sales) continue;
+      rows.push({
+        clinic, windowOrders: 0, windowOrderDays: 0, name: s0.name, state: s0.state,
+        country: "—", teamLead: s0.teamLead ?? "—", sales: s0.sales, cohort: "—",
+        newGroups: [], health: [], pstatus: [], expected: 0, actual: 0, delta: 0,
+        orders: 0, expectedOrders: 0, volume: 0, aovEffect: 0, aov: 0, baseAov: 0,
+        bundleDelta: 0, nonBundleDelta: 0, bundleOrders: 0, bundleShare: 0,
+        baseBundleShare: 0, patients: 0, expectedPatients: 0, patientDelta: 0,
+        metric: 0, ytdRevenue: 0, fwdRevenue: 0, monthOrders: 0, monthSeries: [],
+      });
+    }
+    const kept = rows
+      .filter(r => by.has(r.clinic))
+      .map(r => {
+        const ss = [...by.get(r.clinic)!].sort((a, b) => a.family.localeCompare(b.family));
+        const last = ss.map(s => s.lastOrder).sort().pop() ?? "";
+        const month = ss.map(s => s.month).sort()[0] ?? "";
+        return Object.assign(r, {
+          stops: ss.map(s => ({ family: s.family, month: s.month, lastOrder: s.lastOrder, priorOrders: s.priorOrders })),
+          stopFamilies: ss.map(s => (s.family === "Gut Zoomer" ? "GZ" : "TT")).join(" + "),
+          stopMonth: month,
+          stopMonthNum: month ? Number(month.replace("-", "")) : 0,
+          stopLastOrder: last,
+          stopLastNum: last ? Number(last.replace(/-/g, "")) : 0,
+          stopDays: last && end ? Math.round(dayNum(end) - dayNum(last)) : 0,
+          stopPrior: ss.reduce((a, s) => a + s.priorOrders, 0),
+        });
+      });
+    rows.length = 0;
+    rows.push(...kept);
+  } else {
+    const focused = !focus ? [...rows] : rows.filter(r => matchesFocus(r, focus));
+    rows.length = 0;
+    rows.push(...focused);
+  }
 
   const total = rows.reduce((s, r) => s + r.metric, 0);
   const count = rows.length;
   const descending = total > 0;
   rows.sort((x, y) => (descending ? y.metric - x.metric : x.metric - y.metric));
-  const limit = args.unlimited ? rows.length : Math.min(args.limit ?? 50, 500);
+  const limit = args.unlimited || famstops ? rows.length : Math.min(args.limit ?? 50, 500);
 
   // Positive vs negative driver split — every node nets a single number, but
   // that number can hide bright spots inside a dragging cohort (or drags

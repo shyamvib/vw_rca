@@ -156,6 +156,39 @@ export const geoSummary = scopedQuery({
       row.reps.set(r.sales, rep);
     }
 
+    // Top-down plan [Shyam, 2026-10-12]: geo expected = allocated share of
+    // the company P75 (geo total, or sum of this scope's rep×geo cells), so
+    // states add up to overall and reps add up to overall. Clinic P75 is not
+    // summed here any more.
+    const alloc = await ctx.db
+      .query("geoPeriodBaseline")
+      .withIndex("by_gen_period", q => q.eq("gen", gen).eq("periodId", args.periodId))
+      .collect();
+    if (alloc.length) {
+      const cell = new Map(alloc.map(a => [`${a.geo}|${a.sales}`, a]));
+      const scoped = !!(args.sales || args.teamLead);
+      for (const row of byGeo.values()) {
+        let er = 0, eo = 0;
+        if (!scoped) {
+          const t = cell.get(`${row.key}|`);
+          er = t?.expectedRevenue ?? 0;
+          eo = t?.expectedOrders ?? 0;
+        }
+        for (const [name, rep] of row.reps) {
+          const c = cell.get(`${row.key}|${name}`);
+          const cr = c?.expectedRevenue ?? 0;
+          rep.delta = rep.actual - cr;
+          if (scoped) {
+            er += cr;
+            eo += c?.expectedOrders ?? 0;
+          }
+        }
+        row.expected = er;
+        row.expectedOrders = eo;
+        row.delta = row.actual - er;
+      }
+    }
+
     const rows: GeoRow[] = [...byGeo.values()].map(row => {
       const { reps, fwdRevenue, ...rest } = row;
       const p = projFor(rest.ytdRevenue, fwdRevenue);
@@ -266,6 +299,19 @@ export const salesReps = scopedQuery({
       row.orders += r.orders;
       row.clinics += 1;
       byRep.set(name, row);
+    }
+    // Rep expected = top-down allocated plan (sum of rep×geo cells).
+    const cfgL = await loadCfg(ctx);
+    const sp = await ctx.db
+      .query("salesPeriodBaseline")
+      .withIndex("by_gen_period", q => q.eq("gen", cfgL?.gen ?? 0).eq("periodId", args.periodId))
+      .collect();
+    if (sp.length) {
+      const by = new Map(sp.map(x => [x.sales, x.expectedRevenue]));
+      for (const r of byRep.values()) {
+        r.expected = by.get(r.name) ?? 0;
+        r.delta = r.actual - r.expected;
+      }
     }
     return [...byRep.values()]
       .map(({ leads, ...r }) => ({ ...r, teamLead: [...leads].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—" }))

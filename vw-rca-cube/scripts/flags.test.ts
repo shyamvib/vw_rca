@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { OperationalInputs, PerformanceInputs } from "../convex/flags";
-import { approvedImportedFlags, evaluateFlags, FLAG } from "../convex/flags";
+import {
+  businessDaysBetween,
+  buyingRhythm,
+  evaluateFlags,
+  FLAG,
+  isBuyingOverdue,
+} from "../convex/flags";
 
 const CUTOFF = "2026-09-21";
 
@@ -333,60 +339,100 @@ describe("evaluateFlags — fallback Nurture/Healthy", () => {
   });
 });
 
-describe("evaluateFlags — approved Revenue Intelligence imports", () => {
-  const noHistory = op({
-    lastOrderAllTime: "",
-    ytdOrders: 0,
-    ytdRevenue: 0,
+describe("Buying Overdue — native business-day rhythm", () => {
+  // CUTOFF 2026-09-21 is a Monday.
+  test("business days skip weekends", () => {
+    expect(businessDaysBetween("2026-09-18", "2026-09-21")).toBe(1); // Fri->Mon
+    expect(businessDaysBetween("2026-09-19", "2026-09-21")).toBe(1); // Sat->Mon
+    expect(businessDaysBetween("2026-09-14", "2026-09-21")).toBe(5);
+    expect(businessDaysBetween("2026-09-21", "2026-09-21")).toBe(0);
+    expect(businessDaysBetween("2026-08-21", "2026-09-21")).toBe(20);
   });
 
-  test("source-owned flags survive ancient/no-history guard", () => {
+  test("<3 distinct order dates -> ineligible, no flag", () => {
     expect(
-      evaluateFlags(CUTOFF, noHistory, perf({ actual: 0, expected: 1000 }), [
-        FLAG.BUYING_OVERDUE,
-      ]),
-    ).toEqual([FLAG.BUYING_OVERDUE]);
+      buyingRhythm(["2026-01-05", "2026-01-05", "2026-01-12"], CUTOFF),
+    ).toBeUndefined();
+    expect(isBuyingOverdue(undefined, undefined)).toBe(false);
   });
 
-  test("imported-only does not create Healthy or Nurture fallback", () => {
+  test("future order dates beyond cutoff are ignored", () => {
     expect(
-      evaluateFlags(CUTOFF, op(), perf(), [FLAG.HIGH_TICKET_VOLUME]),
-    ).toEqual([FLAG.HIGH_TICKET_VOLUME]);
+      buyingRhythm(["2026-09-07", "2026-09-14", "2026-09-28"], CUTOFF),
+    ).toBeUndefined();
   });
 
-  test("multiple imported titles merge once, after RCA alerts and before fallback", () => {
+  test("median of distinct-date gaps and bd since last order", () => {
+    // gaps: Mon->Mon 5, Mon->Wed 2, Wed->next Wed 5 => median 5
+    expect(
+      buyingRhythm(
+        ["2026-08-03", "2026-08-10", "2026-08-12", "2026-08-19"],
+        CUTOFF,
+      ),
+    ).toEqual({ medianGapBd: 5, bdSinceLastOrder: 22 });
+  });
+
+  test("weekend orders: Fri->Sat gap is 0 business days", () => {
+    const r = buyingRhythm(["2026-09-04", "2026-09-05", "2026-09-11"], CUTOFF);
+    // gaps 0 and 4 (Labor Day 9/7 excluded) -> median 2
+    expect(r).toEqual({ medianGapBd: 2, bdSinceLastOrder: 6 });
+  });
+
+  test("boundary: ratio exactly 3.0 fires, just under does not", () => {
+    expect(isBuyingOverdue(5, 15)).toBe(true);
+    expect(isBuyingOverdue(5, 14)).toBe(false);
+  });
+
+  test("median 1 is floored to 2", () => {
+    expect(isBuyingOverdue(1, 3)).toBe(false); // 3/2 = 1.5, not 3/1
+    expect(isBuyingOverdue(1, 6)).toBe(true);
+    expect(isBuyingOverdue(0, 6)).toBe(true);
+  });
+
+  test("evaluateFlags adds Buying Overdue as a normal alert (no fallback)", () => {
     expect(
       evaluateFlags(
         CUTOFF,
-        op({ ytdOrders: 0, lastOrderAllTime: "2026-07-20" }),
+        op({
+          medianGapBd: 2,
+          bdSinceLastOrder: 6,
+          lastOrderAllTime: "2026-09-11",
+        }),
         perf(),
-        [
-          FLAG.BUYING_OVERDUE,
-          FLAG.HIGH_TICKET_VOLUME,
-          FLAG.BUYING_OVERDUE,
-          FLAG.REVENUE_BLEED, // not an approved imported flag
-        ],
       ),
-    ).toEqual([FLAG.CHURNED, FLAG.BUYING_OVERDUE, FLAG.HIGH_TICKET_VOLUME]);
-  });
-
-  test("approvedImportedFlags filters every other Power BI Note title and de-dupes", () => {
-    expect(
-      approvedImportedFlags([
-        FLAG.HIGH_TICKET_VOLUME,
-        FLAG.REVENUE_BLEED,
-        FLAG.BUYING_OVERDUE,
-        FLAG.HIGH_TICKET_VOLUME,
-        FLAG.HEALTHY,
-      ]),
-    ).toEqual([FLAG.HIGH_TICKET_VOLUME, FLAG.BUYING_OVERDUE]);
-  });
-
-  test("source flags remove the Healthy/Nurture fallback", () => {
-    expect(
-      evaluateFlags(CUTOFF, op({ firstOrder: "2026-09-01" }), perf(), [
-        FLAG.BUYING_OVERDUE,
-      ]),
     ).toEqual([FLAG.BUYING_OVERDUE]);
+  });
+
+  test("missing rhythm data does not block Healthy", () => {
+    expect(evaluateFlags(CUTOFF, op(), perf())).toEqual([FLAG.HEALTHY]);
+  });
+
+  test("High Ticket Volume no longer exists", () => {
+    expect(Object.values(FLAG)).not.toContain("⚠️ High Ticket Volume");
+  });
+});
+
+import { federalHolidays, businessDaysBetween as bdb, isFederalHoliday } from "../convex/flags";
+describe("federal holidays", () => {
+  test("2026 list incl Columbus Oct 12 and Thanksgiving", () => {
+    const h = federalHolidays(2026);
+    expect(h.size).toBe(11);
+    expect(isFederalHoliday("2026-10-12")).toBe(true);
+    expect(h.has("2026-11-26")).toBe(true);
+    expect(h.has("2026-07-03")).toBe(true); // Jul 4 Sat -> Fri
+    expect(h.has("2026-01-19")).toBe(true);
+    expect(h.has("2026-05-25")).toBe(true);
+  });
+  test("observed shifts", () => {
+    expect(federalHolidays(2027).has("2027-12-31")).toBe(true); // 2028-01-01 Sat
+    expect(federalHolidays(2027).has("2027-12-24")).toBe(true); // Dec 25 Sat
+    expect(federalHolidays(2022).has("2022-12-26")).toBe(true); // Sun -> Mon
+    expect(federalHolidays(2028).has("2028-01-01")).toBe(false);
+  });
+  test("holidays excluded from business days", () => {
+    expect(bdb("2026-10-09", "2026-10-13")).toBe(1); // Fri -> Tue over Columbus
+    expect(bdb("2026-11-25", "2026-11-27")).toBe(1); // Thanksgiving
+    expect(bdb("2026-10-05", "2026-10-12")).toBe(4);
+    expect(bdb("2026-03-02", "2026-03-09")).toBe(5);
   });
 });
