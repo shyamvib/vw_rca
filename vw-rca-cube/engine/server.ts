@@ -72,7 +72,14 @@ async function syncAppState() {
   try {
     const seed = (await convex.query("appState:snapshotSeed" as any, {})) as Record<string, any[]>;
     const db = current.host.db;
-    db.load("config", seed.config.filter(r => r.key === "main"));
+    // The config row mixes user-edited settings with pointers the build derives
+    // (gen, p75, rolling window ends), so only the setting that is read at query
+    // time (annualTarget) is overlaid. Window changes take effect on the next rebuild.
+    const mine = await db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
+    const theirs = seed.config.find(r => r.key === "main");
+    if (mine && theirs?.annualTarget !== undefined && mine.annualTarget !== theirs.annualTarget) {
+      await db.patch(mine._id, { annualTarget: theirs.annualTarget });
+    }
     db.load("productEligible", seed.productEligible);
     db.load("clinicPlan", seed.clinicPlan);
   } catch (e) {
@@ -191,7 +198,7 @@ const server = http.createServer(async (req, res) => {
         const s = await repSession(cred);
         if (s) await mirrorRep(current, cred, s);
       }
-      const value = await current.host.invoke(name, args);
+      const value = await current.host.invokeExternal(name, args);
       return send(res, 200, { value: value === undefined ? null : value });
     }
     send(res, 404, { error: "not found" });

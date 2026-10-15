@@ -17,8 +17,8 @@ type AnyFn = ((...a: any[]) => any) & {
   isAction?: boolean;
 };
 
-/** Convex modules whose query/internalQuery exports the analytics side serves. */
-export const ANALYTICS_MODULES = [
+/** Modules whose *public* functions the analytics service exposes over /rpc. */
+export const SERVED_MODULES = [
   "clinics",
   "geo",
   "wins",
@@ -30,8 +30,13 @@ export const ANALYTICS_MODULES = [
   "productGrowth",
   "newClinicFunnel",
   "newClinicTouches",
-  "config",
+  "families",
+  "clinicalTouch",
 ];
+
+/** Registered so handlers can runQuery them, but never served over /rpc. */
+const HELPER_MODULES = ["config", "repAuth", "ingest"];
+export const ANALYTICS_MODULES = [...SERVED_MODULES, ...HELPER_MODULES];
 
 export function schemaIndexes(): Record<string, { name: string; fields: string[] }[]> {
   const out: Record<string, { name: string; fields: string[] }[]> = {};
@@ -61,6 +66,8 @@ export function loadExport(dir: string, only?: string[]): MemDb {
 
 export class Host {
   private registry = new Map<string, AnyFn>();
+  /** Public functions in SERVED_MODULES: the only names callable from outside. */
+  private served = new Set<string>();
   ready: Promise<void>;
 
   /**
@@ -71,7 +78,7 @@ export class Host {
   constructor(
     public db: MemDb,
     private modules: string[] = ANALYTICS_MODULES,
-    private kinds: Array<"query" | "mutation" | "action"> = ["query"],
+    private kinds: Array<"query" | "mutation" | "action"> = ["query", "mutation", "action"],
   ) {
     this.ready = this.init();
   }
@@ -82,7 +89,10 @@ export class Host {
       for (const [name, fn] of Object.entries(m)) {
         if (typeof fn !== "function" || !fn._handler) continue;
         const kind = fn.isQuery ? "query" : fn.isMutation ? "mutation" : fn.isAction ? "action" : null;
-        if (kind && this.kinds.includes(kind)) this.registry.set(`${mod}:${name}`, fn);
+        if (kind && this.kinds.includes(kind)) {
+          this.registry.set(`${mod}:${name}`, fn);
+          if (SERVED_MODULES.includes(mod) && (fn as any).isPublic) this.served.add(`${mod}:${name}`);
+        }
       }
     }
   }
@@ -105,6 +115,13 @@ export class Host {
       // no meaning for a throwaway in-memory snapshot.
       scheduler: { runAfter: async () => undefined, runAt: async () => undefined },
     };
+  }
+
+  /** Entry point for requests from outside the process: public, served functions only. */
+  async invokeExternal(name: string, args: any): Promise<any> {
+    await this.ready;
+    if (!this.served.has(name)) throw new Error(`unknown function ${name}`);
+    return this.invoke(name, args);
   }
 
   async invoke(name: string, args: any): Promise<any> {

@@ -7,6 +7,7 @@
  */
 const SHOW_SANKEY = true;
 import { useAction, useMutation, useQuery } from "convex/react";
+import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -134,11 +135,11 @@ export function RepView(props: {
     }
     return undefined;
   })();
-  const bookQ = useQuery(
+  const bookQ = useRcaQuery(
     api.repView.book,
     sales ? { password: pw(), periodId, sales } : "skip",
   );
-  const todayBookQ = useQuery(
+  const todayBookQ = useRcaQuery(
     api.repView.book,
     sales && today
       ? {
@@ -152,59 +153,59 @@ export function RepView(props: {
         }
       : "skip",
   );
-  const weekBookQ = useQuery(
+  const weekBookQ = useRcaQuery(
     api.repView.book,
     sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
   );
-  const monthBookQ = useQuery(
+  const monthBookQ = useRcaQuery(
     api.repView.book,
     sales && thisMonth ? { password: pw(), periodId: thisMonth.id, sales } : "skip",
   );
-  const quarterBookQ = useQuery(
+  const quarterBookQ = useRcaQuery(
     api.repView.book,
     sales && thisQuarter ? { password: pw(), periodId: thisQuarter.id, sales } : "skip",
   );
-  const scBookQ = useQuery(
+  const scBookQ = useRcaQuery(
     api.repView.book,
     sales ? { password: pw(), periodId: scWin.periodId, sales } : "skip",
   );
-  const paceQ = useQuery(
+  const paceQ = useRcaQuery(
     api.repView.pace,
     sales && thermoWin.id ? { password: pw(), periodId: thermoWin.id, sales } : "skip",
   );
-  const lastPaceQ = useQuery(
+  const lastPaceQ = useRcaQuery(
     api.repView.pace,
     sales && thermoWin.prevId ? { password: pw(), periodId: thermoWin.prevId, sales } : "skip",
   );
-  const boardLbQ = useQuery(
+  const boardLbQ = useRcaQuery(
     api.geo.salesReps,
     lbWin.id ? { password: pw(), periodId: lbWin.id } : "skip",
   );
-  const boardLbPrevQ = useQuery(
+  const boardLbPrevQ = useRcaQuery(
     api.geo.salesReps,
     lbWin.prevId ? { password: pw(), periodId: lbWin.prevId } : "skip",
   );
-  const wins = useQuery(
+  const wins = useRcaQuery(
     api.wins.winsSummary,
     sales ? { password: pw(), periodId, sales } : "skip",
   );
-  const winsToday = useQuery(
+  const winsToday = useRcaQuery(
     api.wins.winsSummary,
     sales && today ? { password: pw(), periodId: today.id, sales } : "skip",
   );
-  const winsWeek = useQuery(
+  const winsWeek = useRcaQuery(
     api.wins.winsSummary,
     sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
   );
-  const winsMonth = useQuery(
+  const winsMonth = useRcaQuery(
     api.wins.winsSummary,
     sales && thisMonth ? { password: pw(), periodId: thisMonth.id, sales } : "skip",
   );
-  const winsQuarter = useQuery(
+  const winsQuarter = useRcaQuery(
     api.wins.winsSummary,
     sales && thisQuarter ? { password: pw(), periodId: thisQuarter.id, sales } : "skip",
   );
-  const weekFams = useQuery(
+  const weekFams = useRcaQuery(
     api.leadFamilies.salesFamilies,
     sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
   );
@@ -221,7 +222,7 @@ export function RepView(props: {
     try { return { sellHours: 28, weighted: true, pins: {}, ...JSON.parse(localStorage.getItem("rv-week-plan") || "{}") }; } catch { return { sellHours: 28, weighted: true, pins: {} }; }
   });
   const savePlan = (p: PlanState) => { setPlan(p); try { localStorage.setItem("rv-week-plan", JSON.stringify(p)); } catch { /* ignore */ } };
-  const scFams = useQuery(
+  const scFams = useRcaQuery(
     api.leadFamilies.salesFamilies,
     sales ? { password: pw(), periodId: scWin.periodId, sales } : "skip",
   );
@@ -243,7 +244,7 @@ export function RepView(props: {
           : tab === "quarter"
             ? (thisQuarter?.id ?? periodId)
             : periodId;
-  const clinicDetailQ = useQuery(
+  const clinicDetailQ = useRcaQuery(
     api.repView.clinicDetail,
     sales && clinicSel ? { password: pw(), periodId: activePeriodId, sales, clinic: clinicSel } : "skip",
   );
@@ -825,7 +826,7 @@ function TodayTab({
   const first = b.callFirst[0];
   const f = b.funnel;
   const [fl, setFl] = useState<{ label: string; ids: string[] } | null>(null);
-  const flQ = useQuery(api.repView.rowsByFocus, fl && fl.ids.length ? { password: pw(), periodId: listPeriod, sales, focus: `ids:${fl.ids.join(",")}` } : "skip");
+  const flQ = useRcaQuery(api.repView.rowsByFocus, fl && fl.ids.length ? { password: pw(), periodId: listPeriod, sales, focus: `ids:${fl.ids.join(",")}` } : "skip");
   void wins;
   // Getting-to-order-4 window: only clinics stuckMin–stuckMax days since
   // their last order are "about to fall off", ranked order 4 → order 1
@@ -1019,7 +1020,7 @@ function WindowTab({
 }) {
   const [simplify, setSimplify] = useState(true);
   // Exact view: product families under branches A and B, like the main tree.
-  const treeFams = useQuery(
+  const treeFams = useRcaQuery(
     api.leadFamilies.salesFamilies,
     sales && !simplify ? { password: pw(), periodId, sales } : "skip",
   );
@@ -1027,7 +1028,7 @@ function WindowTab({
   const [famOpen, setFamOpen] = useState<{ family: string; scope: "all" | "bundle" | "nonbundle" } | null>(null);
   const [famLimit, setFamLimit] = useState(25);
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
-  const focusRowsQ = useQuery(
+  const focusRowsQ = useRcaQuery(
     api.repView.rowsByFocus,
     sales && focus ? { password: pw(), periodId, sales, focus: focus.focus } : "skip",
   );
@@ -1449,8 +1450,8 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
   const [fview, setFview] = useState<"funnel" | "sankey">("funnel");
   const [rl, setRl] = useState<{ label: string; ids: string[] } | null>(null);
   const [showLeads, setShowLeads] = useState(false);
-  const rlQ = useQuery(api.repView.rowsByFocus, rl && rl.ids.length ? { password: pw(), periodId, sales, focus: `ids:${rl.ids.join(",")}` } : "skip");
-  const data = useQuery(api.newClinicFunnel.orderRetentionFunnel, {
+  const rlQ = useRcaQuery(api.repView.rowsByFocus, rl && rl.ids.length ? { password: pw(), periodId, sales, focus: `ids:${rl.ids.join(",")}` } : "skip");
+  const data = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, {
     password: pw(),
     periodId,
     sales,
@@ -1812,8 +1813,8 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
 
 function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
   const k = b.kpi;
-  const prevQ = useQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
-  const scPaceQ = useQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const prevQ = useRcaQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
+  const scPaceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
   const prevB = prevQ?.ready ? prevQ : null;
   const cmpTag = prevId ? ({ d: "DoD", w: "WoW", m: "MoM", q: "QoQ" } as Record<string, string>)[prevId.split(":")[0]] ?? "vs prior" : null;
   const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
@@ -1872,7 +1873,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
 
   const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
   const [cl, setCl] = useState<{ key: string; label: string; ids: string[] } | null>(null);
-  const clQ = useQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
+  const clQ = useRcaQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
   const openCell = (c: Cell, e: React.MouseEvent) => {
     if (!c.ids?.length) return;
     e.stopPropagation();
@@ -2236,7 +2237,7 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
  * main dashboard's expandable clinic row calls; `assertOwnsClinic` inside it
  * already restricts a rep session to their own clinics. */
 function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: string }) {
-  const run = useAction(api.families.portfolioAction);
+  const run = useRcaAction(api.families.portfolioAction);
   const [rows, setRows] = useState<Book[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -2294,7 +2295,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
 /** Rep-scoped "providers" panel — the customers/providers ordering inside
  * this clinic, same `families.customersAction` the main dashboard uses. */
 function RepCustomerTable({ clinic, periodId }: { clinic: string; periodId: string }) {
-  const run = useAction(api.families.customersAction);
+  const run = useRcaAction(api.families.customersAction);
   const [rows, setRows] = useState<Book[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -2546,7 +2547,7 @@ function FocusTable({
  * reusing the parent's list row, which doesn't carry every field the card
  * needs — first/last order, touch dates, etc.). */
 function ExpandedClinicCard({ clinic, periodId, sales, winLabel }: { clinic: string; periodId: string; sales: string; winLabel?: string }) {
-  const detailQ = useQuery(
+  const detailQ = useRcaQuery(
     api.repView.clinicDetail,
     sales ? { password: pw(), periodId, sales, clinic } : "skip",
   );
@@ -2576,7 +2577,7 @@ type SearchSel = { kind: "c"; clinic: string; name: string } | { kind: "p"; hit:
 function searchKey(s: SearchSel | null) { return !s ? null : s.kind === "c" ? `c:${s.clinic}` : `p:${s.hit.customerId}:${s.hit.clinic}`; }
 
 function SearchDetailPage({ sel, periodId, winLabel, sales, onBack }: { sel: SearchSel; periodId: string; winLabel: string; sales: string; onBack: () => void }) {
-  const run = useAction(api.families.providerSearch);
+  const run = useRcaAction(api.families.providerSearch);
   const [pr, setPr] = useState<ProvHit | null | "none">(null);
   const hit = sel.kind === "p" ? sel.hit : null;
   useEffect(() => {
@@ -2634,8 +2635,8 @@ function RailSearch({ clinicTerm, provTerm, sales, onClear, selKey, onOpen }: {
   const cq = clinicTerm.trim();
   const pq = provTerm.trim();
   const open = selKey;
-  const clinics = useQuery(api.feed.clinicSearch, cq.length >= 2 ? { term: cq, password: pw() } : "skip");
-  const run = useAction(api.families.providerSearch);
+  const clinics = useRcaQuery(api.feed.clinicSearch, cq.length >= 2 ? { term: cq, password: pw() } : "skip");
+  const run = useRcaAction(api.families.providerSearch);
   const [provs, setProvs] = useState<ProvHit[] | null>(null);
   const [provErr, setProvErr] = useState<string | null>(null);
   useEffect(() => {
@@ -2726,7 +2727,7 @@ function RecentSearches({ items, selKey, onOpen, onClear }: { items: SearchSel[]
 
 type CT = { n: number; last: string } | null;
 function ClinicalRows({ clinic, provider }: { clinic?: string; provider?: string }) {
-  const run = useAction(api.clinicalTouch.clinicalTouch);
+  const run = useRcaAction(api.clinicalTouch.clinicalTouch);
   const [d, setD] = useState<{ consult: CT; training: CT } | null | "err">(null);
   useEffect(() => {
     let live = true;
@@ -2758,7 +2759,7 @@ function TouchKpis({ sales, src, w }: {
 }) {
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const cur = src[w];
-  const rowsQ = useQuery(
+  const rowsQ = useRcaQuery(
     api.repView.rowsByFocus,
     sales && focus && cur ? { password: pw(), periodId: cur.periodId, sales, focus: focus.focus } : "skip",
   );
@@ -2770,7 +2771,7 @@ function TouchKpis({ sales, src, w }: {
     const re = e0.touchedIds.filter((_, i) => { const g = e0.touchGaps![i]; return g != null && g <= xd; });
     return { ...e0, touchedRe: re.length, touchedReIds: re };
   })() : e0;
-  const teamQ = useQuery(
+  const teamQ = useRcaQuery(
     api.repView.teamEffort,
     sales && cur && e0 ? { password: pw(), periodId: cur.periodId, sales, start: e0.start, within: xd || undefined } : "skip",
   );
@@ -2888,7 +2889,7 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
     return { ids, names: ids.slice(0, 3).map(id => ({ clinic: id, name: byId.get(id)?.name ?? id, v: 0 })) };
   })() : null;
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
-  const rowsQ = useQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   if (!o) return null;
   const openIds = (ids: string[] | undefined, label: string) =>
     ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
@@ -2964,7 +2965,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   const rows = rankActions(b, fams, plan);
   const st = pillarStatus(b, fams);
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
-  const rowsQ = useQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   const openIds = (ids: string[] | undefined, label: string) =>
     ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
   const inPlan = rows.filter(r => r.inPlan);
@@ -3376,7 +3377,7 @@ function LeadTable({ leads, onClose }: { leads: { id: string; name: string; date
 
 function NewClinicFlow({ ids, onList, signups = 0, leadCount, onLeads }: { ids: string[][]; onList: (label: string, ids: string[]) => void; signups?: number; leadCount?: number; onLeads?: () => void }) {
   const run = useAction(api.newClinicTouches.newClinicTouches);
-  const seq = useQuery(api.newClinicFunnel.seqFor, ids[0]?.length ? { password: pw(), clinics: ids[0] } : "skip");
+  const seq = useRcaQuery(api.newClinicFunnel.seqFor, ids[0]?.length ? { password: pw(), clinics: ids[0] } : "skip");
   const [touch, setTouch] = useState<Record<string, Touch & { ev?: { d: string; k: string }[] }> | null>(null);
   const key = (ids[0] ?? []).join(",");
   useEffect(() => {

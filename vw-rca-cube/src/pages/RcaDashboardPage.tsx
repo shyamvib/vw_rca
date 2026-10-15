@@ -1,4 +1,5 @@
 import { useAction, useMutation, useQuery } from "convex/react";
+import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import { GeoMap, GeoRsmTable, type GeoRow } from "./GeoMap";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -178,7 +179,7 @@ function ClinicSearchResults({
   onOpenLens: (lens: string, key: string, label: string) => void;
   onClose: () => void;
 }) {
-  const data = useQuery(
+  const data = useRcaQuery(
     api.feed.clinicSearch,
     term.trim().length >= 2 ? { term, password: pw() } : "skip",
   );
@@ -382,7 +383,7 @@ export function AlertRail({
   onFocus: (focus: string, label: string) => void;
   teamLead?: string;
 }) {
-  const feed = useQuery(api.feed.feed, {
+  const feed = useRcaQuery(api.feed.feed, {
     password: pw(),
     teamLead: teamLead || undefined,
   });
@@ -1098,7 +1099,7 @@ function scopePeriod(
 }
 
 export function RcaDashboardPage() {
-  const data = useQuery(api.bridge.bridge, { password: pw() });
+  const data = useRcaQuery(api.bridge.bridge, { password: pw() });
   const refresh = useAction(api.refresh.refreshNow);
   const setWindow = useMutation(api.config.setWindow);
   const setTarget = useMutation(api.config.setTarget);
@@ -1148,7 +1149,7 @@ export function RcaDashboardPage() {
   const [geoTable, setGeoTable] = useState(false);
   const [search, setSearch] = useState("");
   const [provSearch, setProvSearch] = useState("");
-  const feedForSearch = useQuery(
+  const feedForSearch = useRcaQuery(
     api.feed.feed,
     isRep ? "skip" : { password: pw(), teamLead: teamLead || undefined },
   );
@@ -1167,15 +1168,15 @@ export function RcaDashboardPage() {
     [data],
   );
   const periodIdSafe = periods.some(p => p.id === selected) ? selected : "all";
-  const leads = useQuery(api.geo.teamLeads, isRep ? "skip" : { password: pw() });
+  const leads = useRcaQuery(api.geo.teamLeads, isRep ? "skip" : { password: pw() });
   // Product families for one lead are rebuilt from that lead's own day series.
-  const leadFams = useQuery(
+  const leadFams = useRcaQuery(
     api.leadFamilies.leadFamilies,
     teamLead
       ? { password: pw(), periodId: periodIdSafe, teamLead }
       : "skip",
   );
-  const leadFamsAll = useQuery(
+  const leadFamsAll = useRcaQuery(
     api.leadFamilies.leadFamilies,
     teamLead && periodIdSafe !== "all"
       ? { password: pw(), periodId: "all", teamLead }
@@ -1185,25 +1186,25 @@ export function RcaDashboardPage() {
   // takes priority over the team-lead family lists when a rep is picked, so
   // the product-mix panel re-scopes to a rep the same way the rest of the
   // page does.
-  const salesFams = useQuery(
+  const salesFams = useRcaQuery(
     api.leadFamilies.salesFamilies,
     salesRep
       ? { password: pw(), periodId: periodIdSafe, sales: salesRep }
       : "skip",
   );
-  const salesFamsAll = useQuery(
+  const salesFamsAll = useRcaQuery(
     api.leadFamilies.salesFamilies,
     salesRep && periodIdSafe !== "all"
       ? { password: pw(), periodId: "all", sales: salesRep }
       : "skip",
   );
-  const geo = useQuery(api.geo.geoSummary, {
+  const geo = useRcaQuery(api.geo.geoSummary, {
     password: pw(),
     periodId: periodIdSafe,
     teamLead: teamLead || undefined,
     sales: salesRep || undefined,
   });
-  const scopedActive = useQuery(
+  const scopedActive = useRcaQuery(
     api.geo.scopeTotals,
     teamLead || salesRep
       ? {
@@ -1217,7 +1218,7 @@ export function RcaDashboardPage() {
   // Positive/negative driver split per cohort, so lens C's tree branches can
   // each carry their own split inline instead of only after opening the
   // clinic list. Requested by Shyam 2026-09-06.
-  const cohortDrivers = useQuery(api.clinics.cohortDriverSplit, {
+  const cohortDrivers = useRcaQuery(api.clinics.cohortDriverSplit, {
     password: pw(),
     periodId: periodIdSafe,
     teamLead: teamLead || undefined,
@@ -1251,7 +1252,7 @@ export function RcaDashboardPage() {
       (e.currentTarget as HTMLElement).click();
     }
   };
-  const scopedFull = useQuery(
+  const scopedFull = useRcaQuery(
     api.geo.scopeTotals,
     teamLead || salesRep
       ? {
@@ -1262,14 +1263,14 @@ export function RcaDashboardPage() {
         }
       : "skip",
   );
-  const salesLeaderboard = useQuery(api.geo.salesReps, {
+  const salesLeaderboard = useRcaQuery(api.geo.salesReps, {
     password: pw(),
     periodId: periodIdSafe,
     teamLead: teamLead || undefined,
   });
   // Same scope as the What's Working panel below — used only to fold a
   // "wins vs. gap" readout into the hero headline (Shyam 2026-09-08).
-  const headlineWins = useQuery(api.wins.winsSummary, {
+  const headlineWins = useRcaQuery(api.wins.winsSummary, {
     password: pw(),
     periodId: periodIdSafe,
     teamLead: teamLead || undefined,
@@ -2752,7 +2753,7 @@ function ProviderSearchResults({
   term: string;
   onClose: () => void;
 }) {
-  const run = useAction(api.families.providerSearch);
+  const run = useRcaAction(api.families.providerSearch);
   const [rows, setRows] = useState<ProviderHit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2903,7 +2904,7 @@ function NewLogoLevel({
   openKey: string | null;
   onPick: (key: string, label: string) => void;
 }) {
-  const data = useQuery(api.clinics.newClinicGroups, {
+  const data = useRcaQuery(api.clinics.newClinicGroups, {
     password: pw(),
     periodId,
     teamLead: teamLead || undefined,
@@ -3112,7 +3113,7 @@ function WinsPanel({
   sales?: string;
   onFocus: (focus: string, label: string) => void;
 }) {
-  const data = useQuery(api.wins.winsSummary, {
+  const data = useRcaQuery(api.wins.winsSummary, {
     password: pw(),
     periodId,
     teamLead,
@@ -3309,7 +3310,7 @@ function YearProjection({
   teamLead: string;
   sales?: string;
 }) {
-  const proj = useQuery(api.projection.summary, {
+  const proj = useRcaQuery(api.projection.summary, {
     password: pw(),
     teamLead: teamLead || undefined,
     sales: sales || undefined,
@@ -3739,7 +3740,7 @@ function ClinicPanel({
   onLimit: (n: number) => void;
   onClose: () => void;
 }) {
-  const data = useQuery(api.clinics.clinicDrill, {
+  const data = useRcaQuery(api.clinics.clinicDrill, {
     password: pw(),
     periodId,
     lens,
@@ -4187,7 +4188,7 @@ export function FamilyPanel({
   onLimit: (n: number) => void;
   onClose: () => void;
 }) {
-  const run = useAction(api.families.familyClinicsAction);
+  const run = useRcaAction(api.families.familyClinicsAction);
   const [state, setState] = useState<{
     loading: boolean;
     error?: string;
@@ -4351,7 +4352,7 @@ function UnmappedTests({ periodId }: { periodId: string }) {
 }
 
 function UnmappedTestsInner({ periodId }: { periodId: string }) {
-  const run = useAction(api.families.unmappedTestsAction);
+  const run = useRcaAction(api.families.unmappedTestsAction);
   const [open, setOpen] = useState(true);
   const [state, setState] = useState<{
     loading: boolean;
@@ -4510,7 +4511,7 @@ function ClinicRowWithCustomers({
   /** Optional context line under the clinic name (e.g. substitution detail). */
   extra?: React.ReactNode;
 }) {
-  const run = useAction(api.families.customersAction);
+  const run = useRcaAction(api.families.customersAction);
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -4669,7 +4670,7 @@ function ClinicPanelRow({
   /** Lens of the list; the traffic lens formats the metric as patients. */
   lens?: string;
 }) {
-  const run = useAction(api.families.customersAction);
+  const run = useRcaAction(api.families.customersAction);
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -5203,7 +5204,7 @@ function ClinicPortfolio({
   /** Order universe of the list this clinic sits in. */
   scope?: "all" | "bundle" | "nonbundle";
 }) {
-  const run = useAction(api.families.portfolioAction);
+  const run = useRcaAction(api.families.portfolioAction);
   const [rows, setRows] = useState<PortfolioRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -5367,7 +5368,7 @@ function SwitchPanel({
   onClose: () => void;
 }) {
   const [down, up] = pair.split(">");
-  const run = useAction(api.families.switchClinicsAction);
+  const run = useRcaAction(api.families.switchClinicsAction);
   const [tab, setTab] = useState("stayed");
   const [state, setState] = useState<{
     loading: boolean;
