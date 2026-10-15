@@ -527,48 +527,94 @@ const GEN_TABLES = [
  * (scheduled, so it never sits on the refresh's critical path) and reschedules
  * itself until every stale row is gone.
  */
+// Per-invocation delete budget. Each deleted row also costs its index entries,
+// and Convex caps a mutation at ~4k reads and a fixed number of "system
+// operations"; 4000 sat right at the read cap and was observed to die with
+// "timed out performing too many system operations", which broke the
+// self-rescheduling chain and left whole generations behind. Stay well under.
+const PURGE_BUDGET = 400;
+
 export const purgeOldGens = internalMutation({
-  args: { keep: v.number() },
-  handler: async (ctx, { keep }) => {
-    // Protect both completed rep windows and independent refresh generations
-    // still being written before their config pointers are switched.
-    const repGens = (await ctx.db.query("config").collect())
-      .filter(r => r.key.startsWith("rep:") && r.gen)
-      .map(r => r.gen as number)
-      .filter(g => g < keep);
-    const leasedGens = (await ctx.db.query("generationLeases").collect())
-      .map(r => r.gen)
-      .filter(g => g < keep);
+  args: {
+    keep: v.number(),
+    // Exclusive upper bound of what may be purged. Defaults to `keep` (only
+    // older generations). purgeStale passes a higher bound so generations
+    // newer than `keep` that nothing references (replaced rep windows) go too.
+    top: v.optional(v.number()),
+    // Rows to delete per invocation (default PURGE_BUDGET); lower it if a run
+    // keeps timing out.
+    budget: v.optional(v.number()),
+  },
+  handler: async (ctx, { keep, top: topArg, budget: budgetArg }) => {
+    const top = topArg ?? keep;
+    // Protect every generation a config row still points at (main, rep
+    // windows, snapshot) and every leased generation (still being written).
+    const configGens = (await ctx.db.query("config").collect())
+      .filter(r => r.gen)
+      .map(r => r.gen as number);
+    const leasedGens = (await ctx.db.query("generationLeases").collect()).map(
+      r => r.gen,
+    );
     // Never erase the just-replaced main generation while an overlapping
     // rep cache may still be reading its daily rows. A main refresh swaps
     // config.gen before this scheduled purge begins; protection of a source
     // version must be via a lease, not merely a live config pointer.
-    const protectedGens = [...new Set([...repGens, ...leasedGens])].sort(
-      (a, b) => a - b,
-    );
-    const bounds = [-1, ...protectedGens, keep];
-    let budget = 4000;
+    const protectedGens = [
+      ...new Set([...configGens, ...leasedGens, keep].filter(g => g < top)),
+    ].sort((a, b) => a - b);
+    const bounds = [-1, ...protectedGens, top];
+    let budget = budgetArg ?? PURGE_BUDGET;
     outer: for (const table of GEN_TABLES) {
       for (let i = 0; i < bounds.length - 1; i++) {
         const lo = bounds[i];
         const hi = bounds[i + 1];
+        if (i > 0 && hi - lo <= 1) continue; // nothing between two adjacent protected gens
         while (budget > 0) {
           const stale = await ctx.db
             .query(table)
             .withIndex("by_gen", q =>
               i === 0 ? q.lt("gen", hi) : q.gt("gen", lo).lt("gen", hi),
             )
-            .take(Math.min(budget, 1000));
+            .take(Math.min(budget, 500));
           for (const row of stale) await ctx.db.delete(row._id);
           budget -= stale.length;
-          if (stale.length < 1000) break;
+          if (stale.length < Math.min(budget + stale.length, 500)) break;
         }
         if (budget <= 0) break outer;
       }
     }
     if (budget <= 0) {
-      await ctx.scheduler.runAfter(0, internal.ingest.purgeOldGens, { keep });
+      await ctx.scheduler.runAfter(0, internal.ingest.purgeOldGens, {
+        keep,
+        top: topArg,
+        budget: budgetArg,
+      });
     }
+  },
+});
+
+/**
+ * Watchdog (cron, every 15 min): the purge above reschedules itself only when
+ * an invocation finishes cleanly, so one failed run used to end the chain and
+ * strand a whole generation. This restarts it. Everything up to the highest
+ * generation handed out is fair game except what a config row or a lease
+ * still protects, and except a main generation that may still be mid-write
+ * (genSeq above the live gen).
+ */
+export const purgeStale = internalMutation({
+  args: {},
+  handler: async ctx => {
+    const main = await ctx.db
+      .query("config")
+      .withIndex("by_key", q => q.eq("key", "main"))
+      .unique();
+    if (!main?.gen) return;
+    const seq = main.genSeq ?? main.gen;
+    const top = seq > main.gen ? seq : seq + 1;
+    await ctx.scheduler.runAfter(0, internal.ingest.purgeOldGens, {
+      keep: main.gen,
+      top,
+    });
   },
 });
 
@@ -598,16 +644,16 @@ export const clearCachePrefix = internalMutation({
 export const deleteGen = internalMutation({
   args: { gen: v.number() },
   handler: async (ctx, { gen }) => {
-    let budget = 4000;
+    let budget = PURGE_BUDGET;
     for (const table of GEN_TABLES) {
       while (budget > 0) {
         const rows = await ctx.db
           .query(table)
           .withIndex("by_gen", q => q.eq("gen", gen))
-          .take(Math.min(budget, 1000));
+          .take(Math.min(budget, 500));
         for (const row of rows) await ctx.db.delete(row._id);
         budget -= rows.length;
-        if (rows.length < 1000) break;
+        if (rows.length < 500) break;
       }
       if (budget <= 0) break;
     }

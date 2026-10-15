@@ -170,3 +170,67 @@ export const sizes = internalAction({
     };
   },
 });
+
+/**
+ * Rows per generation for the big gen-scoped tables. Readers only ever see the
+ * current generation, so anything beyond it (and the generations still held by
+ * personal windows) is leaked storage that deleteGen/purgeOldGens failed to
+ * remove. Run: diag:genRows (internal; Convex dashboard → Functions).
+ */
+const GEN_TABLES = [
+  "clinicPeriod",
+  "clinicMeta",
+  "familyPeriod",
+  "familySalesSeries",
+  "salesPeriodBaseline",
+] as const;
+
+export const countGenRows = internalQuery({
+  args: {
+    table: v.string(),
+    gen: v.number(),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { table, gen, cursor }) => {
+    // Dynamic table name: all of GEN_TABLES have a by_gen index.
+    const res = await (ctx.db as any)
+      .query(table)
+      .withIndex("by_gen", (q: any) => q.eq("gen", gen))
+      .paginate({ numItems: table === "clinicPeriod" ? 8000 : 2000, cursor });
+    return {
+      count: res.page.length as number,
+      isDone: res.isDone as boolean,
+      cursor: res.continueCursor as string,
+    };
+  },
+});
+
+export const genRows = internalAction({
+  args: { maxGen: v.optional(v.number()), tables: v.optional(v.array(v.string())) },
+  handler: async (ctx, { maxGen, tables }): Promise<Record<string, Record<string, number>>> => {
+    const cfg: { gen: number } = await ctx.runQuery(internal.diag.currentGen, {});
+    const top = maxGen ?? cfg.gen + 25;
+    const out: Record<string, Record<string, number>> = {};
+    for (const table of tables ?? GEN_TABLES) {
+      out[table] = {};
+      for (let gen = 0; gen <= top; gen++) {
+        let cursor: string | null = null;
+        let n = 0;
+        try {
+          for (;;) {
+            const r: { count: number; isDone: boolean; cursor: string } =
+              await ctx.runQuery(internal.diag.countGenRows, { table, gen, cursor });
+            n += r.count;
+            if (r.isDone) break;
+            cursor = r.cursor;
+          }
+        } catch (e) {
+          out[table]["error"] = String(e).slice(0, 120) as unknown as number;
+          break;
+        }
+        if (n) out[table][`gen ${gen}`] = n;
+      }
+    }
+    return out;
+  },
+});

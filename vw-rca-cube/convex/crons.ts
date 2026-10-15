@@ -26,4 +26,8 @@ crons.monthly(
   internal.refresh.monthlySnapshotTick,
 );
 
+// Restart the old-generation purge if a run died mid-chain (see
+// ingest.purgeStale); otherwise leaked generations pile up in storage.
+crons.interval("purge stale generations", { minutes: 15 }, internal.ingest.purgeStale);
+
 export default crons;
