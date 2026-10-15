@@ -8,7 +8,8 @@
  * plus get(id). Index order follows Convex: index fields, then _creationTime,
  * then _id; missing optional fields sort first.
  *
- * Writes throw: the analytics side never mutates (app state stays in Convex).
+ * Writes are supported so the snapshot builder can run mutations (the put* writers) against it;
+ * the analytics service only reads.
  */
 
 export type Doc = Record<string, any> & { _id: string; _creationTime: number };
@@ -69,6 +70,10 @@ class Table {
     readonly name: string,
     readonly indexes: IndexDef[],
   ) {}
+
+  invalidate() {
+    this.cache.clear();
+  }
 
   sorted(indexName: string): { fields: string[]; rows: Doc[] } {
     let fields: string[];
@@ -235,31 +240,79 @@ export class MemDb {
   constructor(private schemaIndexes: Record<string, IndexDef[]>) {}
 
   load(table: string, docs: Doc[]) {
-    const t = new Table(table, this.schemaIndexes[table] ?? []);
+    const t = this.table(table);
     t.docs = docs;
     for (const d of docs) this.byId.set(d._id, d);
     this.tables.set(table, t);
   }
 
   query(table: string): QueryBuilder {
-    const t = this.tables.get(table) ?? (this.tables.set(table, new Table(table, this.schemaIndexes[table] ?? [])), this.tables.get(table)!);
-    return new QueryBuilder(t);
+    return new QueryBuilder(this.table(table));
   }
 
   async get(id: string): Promise<Doc | null> {
     return this.byId.get(id) ?? null;
   }
 
-  insert(): never {
-    throw new Error("MemDb is read-only");
+  private seq = 0;
+
+  private table(name: string): Table {
+    let t = this.tables.get(name);
+    if (!t) {
+      t = new Table(name, this.schemaIndexes[name] ?? []);
+      this.tables.set(name, t);
+    }
+    return t;
   }
-  patch(): never {
-    throw new Error("MemDb is read-only");
+
+  private tableOf(id: string): Table | undefined {
+    for (const t of this.tables.values()) if (t.docs.some(d => d._id === id)) return t;
+    return undefined;
   }
-  replace(): never {
-    throw new Error("MemDb is read-only");
+
+  async insert(table: string, value: Record<string, any>): Promise<string> {
+    const t = this.table(table);
+    const _id = (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + "0".repeat(32)).slice(0, 32);
+    const doc: Doc = { ...value, _id, _creationTime: Date.now() + this.seq++ * 1e-3 };
+    t.docs.push(doc);
+    this.byId.set(_id, doc);
+    t.invalidate();
+    return _id;
   }
-  delete(): never {
-    throw new Error("MemDb is read-only");
+
+  async patch(id: string, partial: Record<string, any>): Promise<void> {
+    const doc = this.byId.get(id);
+    if (!doc) throw new Error(`MemDb: patch of unknown id ${id}`);
+    for (const [k, v] of Object.entries(partial)) {
+      if (v === undefined) delete doc[k];
+      else doc[k] = v;
+    }
+    for (const t of this.tables.values()) t.invalidate();
+  }
+
+  async replace(id: string, value: Record<string, any>): Promise<void> {
+    const doc = this.byId.get(id);
+    if (!doc) throw new Error(`MemDb: replace of unknown id ${id}`);
+    for (const k of Object.keys(doc)) if (k !== "_id" && k !== "_creationTime") delete doc[k];
+    Object.assign(doc, value);
+    for (const t of this.tables.values()) t.invalidate();
+  }
+
+  async delete(id: string): Promise<void> {
+    const doc = this.byId.get(id);
+    if (!doc) return;
+    this.byId.delete(id);
+    const t = this.tableOf(id);
+    if (t) {
+      t.docs = t.docs.filter(d => d._id !== id);
+      t.invalidate();
+    }
+  }
+
+  /** Every table with its documents (for writing a snapshot). */
+  dump(): Record<string, Doc[]> {
+    const out: Record<string, Doc[]> = {};
+    for (const [name, t] of this.tables) if (t.docs.length) out[name] = t.docs;
+    return out;
   }
 }

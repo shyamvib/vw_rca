@@ -10,10 +10,15 @@ import { getFunctionName } from "convex/server";
 import schema from "../convex/schema";
 import { MemDb, type Doc } from "./memdb";
 
-type AnyFn = ((...a: any[]) => any) & { _handler?: (ctx: any, args: any) => any; isQuery?: boolean };
+type AnyFn = ((...a: any[]) => any) & {
+  _handler?: (ctx: any, args: any) => any;
+  isQuery?: boolean;
+  isMutation?: boolean;
+  isAction?: boolean;
+};
 
 /** Convex modules whose query/internalQuery exports the analytics side serves. */
-const MODULES = [
+export const ANALYTICS_MODULES = [
   "clinics",
   "geo",
   "wins",
@@ -58,17 +63,26 @@ export class Host {
   private registry = new Map<string, AnyFn>();
   ready: Promise<void>;
 
-  constructor(public db: MemDb) {
+  /**
+   * @param modules convex/ module names to register
+   * @param kinds   which function kinds to expose (analytics: queries only; the
+   *                snapshot builder also needs mutations and actions)
+   */
+  constructor(
+    public db: MemDb,
+    private modules: string[] = ANALYTICS_MODULES,
+    private kinds: Array<"query" | "mutation" | "action"> = ["query"],
+  ) {
     this.ready = this.init();
   }
 
   private async init() {
-    for (const mod of MODULES) {
+    for (const mod of this.modules) {
       const m: Record<string, AnyFn> = await import(`../convex/${mod}.ts`);
       for (const [name, fn] of Object.entries(m)) {
-        if (typeof fn === "function" && fn._handler && fn.isQuery) {
-          this.registry.set(`${mod}:${name}`, fn);
-        }
+        if (typeof fn !== "function" || !fn._handler) continue;
+        const kind = fn.isQuery ? "query" : fn.isMutation ? "mutation" : fn.isAction ? "action" : null;
+        if (kind && this.kinds.includes(kind)) this.registry.set(`${mod}:${name}`, fn);
       }
     }
   }
@@ -77,19 +91,26 @@ export class Host {
     return [...this.registry.keys()].sort();
   }
 
-  private ctx(): any {
+  /** Context handed to handlers: db plus in-process runQuery/runMutation/runAction. */
+  ctx(): any {
     const self = this;
+    const run = async (ref: any, args: any) => self.invoke(getFunctionName(ref), args);
     return {
       db: this.db,
       auth: { getUserIdentity: async () => null },
-      runQuery: async (ref: any, args: any) => self.invoke(getFunctionName(ref), args),
+      runQuery: run,
+      runMutation: run,
+      runAction: run,
+      // Scheduled follow-ups (old-generation purges, rep-window requeues) have
+      // no meaning for a throwaway in-memory snapshot.
+      scheduler: { runAfter: async () => undefined, runAt: async () => undefined },
     };
   }
 
   async invoke(name: string, args: any): Promise<any> {
     await this.ready;
     const fn = this.registry.get(name);
-    if (!fn?._handler) throw new Error(`unknown analytics function ${name}`);
+    if (!fn?._handler) throw new Error(`unknown function ${name}`);
     return await fn._handler(this.ctx(), args);
   }
 }
