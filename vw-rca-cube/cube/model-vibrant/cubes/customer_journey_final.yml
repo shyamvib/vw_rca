@@ -33,3 +33,12 @@ cubes:
         granularity: day
         partition_granularity: month
         refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+      # vw-rca Phase 1: per-contact touch dates + last touch (pTouchAsOf,
+      # pTouchDatesRaw, pClinicalTouchDatesRaw, newClinicTouches).
+      - name: rca_contact_touch_day
+        measures: [touchpoints, last_touch]
+        dimensions: [contact_id, touchpoint_type, touchpoint_category]
+        time_dimension: touchpoint_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }

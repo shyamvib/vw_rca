@@ -60,14 +60,16 @@ cubes:
       - { name: is_bundle, sql: order_is_bundle, type: boolean }
       - { name: header_bundle_blank, sql: "(bundle_name IS NULL OR bundle_name = '')", type: boolean }
     measures:
-      - { name: orders, type: count_distinct, sql: sample_id }
+      # type: count (not count_distinct) so rollups can re-aggregate it. The cube
+      # SQL is one row per sample_id (primary key); Cube still de-dupes on the PK
+      # when a one_to_many join (order_tests) is in the query.
+      - { name: orders, type: count }
       - { name: revenue, type: sum, sql: total, format: currency }
       - { name: discount, type: sum, sql: discount_amount, format: currency }
       - { name: aov, type: number, sql: "SAFE_DIVIDE({revenue}, {orders})", format: currency }
       - { name: clinics, type: count_distinct, sql: clinic_id }
       - name: va_orders
-        type: count_distinct
-        sql: sample_id
+        type: count
         filters: [{ sql: "{CUBE}.sample_test_type_v2 = 'VA'" }]
       - name: va_revenue
         type: sum
@@ -76,8 +78,7 @@ cubes:
       # --- added for vw-rca ---
       - { name: patients, type: count_distinct, sql: patient_id }
       - name: bundle_orders
-        type: count_distinct
-        sql: sample_id
+        type: count
         filters: [{ sql: "{CUBE}.order_is_bundle" }]
       - name: bundle_revenue
         type: sum
@@ -91,10 +92,49 @@ cubes:
         type: sum
         sql: "IFNULL(consultation_fee, 0) + IFNULL(markup_fee, 0) + IFNULL(blood_draw_fee, 0)"
     pre_aggregations:
+      # Kept for anything else on this server that already uses it.
       - name: daily_clinic
         measures: [orders, revenue, va_orders, va_revenue, discount]
         dimensions: [clinic_id, sales_id, cam_id, state, clinic_segment, customer_segment]
         time_dimension: order_date
         granularity: day
         partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+      # --- vw-rca Phase 1 rollups ---
+      # Main additive rollup: serves every orders query that does not ask for
+      # `patients` (daily/state/channel/identity/YTD/fwd-90/VA/lifetime/
+      # last-order/first-order/family/familyStops + the order-date history
+      # pull). Needs orders/va_orders/bundle_orders to be additive (type: count).
+      - name: rca_daily
+        measures: [orders, revenue, va_orders, va_revenue, bundle_orders, bundle_revenue,
+                   discount, deductions, first_order, last_order, first_signup]
+        dimensions: [clinic_id, practice_name, sales_id, team_lead, state, country,
+                     charge_method, product_family, is_bundle, header_bundle_blank,
+                     sample_test_type_v2]
+        time_dimension: order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+      # `patients` is count_distinct (not additive), so Cube only serves it
+      # from a rollup whose dimensions exactly match the query. One per shape:
+      - name: rca_clinic_patients_day   # clinicQuery(): by clinic_id, day
+        measures: [orders, revenue, patients, bundle_orders, bundle_revenue]
+        dimensions: [clinic_id]
+        time_dimension: order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+      - name: rca_total_patients_day    # pDaily: no dims, day
+        measures: [orders, revenue, patients, bundle_orders, bundle_revenue]
+        time_dimension: order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+      # Ghosted-VIP hubspot<->clinic map (lifetime revenue, yearly partitions).
+      - name: rca_hubspot_clinic
+        measures: [revenue]
+        dimensions: [hubspot_id, clinic_id]
+        time_dimension: order_date
+        granularity: day
+        partition_granularity: year
         refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
