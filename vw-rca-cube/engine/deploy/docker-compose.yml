@@ -1,0 +1,25 @@
+# Runs the analytics service next to the Cube stack on the server.
+# Own project directory, own container: it does not touch the cube-rca / revops stacks.
+#   cd /home/shyam/rca-engine && docker compose up -d --build
+services:
+  rca-engine:
+    build:
+      context: .
+      dockerfile: engine/deploy/Dockerfile
+    container_name: rca-engine
+    restart: unless-stopped
+    env_file: .env        # secrets live here (chmod 600), never in git
+    environment:
+      CUBE_API_URL: http://cube-rca:4000   # same docker network as the cube-rca stack
+      TUNNEL: "1"
+      DATA_DIR: /data
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    volumes:
+      - rca_engine_data:/data
+    mem_limit: 3g
+    networks: [cube-rca_default]
+volumes:
+  rca_engine_data:
+networks:
+  cube-rca_default:
+    external: true

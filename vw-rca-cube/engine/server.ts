@@ -20,6 +20,7 @@
  *   ADMIN_SECRET, DASHBOARD_PASSWORD_SHA256, ADMIN_PASSWORD_SHA256,
  *   CUBE_API_URL / CUBE_API_SECRET (builder),
  *   CONVEX_URL + CONVEX_ADMIN_KEY (app-state bridge; optional in local tests)
+ *   TUNNEL=1 (run a cloudflared quick tunnel and announce its URL to Convex), DISABLE_SCHEDULER=1
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -167,6 +168,37 @@ async function doRebuild(): Promise<void> {
   }
 }
 
+// ---- public URL: quick tunnel, announced to Convex ------------------------------------
+// TUNNEL=1 runs `cloudflared tunnel --url http://localhost:PORT`. A quick tunnel gets a new
+// *.trycloudflare.com URL every time it starts, so each one is published to Convex
+// (ops:setServiceUrl) and the frontend looks it up there. Set VITE_RCA_API_URL instead to pin a
+// permanent URL (e.g. a named tunnel).
+function startTunnel() {
+  const bin = process.env.CLOUDFLARED_BIN ?? "cloudflared";
+  const launch = () => {
+    const child = spawn(bin, ["tunnel", "--no-autoupdate", "--url", `http://localhost:${PORT}`], { stdio: ["ignore", "pipe", "pipe"] });
+    let announced = false;
+    const onData = async (d: Buffer) => {
+      const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+      if (!m || announced) return;
+      announced = true;
+      console.log("tunnel up:", m[0]);
+      try {
+        if (convex) await convex.mutation("ops:setServiceUrl" as any, { url: m[0] });
+      } catch (e) {
+        console.error("could not announce tunnel url:", String(e).slice(0, 200));
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.on("exit", code => {
+      console.error(`cloudflared exited (${code}); restarting in 5s`);
+      setTimeout(launch, 5000);
+    });
+  };
+  launch();
+}
+
 // ---- schedule (UTC): daily refresh 13:00 (6am PT), weekly insights Mon 13:45, monthly insights 1st 14:00 ----
 function startScheduler() {
   const fired = new Set<string>();
@@ -269,5 +301,6 @@ if (process.argv[1]?.endsWith("server.ts")) {
   setInterval(() => void syncAppState(), 60_000);
   void syncAppState();
   if (process.env.DISABLE_SCHEDULER !== "1") startScheduler();
+  if (process.env.TUNNEL === "1") startTunnel();
   server.listen(PORT, () => console.log(`rca analytics service on :${PORT}`));
 }

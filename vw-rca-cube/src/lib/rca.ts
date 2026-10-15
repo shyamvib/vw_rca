@@ -7,15 +7,35 @@
  * the same typed `api.module.fn` references, so call sites and types are
  * unchanged.
  *
- * When VITE_RCA_API_URL is not set the hooks fall straight back to Convex's own,
- * so a build without the service behaves exactly as before.
+ * Where the service lives: VITE_RCA_API_URL if the build pins one, otherwise the
+ * URL the service announced to Convex (ops.serviceUrl; a quick tunnel's URL
+ * changes on every restart).
  */
-import { useAction, useQuery } from "convex/react";
+import { ConvexHttpClient } from "convex/browser";
 import { getFunctionName, type FunctionArgs, type FunctionReference, type FunctionReturnType } from "convex/server";
+import { api } from "@/lib/api";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-const BASE = (import.meta.env.VITE_RCA_API_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
-export const rcaServiceEnabled = BASE.length > 0;
+const PINNED = (import.meta.env.VITE_RCA_API_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
+const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string | undefined;
+let BASE = PINNED;
+
+/** Looks the announced service URL up in Convex (no-op when the build pins one). */
+async function resolveBase(): Promise<boolean> {
+  if (PINNED || !CONVEX_URL) return false;
+  try {
+    const url = await new ConvexHttpClient(CONVEX_URL).query(api.ops.serviceUrl, {});
+    const next = (url ?? "").replace(/\/+$/, "");
+    if (next && next !== BASE) {
+      BASE = next;
+      return true;
+    }
+  } catch {
+    /* Convex briefly unreachable: keep the current URL */
+  }
+  return false;
+}
+let baseReady: Promise<unknown> = PINNED ? Promise.resolve() : resolveBase();
 
 const TTL_MS = 30_000;
 type Entry = { at: number; value?: unknown; error?: Error; promise?: Promise<unknown> };
@@ -26,28 +46,34 @@ const cache = new Map<string, Entry>();
 let version = "0";
 const listeners = new Set<() => void>();
 async function pollVersion() {
+  let changed = await resolveBase();
   try {
+    if (!BASE) throw new Error("no service url yet");
     const h = await (await fetch(`${BASE}/health`)).json();
     const v = String(h?.snapshot?.builtAt ?? "0");
     if (v !== version) {
       version = v;
-      cache.clear();
-      listeners.forEach(l => l());
+      changed = true;
     }
   } catch {
     /* service briefly unreachable: keep what we have */
   }
+  if (changed) {
+    cache.clear();
+    listeners.forEach(l => l());
+  }
 }
-if (rcaServiceEnabled && typeof window !== "undefined") {
-  void pollVersion();
-  setInterval(() => void pollVersion(), 60_000);
-}
+void baseReady.then(() => pollVersion());
+if (typeof window !== "undefined") setInterval(() => void pollVersion(), 60_000);
 const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
 const useVersion = () => useSyncExternalStore(subscribe, () => version);
 
 export class RcaError extends Error {}
 
 async function post(name: string, args: unknown): Promise<unknown> {
+  await baseReady;
+  if (!BASE) await resolveBase();
+  if (!BASE) throw new RcaError("The analytics service is not reachable right now. Try again in a minute.");
   const res = await fetch(`${BASE}/rpc`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -121,11 +147,5 @@ function useRcaActionService<F extends FunctionReference<"action">>(ref: F) {
   return (args: FunctionArgs<F>) => post(name, args) as Promise<FunctionReturnType<F>>;
 }
 
-// Chosen once at module load: the choice never changes during a session, so hook order is stable.
-export const useRcaQuery: typeof useRcaQueryService = rcaServiceEnabled
-  ? useRcaQueryService
-  : (useQuery as unknown as typeof useRcaQueryService);
-
-export const useRcaAction: typeof useRcaActionService = rcaServiceEnabled
-  ? useRcaActionService
-  : (useAction as unknown as typeof useRcaActionService);
+export const useRcaQuery = useRcaQueryService;
+export const useRcaAction = useRcaActionService;

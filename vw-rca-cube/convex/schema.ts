@@ -94,6 +94,14 @@ const schema = defineSchema({
     lastSeen: v.number(),
   }).index("by_token", ["token"]),
 
+  // Small key/value facts about the deployment, e.g. the analytics service's
+  // current public URL (it changes whenever a quick tunnel restarts).
+  appMeta: defineTable({
+    key: v.string(),
+    value: v.string(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   refreshLog: defineTable({
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
