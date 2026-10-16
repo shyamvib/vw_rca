@@ -1,0 +1,20 @@
+// Opens a rep's Scorecard tab and counts service calls (a render loop shows up as hundreds).
+import { chromium } from "playwright";
+const [app, email, password, shot] = process.argv.slice(2);
+const b = await chromium.launch();
+const page = await b.newPage({ viewport: { width: 1500, height: 1000 } });
+const calls = {};
+page.on("request", r => { if (r.url().includes(":8787/rpc")) { const n = JSON.parse(r.postData() || "{}").name; calls[n] = (calls[n] || 0) + 1; } });
+await page.goto(app, { waitUntil: "networkidle" });
+await page.fill('input[type="email"]', email);
+await page.fill('input[type="password"]', password);
+await page.keyboard.press("Enter");
+await page.waitForTimeout(6000);
+await page.getByText("Rep view", { exact: true }).first().click().catch(() => {});
+await page.waitForTimeout(5000);
+await page.getByText("Scorecard", { exact: true }).first().click().catch(e => console.log("no scorecard tab:", String(e).slice(0, 80)));
+await page.waitForTimeout(12000);
+console.log(JSON.stringify(calls));
+console.log("still loading product mix:", await page.getByText(/loading product mix/i).count());
+await page.screenshot({ path: shot });
+await b.close();

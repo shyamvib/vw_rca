@@ -14,7 +14,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { getFunctionName, type FunctionArgs, type FunctionReference, type FunctionReturnType } from "convex/server";
 import { api } from "@/lib/api";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 const PINNED = (import.meta.env.VITE_RCA_API_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
 const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -144,7 +144,8 @@ function useRcaQueryService<F extends FunctionReference<"query">>(
 
 function useRcaActionService<F extends FunctionReference<"action">>(ref: F) {
   const name = getFunctionName(ref);
-  return (args: FunctionArgs<F>) => post(name, args) as Promise<FunctionReturnType<F>>;
+  // Stable identity, like Convex's useAction: callers list it in effect dependencies.
+  return useCallback((args: FunctionArgs<F>) => post(name, args) as Promise<FunctionReturnType<F>>, [name]);
 }
 
 export const useRcaQuery = useRcaQueryService;
