@@ -1872,6 +1872,65 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
   return out;
 }
 
+/** Which clinics push a scorecard metric up or pull it down (Shyam, 2026-10-16). Each metric names the clinics it
+ * is measured over, a signed per-clinic contribution, and how to say it. Metrics with no per-clinic sign yet
+ * (the single-family ones: the data holds no per-clinic baseline for a family) just open the plain list. */
+type ContribRow = { actual: number; delta: number; orders: number; aovEffect: number };
+type Contribution = { universe: (b: Book) => string[]; f: (r: ContribRow) => number; unit: "$" | "clinics"; up: string; down: string; note: string };
+const VS_BASELINE: Contribution = {
+  universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their baseline", down: "Below their baseline",
+  note: "Each clinic's revenue this window against its own expected revenue; the sum is the metric's net movement.",
+};
+const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline." };
+const CONTRIB: Record<string, Contribution> = {
+  "New Revenue": { universe: b => b.newIds ?? [], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics have no baseline, so each one's revenue counts in full." },
+  AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
+  "Low-AOV customers": { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
+  "Net Revenue Growth": VS_BASELINE,
+  "Growth run-rate": VS_BASELINE,
+  "Growth decomposition": VS_BASELINE,
+  "Revenue opportunity": VS_BASELINE,
+  "Revenue Retention": EXISTING_VS_BASELINE,
+  NRR: EXISTING_VS_BASELINE,
+  "Expansion Revenue": EXISTING_VS_BASELINE,
+  "At-risk customers": EXISTING_VS_BASELINE,
+  "Customer churn": EXISTING_VS_BASELINE,
+  "Repeat ordering": { universe: b => b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
+};
+
+type FocusRows = React.ComponentProps<typeof FocusTable>["rows"];
+/** The clinic list behind a metric, split into who pushes it up, who pulls it down, and everyone. */
+function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales }: { label: string; tone: Tone; contrib?: Contribution; rows: FocusRows; onClose: () => void; periodId: string; sales: string }) {
+  const [tab, setTab] = useState<"up" | "down" | "all">(tone === "bad" || tone === "watch" ? "down" : "up");
+  if (!contrib || !rows) return <FocusTable label={label} rows={rows} onClose={onClose} periodId={periodId} sales={sales} />;
+  type R = NonNullable<FocusRows>[number] & ContribRow;
+  const scored = (rows as R[]).map(r => ({ r, c: contrib.f(r) }));
+  const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
+  const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
+  const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
+  const money = (n: number) => `${n >= 0 ? "+" : "−"}${K(Math.abs(n))}`;
+  const amount = (xs: typeof up) => (contrib.unit === "$" ? money(sum(xs)) : "");
+  const shown = tab === "up" ? up : tab === "down" ? down : [...scored].sort((a, b) => a.c - b.c);
+  const ranked = shown.map((x, i) => ({ ...x.r, rank: i + 1 })) as unknown as FocusRows;
+  return (
+    <>
+      <div className="rv-contrib">
+        <button type="button" className={`rv-contrib-tab up${tab === "up" ? " on" : ""}`} onClick={() => setTab("up")}>
+          <span>Pushing it up · {contrib.up}</span><b>{up.length} clinics</b><em>{amount(up)}</em>
+        </button>
+        <button type="button" className={`rv-contrib-tab down${tab === "down" ? " on" : ""}`} onClick={() => setTab("down")}>
+          <span>Pulling it down · {contrib.down}</span><b>{down.length} clinics</b><em>{amount(down)}</em>
+        </button>
+        <button type="button" className={`rv-contrib-tab all${tab === "all" ? " on" : ""}`} onClick={() => setTab("all")}>
+          <span>All clinics measured</span><b>{scored.length} clinics</b><em>{contrib.unit === "$" ? money(sum(scored)) : ""}</em>
+        </button>
+      </div>
+      <p className="rv-contrib-note">{contrib.note}</p>
+      <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} />
+    </>
+  );
+}
+
 /** Dial / pillar key for the combined Retention + Expansion view. */
 const EXISTING = "Existing business";
 const isExistingPillar = (p: string) => p === EXISTING || p === "Retention" || p === "Expansion";
@@ -1950,12 +2009,15 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const sel = rows.find(r => r.pillar === (pillar === EXISTING ? "Retention" : pillar)) ?? rows[5];
 
   const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
-  const [cl, setCl] = useState<{ key: string; label: string; ids: string[] } | null>(null);
+  const [cl, setCl] = useState<{ key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution } | null>(null);
   const clQ = useRcaQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
   const openCell = (c: Cell, e: React.MouseEvent) => {
     if (!c.ids?.length) return;
     e.stopPropagation();
-    setCl(x => (x?.key === c.label ? null : { key: c.label, label: `${c.label} · ${c.ids!.length} clinics`, ids: c.ids! }));
+    // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
+    const contrib = scoped && !c.allProducts ? undefined : CONTRIB[c.label];
+    const ids = contrib ? contrib.universe(b) : c.ids!;
+    setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
   };
   const libFor = LIB.filter(x => (pillar === EXISTING ? isExistingPillar(x.pillar) : x.pillar === pillar));
@@ -2083,7 +2145,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
       </div>
       {cl ? (
         <div id="sc-cl">
-          <FocusTable label={cl.label} rows={clQ?.ready ? clQ.rows : null} onClose={() => setCl(null)} periodId={periodId ?? ""} sales={sales ?? ""} />
+          <ContributorPanel key={cl.key} label={cl.label} tone={cl.tone} contrib={cl.contrib} rows={clQ?.ready ? clQ.rows : null} onClose={() => setCl(null)} periodId={periodId ?? ""} sales={sales ?? ""} />
         </div>
       ) : null}
       <div className="rv-sel-bar">

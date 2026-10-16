@@ -574,3 +574,17 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-famcard.new { background: var(--vw-white); border-style: dashed; }
 .rv-famcard.new b { color: var(--vw-ink); }
 .rv-famcard.new em { color: var(--text-secondary); }
+
+/* Scorecard metric → clinics pushing it up / pulling it down / all */
+.rv-contrib { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0 0 8px; }
+.rv-contrib-tab { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--vw-white); border: 1px solid var(--border-default); border-radius: var(--radius-lg); cursor: pointer; color: inherit; }
+.rv-contrib-tab span { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); }
+.rv-contrib-tab b { font-size: 20px; font-weight: 600; }
+.rv-contrib-tab em { font-style: normal; font-family: var(--font-mono); font-size: 13px; }
+.rv-contrib-tab.up { border-top: 4px solid var(--vw-success); }
+.rv-contrib-tab.up em { color: var(--vw-success); }
+.rv-contrib-tab.down { border-top: 4px solid var(--vw-error); }
+.rv-contrib-tab.down em { color: var(--vw-error); }
+.rv-contrib-tab.all { border-top: 4px solid var(--vw-gray-40); }
+.rv-contrib-tab.on { outline: 2px solid var(--vw-blue); background: var(--vw-blue-tint); }
+.rv-contrib-note { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; }
