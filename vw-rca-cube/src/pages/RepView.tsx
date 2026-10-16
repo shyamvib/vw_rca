@@ -1679,7 +1679,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null): Array<{ pillar: st
       ],
     },
     {
-      pillar: "AOV",
+      pillar: "Bundle growth",
       cells: [
         {
           label: "AOV",
@@ -1812,6 +1812,10 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
   return out;
 }
 
+/** Dial / pillar key for the combined Retention + Expansion view. */
+const EXISTING = "Existing business";
+const isExistingPillar = (p: string) => p === EXISTING || p === "Retention" || p === "Expansion";
+
 function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
   const k = b.kpi;
   const prevQ = useRcaQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
@@ -1851,10 +1855,10 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const newCo = (b.lenses?.cohorts ?? []).find((c: Book) => /new/i.test(c.key));
   const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string }> = [
     { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue, heading: k.newRevenue * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline" },
-    { pillar: "AOV", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
+    { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: "expected" }] : []),
-    { pillar: "Retention", label: "Revenue Retention", soFar: (k.revenueRetention ?? 0) * 100, heading: (k.revenueRetention ?? 0) * 100, plan: 100, fmt: (n: number) => `${n.toFixed(1)}%`, planLbl: "100% kept" },
-    { pillar: "Expansion", label: "Expansion Revenue", soFar: k.expansionRev, heading: k.expansionRev * scale, plan: (k.revenueChurn + k.contraction) * scale, fmt: K, planLbl: "losses to offset" },
+    // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
+    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline" },
     ...(scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
   ];
   const [mStyle, setMStyle] = useMeterStyle();
@@ -1870,7 +1874,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const all = rows.flatMap(r => r.cells);
   const count = (t: Tone) => all.filter(c => c.tone === t).length;
   const behind = rows.filter(r => r.cells.some(c => c.tone === "bad")).map(r => r.pillar);
-  const sel = rows.find(r => r.pillar === pillar) ?? rows[5];
+  const sel = rows.find(r => r.pillar === (pillar === EXISTING ? "Retention" : pillar)) ?? rows[5];
 
   const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
   const [cl, setCl] = useState<{ key: string; label: string; ids: string[] } | null>(null);
@@ -1881,7 +1885,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
     setCl(x => (x?.key === c.label ? null : { key: c.label, label: `${c.label} · ${c.ids!.length} clinics`, ids: c.ids! }));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
   };
-  const libFor = LIB.filter(x => x.pillar === pillar);
+  const libFor = LIB.filter(x => (pillar === EXISTING ? isExistingPillar(x.pillar) : x.pillar === pillar));
 
   return (
     <>
@@ -1905,7 +1909,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
       </div>
       <div className="rv-outmeters">
         {outcomeMeters.map(m => (
-          <button type="button" key={m.pillar} className={`rv-outm${pillar === m.pillar ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
+          <button type="button" key={m.pillar} className={`rv-outm${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
             <div className="rv-eyebrow">{m.pillar}</div>
             <b>{m.label}</b>
             <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} />
@@ -1939,7 +1943,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
         <div className="rv-mx-h">Diagnostic<span>Why</span></div>
         {rows.map(r => (
           <div
-            className={`rv-mx-row${pillar === r.pillar ? " is-sel" : ""}`}
+            className={`rv-mx-row${pillar === r.pillar || (pillar === EXISTING && isExistingPillar(r.pillar)) ? " is-sel" : ""}`}
             key={r.pillar}
             onClick={() => setPillar(r.pillar)}
             onKeyDown={e => e.key === "Enter" && setPillar(r.pillar)}
@@ -1998,7 +2002,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
           <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />
         </>
       ) : null}
-      {pillar === "Expansion" ? <CrossSellList pg={pg} /> : null}
+      {pillar === "Expansion" || pillar === EXISTING ? <CrossSellList pg={pg} /> : null}
     </>
   );
 }
@@ -2057,16 +2061,16 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("New Business", "Sales Cycle", "Average days from first contact to closed-won.", null, CRM),
     n("New Business", "Win Rate", "Share of qualified opportunities closed won.", null, CRM),
     n("New Business", "Quota Attainment", "Performance against assigned quota.", null, "no quota data"),
-    n("AOV", "Overall AOV", "Average revenue per order.", k.aov ? K(k.aov) : null),
-    n("AOV", "New Customer AOV", "AOV from first-time clinics.", k.newAov ? K(k.newAov) : null, "no new clinics"),
-    n("AOV", "Existing Customer AOV", "AOV from existing clinics (vs their baseline).", k.existingAov ? `${K(k.existingAov)} (base ${K(k.existingBaseAov ?? 0)})` : null),
-    n("AOV", "Orders per Customer", "Orders per active clinic in the window.", k.ordersPerCustomer ? k.ordersPerCustomer.toFixed(1) : null),
-    n("AOV", "Bundle Penetration", "Share of orders that are bundle orders.", P(k.bundlePen)),
-    n("AOV", "AOV Opportunity", "Revenue if clinics below their own baseline AOV got back to it.", K(k.aovOpp)),
-    n("AOV", "Discount Rate", "Average discount vs list price.", null, "no list-price/discount field"),
-    n("AOV", "Stack Penetration", "Orders with 2+ Zoomers.", null, "needs per-order panel mix"),
-    n("AOV", "Stack Mix", "Revenue share by panel combination.", null, "needs per-order panel mix"),
-    n("AOV", "Zoomers per Order", "Zoomer panels per order.", null, "needs per-order panel mix"),
+    n("Bundle growth", "Overall AOV", "Average revenue per order.", k.aov ? K(k.aov) : null),
+    n("Bundle growth", "New Customer AOV", "AOV from first-time clinics.", k.newAov ? K(k.newAov) : null, "no new clinics"),
+    n("Bundle growth", "Existing Customer AOV", "AOV from existing clinics (vs their baseline).", k.existingAov ? `${K(k.existingAov)} (base ${K(k.existingBaseAov ?? 0)})` : null),
+    n("Bundle growth", "Orders per Customer", "Orders per active clinic in the window.", k.ordersPerCustomer ? k.ordersPerCustomer.toFixed(1) : null),
+    n("Bundle growth", "Bundle Penetration", "Share of orders that are bundle orders.", P(k.bundlePen)),
+    n("Bundle growth", "AOV Opportunity", "Revenue if clinics below their own baseline AOV got back to it.", K(k.aovOpp)),
+    n("Bundle growth", "Discount Rate", "Average discount vs list price.", null, "no list-price/discount field"),
+    n("Bundle growth", "Stack Penetration", "Orders with 2+ Zoomers.", null, "needs per-order panel mix"),
+    n("Bundle growth", "Stack Mix", "Revenue share by panel combination.", null, "needs per-order panel mix"),
+    n("Bundle growth", "Zoomers per Order", "Zoomer panels per order.", null, "needs per-order panel mix"),
     n("Product Growth", "Target Product Orders", "Selected family orders in the window.", hz ? hz.orders.toFixed(0) : null, "no Hormone Zoomer orders"),
     n("Product Growth", "Target Product Growth %", "Selected family revenue vs its baseline.", hz && hz.expected ? SP(hz.revenue / hz.expected - 1) : null, "no baseline"),
     n("Product Growth", "Product Mix %", "Selected family share of revenue.", hz && totalRev ? P(hz.revenue / totalRev, 1) : null, "no Hormone Zoomer orders"),
@@ -2825,9 +2829,9 @@ function TouchKpis({ sales, src, w }: {
  * data; Unconverted prospects / Product whitespace / Cross-sell need CRM or clinic×product history and
  * show as "not in data yet" (never invented). Hours and likelihoods below are planning estimates. */
 type PlanState = { sellHours: number; weighted: boolean; pins: Record<string, "in" | "out"> };
-type PKey = "New Business" | "AOV" | "Product Growth" | "Retention" | "Expansion";
+type PKey = "New Business" | "Bundle growth" | "Product Growth" | "Retention" | "Expansion";
 const PILLAR_COLOR: Record<PKey, string> = {
-  "New Business": "#9aa4b2", AOV: "#5b6b82", "Product Growth": "#3b82f6", Retention: "#1d4ed8", Expansion: "#0f172a",
+  "New Business": "#9aa4b2", "Bundle growth": "#5b6b82", "Product Growth": "#3b82f6", Retention: "#1d4ed8", Expansion: "#0f172a",
 };
 const WEIGHT: Record<string, number> = { behind: 1.5, watch: 1.15, good: 1 };
 const hrsFor = (n: number, per: number) => Math.max(1, Math.min(10, Math.ceil(n * per)));
@@ -2842,7 +2846,7 @@ function rankActions(b: Book, fams: Wins, plan: PlanState): ActionRow[] {
   if (o.callFirst.n) raw.push({ ids: o.callFirst.ids, id: "callFirst", p: "Retention", label: "Overdue reorder calls", detail: `${o.callFirst.n} clinics on Call first`, hrs: hrsFor(o.callFirst.n, 0.25), up: o.callFirst.up, pr: 0.55 });
   if (o.atRisk.n) raw.push({ ids: o.atRisk.ids, id: "atRisk", p: "Retention", label: "Check in on at-risk clinics", detail: `${o.atRisk.n} clinics, ${K(o.atRisk.up)} below baseline`, hrs: hrsFor(o.atRisk.n, 0.3), up: o.atRisk.up, pr: 0.5 });
   if (o.nurture.n) raw.push({ ids: o.nurture.ids, id: "nurture", p: "New Business", label: "Nurture new clinics to their next order", detail: `${o.nurture.n} new clinics due 14–21d`, hrs: hrsFor(o.nurture.n, 0.3), up: o.nurture.up, pr: 0.5 });
-  if (o.lowAov.n) raw.push({ ids: o.lowAov.ids, id: "lowAov", p: "AOV", label: "Bundle suggestion on next order", detail: `${o.lowAov.n} clinics under $400 AOV`, hrs: hrsFor(o.lowAov.n, 0.2), up: o.lowAov.up, pr: 0.5 });
+  if (o.lowAov.n) raw.push({ ids: o.lowAov.ids, id: "lowAov", p: "Bundle growth", label: "Bundle suggestion on next order", detail: `${o.lowAov.n} clinics under $400 AOV`, hrs: hrsFor(o.lowAov.n, 0.2), up: o.lowAov.up, pr: 0.5 });
   if (o.growing.n) raw.push({ ids: o.growing.ids, id: "growing", p: "Expansion", label: "Thank and expand growing clinics", detail: `${o.growing.n} clinics above baseline`, hrs: hrsFor(o.growing.n, 0.1), up: o.growing.up * 0.25, pr: 0.7 });
   const rows: ActionRow[] = raw
     .map(a => {
@@ -2876,7 +2880,7 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
   );
 }
 
-const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "AOV", crosssell: "Expansion" };
+const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "Bundle growth", crosssell: "Expansion" };
 
 function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId }: {
   sales: string; periodId: string; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string) => void;

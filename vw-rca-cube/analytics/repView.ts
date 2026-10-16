@@ -439,6 +439,8 @@ export const book = scopedQuery({
         growing: growing.length,
         expansionRate: existing.length ? growing.length / existing.length : null,
         bundleUp: bundleUp.length,
+        existingRevenue: exAct,
+        existingBaseline: exExp,
         nrr: exExp ? exAct / exExp : null,
         existingGrowth: exExp ? exAct / exExp - 1 : null,
         netGrowth: expected ? actual / expected - 1 : null,
