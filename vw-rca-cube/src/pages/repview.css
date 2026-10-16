@@ -523,13 +523,14 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-mtoggle{display:inline-flex;border:1px solid var(--border-default);border-radius:999px;overflow:hidden;margin-left:auto}
 .rv-mtoggle button{border:0;background:transparent;padding:2px 10px;font-size:11px;cursor:pointer;color:inherit}.rv-mtoggle button.is-on{background:var(--vw-blue-hover);color:var(--vw-white)}
 .rv-eyebrow-row{display:flex;align-items:center;gap:6px}
-.rv-outmeters{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:6px 0 14px}
-.rv-outm{text-align:left;border:1px solid var(--border-default);background:var(--surface-card);border-radius:6px;padding:10px;cursor:pointer;color:inherit;display:flex;flex-direction:column;gap:4px}
-.rv-outm.is-sel{outline:2px solid var(--vw-blue-hover)}.rv-outm b{font-size:13px}
+.rv-outhero{display:flex;justify-content:center;margin:10px 0 14px}
+.rv-outmeters{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:6px 0 18px}
+.rv-outm{text-align:left;border:1px solid var(--border-default);background:var(--surface-card);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow-md);cursor:pointer;color:inherit;display:flex;flex-direction:column;gap:4px}
+.rv-outm.is-sel{outline:2px solid var(--vw-blue-hover)}.rv-outm b{font-size:15px}
 .rv-outm-nums{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text-secondary)}.rv-outm-nums b{font-family:var(--font-mono);color:var(--text-primary);font-size:12px;margin-left:4px}
 .rv-outm-nums .sw{display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle}
 .sw.sofar{background:var(--vw-warning)}.sw.heading{background:repeating-linear-gradient(90deg,#6bb7e0 0 3px,transparent 3px 5px)}.sw.plan{background:var(--vw-gray-50)}
-.rv-mdial{width:100%;max-width:150px;margin:0 auto;display:block}.rv-mdial .trk{fill:none;stroke:var(--vw-gray-05,var(--vw-gray-15));stroke-width:8;stroke-linecap:round}
+.rv-mdial{width:100%;max-width:190px;margin:0 auto;display:block}.rv-mdial .trk{fill:none;stroke:var(--vw-gray-05,var(--vw-gray-15));stroke-width:8;stroke-linecap:round}
 .rv-mdial.good .trk{stroke:rgba(22,163,74,.35)}.rv-mdial.watch .trk{stroke:rgba(217,119,6,.35)}.rv-mdial.bad .trk{stroke:rgba(220,38,38,.3)}
 .rv-mdial .pl{fill:var(--vw-gray-50)}.rv-mdial .sf{stroke:var(--vw-warning);stroke-width:3.5;stroke-linecap:round}.rv-mdial .hd{stroke:#6bb7e0;stroke-width:2;stroke-dasharray:1.5 2.5;stroke-linecap:round}.rv-mdial .hub{fill:var(--vw-warning)}
 .rv-mbar{position:relative;height:14px;border-radius:7px;background:var(--vw-gray-05,var(--vw-gray-15));margin:14px 0 8px}.rv-mbar.big{height:20px;border-radius: var(--radius-lg)}
@@ -558,3 +559,10 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-famkey { display: inline-block; width: 5px; height: 12px; background: var(--vw-blue); vertical-align: middle; margin: 0 2px 0 6px; }
 /* family-scoped cells keep full strength even when their row recedes, so the bar stays readable */
 .rv-matrix.has-pick .rv-mx-row:not(.is-sel) > .rv-mx-c.is-fam { opacity: 1; }
+
+/* Combined dial: the headline card, larger than the four pillar dials and the matrix below. */
+.rv-outm-hero{width:min(520px,100%);padding:22px 28px;gap:8px;border-width:2px}
+.rv-outm-hero b{font-size:20px}
+.rv-outm-hero .rv-mdial{max-width:270px;margin-top:-14px}
+.rv-outm-hero .rv-outm-nums{font-size:13px;gap:4px}.rv-outm-hero .rv-outm-nums b{font-size:16px}
+@media (max-width:1100px){.rv-outmeters{grid-template-columns:repeat(2,1fr)}}

@@ -1976,20 +1976,28 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
           <button type="button" onClick={() => setWsFam("")}>Back to all products</button>
         </div>
       ) : null}
-      <div className="rv-outmeters">
-        {outcomeMeters.map(m => (
-          <button type="button" key={m.pillar} className={`rv-outm${m.famScoped ? " is-fam" : ""}${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
+      {(() => {
+        // Combined revenue is the headline dial: alone on top and larger; the four pillar dials sit in one row below.
+        const renderMeter = (m: (typeof outcomeMeters)[number], hero: boolean) => (
+          <button type="button" key={m.pillar} className={`rv-outm${hero ? " rv-outm-hero" : ""}${m.famScoped ? " is-fam" : ""}${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
             <div className="rv-eyebrow">{m.pillar}{m.allProducts ? <em className="rv-allp"> · all products</em> : null}</div>
             <b>{m.label}</b>
-            <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} />
+            <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} big={hero} />
             <div className="rv-outm-nums">
               <span><i className="sw sofar" />So far <b>{m.fmt(m.soFar)}</b></span>
               <span><i className="sw heading" />Heading <b>{m.fmt(m.heading)}</b></span>
               <span><i className="sw plan" />{m.planLbl} <b>{m.fmt(m.plan)}</b></span>
             </div>
           </button>
-        ))}
-      </div>
+        );
+        const heroMeter = outcomeMeters.find(m => m.pillar === "Combined");
+        return (
+          <>
+            {heroMeter ? <div className="rv-outhero">{renderMeter(heroMeter, true)}</div> : null}
+            <div className="rv-outmeters">{outcomeMeters.filter(m => m.pillar !== "Combined").map(m => renderMeter(m, false))}</div>
+          </>
+        );
+      })()}
       {pillar === "Product Growth" && famCards.length ? (
         <div className="rv-famcards">
           {famCards.map(f => {
