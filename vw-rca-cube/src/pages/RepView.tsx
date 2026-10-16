@@ -129,13 +129,14 @@ export function RepView(props: {
     setTab("scorecard");
   };
   // Prior same-shape window for the scorecard's WoW/MoM/QoQ chips (Shyam, 2026-10-13).
-  const scPrev = (() => {
+  const prevFor = (pid: string | undefined) => {
     for (const list of [days, weeks, months, quarters] as Array<Array<{ id: string; label: string }>>) {
-      const i = list.findIndex(x => x.id === scWin.periodId);
+      const i = list.findIndex(x => x.id === pid);
       if (i > 0) return list[i - 1];
     }
     return undefined;
-  })();
+  };
+  const scPrev = prevFor(scWin.periodId);
   const bookQ = useRcaQuery(
     api.repView.book,
     sales ? { password: pw(), periodId, sales } : "skip",
@@ -458,7 +459,7 @@ export function RepView(props: {
               showWeekly
               showFunnel={false}
               planBeat={planBeat}
-              onScorecard={() => openScorecard(thisWeek.id, `This week · ${thisWeek?.label ?? ""}`)}
+              prev={prevFor(thisWeek.id)}
             />
             </>
           )
@@ -477,7 +478,7 @@ export function RepView(props: {
               showWeekly={false}
               showFunnel
               planBeat={planBeat}
-              onScorecard={() => openScorecard(thisMonth.id, `This month · ${thisMonth?.label ?? ""}`)}
+              prev={prevFor(thisMonth.id)}
             />
             </>
           )
@@ -496,7 +497,7 @@ export function RepView(props: {
               showWeekly={false}
               showFunnel
               planBeat={planBeat}
-              onScorecard={() => openScorecard(thisQuarter.id, `This quarter · ${thisQuarter?.label ?? ""}`)}
+              prev={prevFor(thisQuarter.id)}
             />
             </>
           )
@@ -513,7 +514,7 @@ export function RepView(props: {
               showWeekly={false}
               showFunnel={b.days >= 28}
               planBeat={planBeat}
-              onScorecard={() => openScorecard(periodId, `Custom · ${periodLabel}`)}
+              prev={prevFor(periodId)}
             />
           )
         ) : !scb ? (
@@ -998,6 +999,16 @@ function Bar({ v, max }: { v: number; max: number }) {
   );
 }
 
+/** The full Scorecard (dials, matrix, KPI cards, clinic lists) for one window, embedded in that window's tab. */
+function ScorecardInWindow({ b, sales, periodId, periodLabel, prev }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string } }) {
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales ? { password: pw(), periodId, sales } : "skip");
+  return (
+    <section className="rv-sc-embed">
+      <ScorecardTab key={periodId} b={b} fams={fams} periodLabel={periodLabel} sales={sales} periodId={periodId} prevId={prev?.id} prevLabel={prev?.label} />
+    </section>
+  );
+}
+
 function WindowTab({
   b,
   sales,
@@ -1007,7 +1018,7 @@ function WindowTab({
   showWeekly,
   showFunnel,
   planBeat,
-  onScorecard,
+  prev,
 }: {
   b: Book;
   sales: string;
@@ -1017,7 +1028,7 @@ function WindowTab({
   showWeekly: boolean;
   showFunnel: boolean;
   planBeat: { label: string; amount: number; pct: number } | null;
-  onScorecard: () => void;
+  prev?: { id: string; label: string };
 }) {
   const [simplify, setSimplify] = useState(true);
   // Exact view: product families under branches A and B, like the main tree.
@@ -1112,9 +1123,6 @@ function WindowTab({
     <>
       <div className="rv-sec-head" style={{ marginTop: 0 }}>
         <div className="rv-eyebrow">{periodLabel}<Info k="headline" /></div>
-        <button type="button" className="rv-sc-btn" onClick={onScorecard}>
-          Scorecard for this window ↓
-        </button>
       </div>
       <h1 className="rv-h1">
         Your book is {SK(b.totals.delta)} vs baseline
@@ -1175,6 +1183,8 @@ function WindowTab({
           </button>
         </div>
       </div>
+
+      <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} />
 
       <div className="rv-sec-head">
         <h2>Shortfall tree<Info k="tree" /></h2>

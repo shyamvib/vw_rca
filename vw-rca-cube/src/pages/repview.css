@@ -614,3 +614,6 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 /* Inside a clinic list the table can be wider than the visible area; keep the expanded card at the visible width and in view. */
 .rca-drill .rca-table-wrap { container-type: inline-size; }
 .rca-drill .rca-table-wrap .rv-expand-card { width: calc(100cqw - 32px); position: sticky; left: 0; box-sizing: border-box; }
+
+/* Scorecard embedded in a window tab, between "Great job" and the shortfall tree */
+.rv-sc-embed { margin: 28px 0 8px; padding: 22px 0 6px; border-top: 2px solid var(--vw-ink); border-bottom: 1px solid var(--border-subtle); }
