@@ -2026,7 +2026,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
             <>
               <div className="rv-famgroup">
                 <b>New product releases</b>
-                <span>First order within the last 12 months, so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live.</span>
+                <span>First order within the last {Math.round((launchQ?.newWithinDays ?? 60) / 30)} months, so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live.</span>
               </div>
               <div className="rv-famcards rv-famcards-new">
                 {famCards.filter(f => isNewFam(f.family)).map(f => {

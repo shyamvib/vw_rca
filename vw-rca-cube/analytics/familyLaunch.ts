@@ -16,7 +16,7 @@ import { addDays } from "./dateUtils";
  *     history we pull begins there.
  */
 export const DATA_START = "2025-01-01";
-export const NEW_WITHIN_DAYS = 365;
+export const NEW_WITHIN_DAYS = 60; // "last 2 months"
 const LEFT_CENSOR_BUFFER_DAYS = 14;
 
 /** Snapshot build step: first order date and order count per family, straight from Cube. */
@@ -59,13 +59,14 @@ export const launches = scopedQuery({
   handler: async ctx => {
     const cfg = await loadCfg(ctx);
     const rows = await ctx.db.query("familyLaunch").collect();
-    if (!cfg || !rows.length) return { ready: false as const, launches: [] as Array<{ family: string; firstOrder: string; daysLive: number; isNew: boolean }> };
+    if (!cfg || !rows.length) return { ready: false as const, newWithinDays: NEW_WITHIN_DAYS, launches: [] as Array<{ family: string; firstOrder: string; daysLive: number; isNew: boolean }> };
     const asOf = cfg.currentEnd;
     const newSince = addDays(asOf, -NEW_WITHIN_DAYS);
     const atStart = addDays(DATA_START, LEFT_CENSOR_BUFFER_DAYS);
     const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
     return {
       ready: true as const,
+      newWithinDays: NEW_WITHIN_DAYS,
       launches: rows.map(r => ({
         family: r.family,
         firstOrder: r.firstOrder,
