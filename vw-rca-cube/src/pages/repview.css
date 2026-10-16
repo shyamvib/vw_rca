@@ -591,3 +591,8 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-contrib-var { display: inline-flex; border: 1px solid var(--border-default); border-radius: 999px; overflow: hidden; margin: 0 0 6px; }
 .rv-contrib-var button { border: 0; background: transparent; padding: 4px 14px; font-size: 12px; cursor: pointer; color: inherit; }
 .rv-contrib-var button.on { background: var(--vw-blue); color: var(--vw-white); }
+
+/* the metric whose clinic list is open: blue bar + frame, at full strength even when its row recedes */
+.rv-mx-c.is-open { position: relative; z-index: 1; outline: 3px solid var(--vw-blue); outline-offset: -3px; }
+.rv-mx-c.is-open::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 9px; background: var(--vw-blue); }
+.rv-matrix.has-pick .rv-mx-row:not(.is-sel) > .rv-mx-c.is-open { opacity: 1; }

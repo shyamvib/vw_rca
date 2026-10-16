@@ -2180,7 +2180,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}
                   <i className={c.tone} />
