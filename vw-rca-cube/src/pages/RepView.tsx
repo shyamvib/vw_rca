@@ -2069,14 +2069,14 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
   };
   const pgMap = useMemo(() => new Map((pgd.data?.clinics ?? []).map(c => [c.clinic, c])), [pgd.data]);
-  const famsOf = (win: Record<string, number> | undefined) => Object.keys(win ?? {}).filter(f => f !== "Unmapped" && (win?.[f] ?? 0) > 0);
+  const famsOf = (win: Record<string, number> | undefined) => Object.keys(win ?? {}).filter(f => f !== "Unmapped" && f !== NON_ZOOMER && (win?.[f] ?? 0) > 0);
   /** Metrics measured on the product mix: split by clinic using the same per-clinic family orders the number uses. */
   const mixContrib = (label: string): Contribution | undefined => {
     if (!pg) return undefined;
     if (label === "Repeat product rate")
       return { universe: () => pg.buyerIds, f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) >= 2 ? 1 : -1), unit: "clinics", up: `Ordered ${family} 2+ times`, down: `Ordered ${family} once`, note: `Clinics that ordered ${family} in this window, split by whether they reordered it.` };
     if (label === "Products per customer")
-      return { universe: () => pg.activeIds, f: r => (famsOf(pgMap.get(r.clinic)?.win).length >= 2 ? 1 : -1), unit: "clinics", up: "On 2+ product families", down: "On 1 family", note: "Clinics that ordered in this window, split by how many product families they bought." };
+      return { universe: () => pg.activeIds, f: r => (famsOf(pgMap.get(r.clinic)?.win).length >= 2 ? 1 : -1), unit: "clinics", up: "On 2+ product families", down: "On 1 family", note: "Clinics that ordered a Zoomer product in this window, split by how many Zoomer families they bought. Non Zoomer is not counted as a family." };
     return undefined;
   };
   const libFor = LIB.filter(x => (pillar === EXISTING ? isExistingPillar(x.pillar) : x.pillar === pillar));
@@ -3424,6 +3424,7 @@ function usePG(sales?: string, periodId?: string) {
   }, [sales, periodId, run]);
   return { data, elig: (eligQ ?? []) as Array<{ clinic: string; family: string }> };
 }
+const NON_ZOOMER = "Non Zoomer";
 function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
   const newSet = new Set<string>(b.newIds ?? []);
   const fams = (r: Record<string, number>) => Object.keys(r).filter(f => f !== "Unmapped" && r[f] > 0);
@@ -3433,11 +3434,14 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   const adoptN = newOrd.filter(c => (c.win[family] ?? 0) > 0).length;
   const buyers = clinics.filter(c => (c.win[family] ?? 0) > 0);
   const pairN = buyers.length, repN = buyers.filter(c => c.win[family] >= 2).length;
-  // Products per customer: distinct families per clinic ordering in the window.
-  const active = clinics.filter(c => fams(c.win).length > 0);
-  const ppc = active.length ? active.reduce((t, c) => t + fams(c.win).length, 0) / active.length : null;
+  // Products per customer: distinct *product* families per clinic ordering in the window. "Non Zoomer" is the
+  // catch-all bucket for everything that is not a Zoomer panel, so it is not a product family here (it still
+  // counts as ordering for adoption and repeat above). Clinics that only bought Non Zoomer are left out.
+  const prod = (r: Record<string, number>) => fams(r).filter(f => f !== NON_ZOOMER);
+  const active = clinics.filter(c => prod(c.win).length > 0);
+  const ppc = active.length ? active.reduce((t, c) => t + prod(c.win).length, 0) / active.length : null;
   // Range (Shyam: "2-4", not a decimal): 25th–75th percentile of families per clinic.
-  const cnts = active.map(c => fams(c.win).length).sort((a, b2) => a - b2);
+  const cnts = active.map(c => prod(c.win).length).sort((a, b2) => a - b2);
   const pct = (q: number) => cnts[Math.min(cnts.length - 1, Math.floor(q * cnts.length))];
   const ppcRange = cnts.length ? (pct(0.25) === pct(0.75) ? String(pct(0.25)) : `${pct(0.25)}–${pct(0.75)}`) : "—";
   const adoptIds = newOrd.filter(c => (c.win[family] ?? 0) > 0).map(c => c.clinic);
@@ -3448,19 +3452,19 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   // current window $ per family (one more family at today's per-family spend).
   const xs: XSell[] = [];
   for (const c of active) {
-    const has = fams(c.life);
+    const has = prod(c.life);
     if (has.length > 2) continue;
     const tally = new Map<string, number>();
     for (const o of clinics) {
       if (o === c) continue;
-      const of = fams(o.life);
+      const of = prod(o.life);
       if (!has.every(f => of.includes(f))) continue;
       for (const f of of) if (!has.includes(f)) tally.set(f, (tally.get(f) ?? 0) + 1);
     }
     const suggest = [...tally].sort((a, b2) => b2[1] - a[1])[0]?.[0];
     if (!suggest) continue;
-    const rev = Object.values(c.rev ?? {}).reduce((x, y) => x + y, 0);
-    xs.push({ clinic: c.clinic, name: c.name, has, suggest, rev, up: rev / Math.max(1, fams(c.win).length) });
+    const rev = Object.entries(c.rev ?? {}).filter(([f]) => f !== NON_ZOOMER && f !== "Unmapped").reduce((x, [, y]) => x + y, 0);
+    xs.push({ clinic: c.clinic, name: c.name, has, suggest, rev, up: rev / Math.max(1, prod(c.win).length) });
   }
   xs.sort((a, b2) => b2.up - a.up);
   const byId = new Map(clinics.map(c => [c.clinic, c]));
