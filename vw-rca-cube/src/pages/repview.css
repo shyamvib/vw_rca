@@ -588,3 +588,6 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-contrib-tab.all { border-top: 4px solid var(--vw-gray-40); }
 .rv-contrib-tab.on { outline: 2px solid var(--vw-blue); background: var(--vw-blue-tint); }
 .rv-contrib-note { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; }
+.rv-contrib-var { display: inline-flex; border: 1px solid var(--border-default); border-radius: 999px; overflow: hidden; margin: 0 0 6px; }
+.rv-contrib-var button { border: 0; background: transparent; padding: 4px 14px; font-size: 12px; cursor: pointer; color: inherit; }
+.rv-contrib-var button.on { background: var(--vw-blue); color: var(--vw-white); }

@@ -1875,11 +1875,22 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
 /** Which clinics push a scorecard metric up or pull it down (Shyam, 2026-10-16). Each metric names the clinics it
  * is measured over, a signed per-clinic contribution, and how to say it. Metrics with no per-clinic sign yet
  * (the single-family ones: the data holds no per-clinic baseline for a family) just open the plain list. */
-type ContribRow = { actual: number; delta: number; orders: number; aovEffect: number };
-type Contribution = { universe: (b: Book) => string[]; f: (r: ContribRow) => number; unit: "$" | "clinics"; up: string; down: string; note: string };
+type ContribRow = { clinic: string; actual: number; expected: number; delta: number; orders: number; aovEffect: number; volume: number };
+type Contribution = {
+  universe: (b: Book) => string[];
+  f: (r: ContribRow) => number;
+  unit: "$" | "clinics";
+  up: string;
+  down: string;
+  note: string;
+  /** $ shown on a tile when the sign is not itself a dollar figure (churn: baseline $ of the clinics that stopped). */
+  amount?: (r: ContribRow) => number;
+  /** Several ways to cut the same metric (growth decomposition: volume effect / AOV effect). */
+  variants?: Array<{ label: string; f: (r: ContribRow) => number; note: string; up: string; down: string }>;
+};
 const VS_BASELINE: Contribution = {
   universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their baseline", down: "Below their baseline",
-  note: "Each clinic's revenue this window against its own expected revenue; the sum is the metric's net movement.",
+  note: "Each clinic's revenue this window against its own expected revenue. Clinic baselines are set per clinic, so these sums can differ from the book-level figure in the card (which uses the rep-level baseline).",
 };
 const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline." };
 const CONTRIB: Record<string, Contribution> = {
@@ -1888,13 +1899,25 @@ const CONTRIB: Record<string, Contribution> = {
   "Low-AOV customers": { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
   "Net Revenue Growth": VS_BASELINE,
   "Growth run-rate": VS_BASELINE,
-  "Growth decomposition": VS_BASELINE,
+  "Growth decomposition": {
+    ...VS_BASELINE,
+    f: r => r.volume,
+    note: "Growth splits into a volume effect (more or fewer orders than expected) and an AOV effect (a higher or lower ticket). Pick one; each clinic is counted in the direction of that effect.",
+    variants: [
+      { label: "Volume effect", f: r => r.volume, up: "Ordering more than expected", down: "Ordering less than expected", note: "Revenue effect of each clinic ordering more or fewer times than expected, at its own baseline ticket. Clinic baselines differ slightly from the book-level split in the card, so totals will not tie exactly." },
+      { label: "AOV effect", f: r => r.aovEffect, up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed. Totals can differ slightly from the book-level split in the card." },
+    ],
+  },
   "Revenue opportunity": VS_BASELINE,
   "Revenue Retention": EXISTING_VS_BASELINE,
   NRR: EXISTING_VS_BASELINE,
   "Expansion Revenue": EXISTING_VS_BASELINE,
   "At-risk customers": EXISTING_VS_BASELINE,
-  "Customer churn": EXISTING_VS_BASELINE,
+  "Customer churn": {
+    universe: b => b.existingIds ?? [], f: r => (r.orders > 0 ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned (no orders)",
+    note: "Clinics that ordered in the baseline: churned = no order in this window. The dollar figure is the baseline revenue those clinics stopped bringing.",
+    amount: r => (r.orders > 0 ? 0 : -r.expected),
+  },
   "Repeat ordering": { universe: b => b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
 };
 
@@ -1902,30 +1925,46 @@ type FocusRows = React.ComponentProps<typeof FocusTable>["rows"];
 /** The clinic list behind a metric, split into who pushes it up, who pulls it down, and everyone. */
 function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales }: { label: string; tone: Tone; contrib?: Contribution; rows: FocusRows; onClose: () => void; periodId: string; sales: string }) {
   const [tab, setTab] = useState<"up" | "down" | "all">(tone === "bad" || tone === "watch" ? "down" : "up");
+  const [variant, setVariant] = useState(0);
   if (!contrib || !rows) return <FocusTable label={label} rows={rows} onClose={onClose} periodId={periodId} sales={sales} />;
   type R = NonNullable<FocusRows>[number] & ContribRow;
-  const scored = (rows as R[]).map(r => ({ r, c: contrib.f(r) }));
+  const v = contrib.variants?.[variant];
+  const fOf = v?.f ?? contrib.f;
+  const scored = (rows as R[]).map(r => ({ r, c: fOf(r) }));
   const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
   const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
   const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
   const money = (n: number) => `${n >= 0 ? "+" : "−"}${K(Math.abs(n))}`;
-  const amount = (xs: typeof up) => (contrib.unit === "$" ? money(sum(xs)) : "");
+  const amount = (xs: typeof up) => {
+    if (contrib.amount) {
+      const n = xs.reduce((t, x) => t + contrib.amount!(x.r), 0);
+      return n ? money(n) : "";
+    }
+    return contrib.unit === "$" ? money(sum(xs)) : "";
+  };
   const shown = tab === "up" ? up : tab === "down" ? down : [...scored].sort((a, b) => a.c - b.c);
   const ranked = shown.map((x, i) => ({ ...x.r, rank: i + 1 })) as unknown as FocusRows;
   return (
     <>
       <div className="rv-contrib">
         <button type="button" className={`rv-contrib-tab up${tab === "up" ? " on" : ""}`} onClick={() => setTab("up")}>
-          <span>Pushing it up · {contrib.up}</span><b>{up.length} clinics</b><em>{amount(up)}</em>
+          <span>Pushing it up · {v?.up ?? contrib.up}</span><b>{up.length} clinics</b><em>{amount(up)}</em>
         </button>
         <button type="button" className={`rv-contrib-tab down${tab === "down" ? " on" : ""}`} onClick={() => setTab("down")}>
-          <span>Pulling it down · {contrib.down}</span><b>{down.length} clinics</b><em>{amount(down)}</em>
+          <span>Pulling it down · {v?.down ?? contrib.down}</span><b>{down.length} clinics</b><em>{amount(down)}</em>
         </button>
         <button type="button" className={`rv-contrib-tab all${tab === "all" ? " on" : ""}`} onClick={() => setTab("all")}>
-          <span>All clinics measured</span><b>{scored.length} clinics</b><em>{contrib.unit === "$" ? money(sum(scored)) : ""}</em>
+          <span>All clinics measured</span><b>{scored.length} clinics</b><em>{amount(scored)}</em>
         </button>
       </div>
-      <p className="rv-contrib-note">{contrib.note}</p>
+      {contrib.variants ? (
+        <div className="rv-contrib-var">
+          {contrib.variants.map((x, i) => (
+            <button type="button" key={x.label} className={i === variant ? "on" : ""} onClick={() => setVariant(i)}>{x.label}</button>
+          ))}
+        </div>
+      ) : null}
+      <p className="rv-contrib-note">{v?.note ?? contrib.note}</p>
       <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} />
     </>
   );
@@ -2015,10 +2054,21 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
     if (!c.ids?.length) return;
     e.stopPropagation();
     // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
-    const contrib = scoped && !c.allProducts ? undefined : CONTRIB[c.label];
+    const contrib = mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
     const ids = contrib ? contrib.universe(b) : c.ids!;
     setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+  };
+  const pgMap = useMemo(() => new Map((pgd.data?.clinics ?? []).map(c => [c.clinic, c])), [pgd.data]);
+  const famsOf = (win: Record<string, number> | undefined) => Object.keys(win ?? {}).filter(f => f !== "Unmapped" && (win?.[f] ?? 0) > 0);
+  /** Metrics measured on the product mix: split by clinic using the same per-clinic family orders the number uses. */
+  const mixContrib = (label: string): Contribution | undefined => {
+    if (!pg) return undefined;
+    if (label === "Repeat product rate")
+      return { universe: () => pg.buyerIds, f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) >= 2 ? 1 : -1), unit: "clinics", up: `Ordered ${family} 2+ times`, down: `Ordered ${family} once`, note: `Clinics that ordered ${family} in this window, split by whether they reordered it.` };
+    if (label === "Products per customer")
+      return { universe: () => pg.activeIds, f: r => (famsOf(pgMap.get(r.clinic)?.win).length >= 2 ? 1 : -1), unit: "clinics", up: "On 2+ product families", down: "On 1 family", note: "Clinics that ordered in this window, split by how many product families they bought." };
+    return undefined;
   };
   const libFor = LIB.filter(x => (pillar === EXISTING ? isExistingPillar(x.pillar) : x.pillar === pillar));
 
