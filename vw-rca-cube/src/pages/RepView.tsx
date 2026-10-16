@@ -1934,7 +1934,6 @@ const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, universe: b => b.ex
 const CONTRIB: Record<string, Contribution> = {
   "New Revenue": { universe: b => b.newIds ?? [], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics have no baseline, so each one's revenue counts in full." },
   AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
-  "Low-AOV customers": { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
   "Net Revenue Growth": VS_BASELINE,
   "Growth run-rate": VS_BASELINE,
   "Growth decomposition": {
@@ -1946,7 +1945,6 @@ const CONTRIB: Record<string, Contribution> = {
       { label: "AOV effect", f: r => r.aovEffect, up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed. Totals can differ slightly from the book-level split in the card." },
     ],
   },
-  "Revenue opportunity": VS_BASELINE,
   // Retention counts only what existing clinics lost: growth is capped at 100% of baseline, so a clinic above baseline adds nothing.
   "Revenue Retention": {
     universe: b => b.existingIds ?? [], f: r => (r.delta >= 0 ? 1 : -1), unit: "clinics", amount: r => Math.min(r.delta, 0),
@@ -1959,7 +1957,6 @@ const CONTRIB: Record<string, Contribution> = {
     ...EXISTING_VS_BASELINE, up: "Growing: above their baseline", down: "Shrinking: offsets the expansion",
     note: "Expansion revenue = how far growing clinics sit above their own baseline (the up tile). Clinics below baseline are the losses it has to offset.",
   },
-  "At-risk customers": EXISTING_VS_BASELINE,
   "Customer churn": {
     universe: b => b.existingIds ?? [], f: r => (r.orders > 0 ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned (no orders)",
     note: "Clinics that ordered in the baseline: churned = no order in this window. The dollar figure is the baseline revenue those clinics stopped bringing.",
@@ -2101,10 +2098,22 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
     if (!c.ids?.length) return;
     e.stopPropagation();
     // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
-    const contrib = mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
+    const contrib = listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
     const ids = contrib ? contrib.universe(b) : c.ids!;
     setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+  };
+  /** "Where to act" lists: the clinics in the cell are the ones the metric is about (down); everyone else measured is the contrast (up). */
+  const listContrib = (label: string, ids: string[]): Contribution | undefined => {
+    const set = new Set(ids);
+    const inList = (r: ContribRow) => set.has(r.clinic);
+    if (label === "At-risk customers")
+      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.delta, 0) : 0), up: "Not at risk", down: "At risk: slipping or well under baseline", note: "Existing clinics last seen 5–44 days ago that are flagged slipping or overdue, or are under half their baseline. The dollar figure is their shortfall below baseline; the rest are on rhythm." };
+    if (label === "Low-AOV customers")
+      return { universe: b => b.activeIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "AOV at or above $400", down: "AOV under $400", note: "Clinics that ordered in this window, split by whether their average order is under $400." };
+    if (label === "Revenue opportunity")
+      return { universe: b => b.allIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "No gap to close", down: "At-risk or below their baseline AOV", note: "The opportunity is the at-risk shortfall plus the AOV gap: these are the clinics where either applies." };
+    return undefined;
   };
   const pgMap = useMemo(() => new Map((pgd.data?.clinics ?? []).map(c => [c.clinic, c])), [pgd.data]);
   const famsOf = (win: Record<string, number> | undefined) => Object.keys(win ?? {}).filter(f => f !== "Unmapped" && f !== NON_ZOOMER && (win?.[f] ?? 0) > 0);
