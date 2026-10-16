@@ -1108,7 +1108,6 @@ export function RcaDashboardPage() {
   const repWin = useQuery(api.config.repWindow, { password: pw() });
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
   const [targetSaved, setTargetSaved] = useState(false);
-  const [view, setView] = useState<"dashboard" | "feed" | "rep">("dashboard");
   const [scope, setScope] = useState<"month" | "week" | "day">("week");
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
@@ -1141,6 +1140,8 @@ export function RcaDashboardPage() {
   // starting on the rep and hiding the company-wide controls.
   const repLogin = useMemo(() => repSession(), []);
   const isRep = repLogin !== null;
+  // Reps only get their own view: no company dashboard, no Business Feed.
+  const [view, setView] = useState<"dashboard" | "feed" | "rep">(isRep ? "rep" : "dashboard");
   const [salesRep, setSalesRep] = useState<string>(repLogin?.rep ?? "");
   const [geoPick, setGeoPick] = useState<string | null>(null);
   // The map only appears once the geography branch is opened, and its tables
@@ -1623,6 +1624,7 @@ export function RcaDashboardPage() {
       ) : null}
       <header className="rca-topbar">
         <div className="rca-wordmark"><Logo tone="white" height={22} /></div>
+        {isRep ? null : (
         <div className="rca-view-tabs">
           <button
             type="button"
@@ -1648,6 +1650,7 @@ export function RcaDashboardPage() {
             </button>
           )}
         </div>
+        )}
           <span className="rca-eyebrow rca-dim rca-top-sub">
             Revenue root cause · {selected === "all"
               ? `${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`
@@ -3424,7 +3427,7 @@ function RepAccountsCard() {
     api.repAuth.list,
     open && adminPw ? { adminPassword: adminPw } : "skip",
   );
-  const names = useQuery(
+  const names = useRcaQuery(
     api.repAuth.repNames,
     open && adminPw ? { adminPassword: adminPw } : "skip",
   );
