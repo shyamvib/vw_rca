@@ -5,6 +5,7 @@
  * crosses the wire. A successful unlock is remembered in sessionStorage, so it
  * is asked again in a new browser session.
  */
+import { Logo } from "@/components/Logo";
 import { useConvex } from "convex/react";
 import { type ReactNode, useState } from "react";
 import { api } from "@/lib/api";
@@ -79,6 +80,7 @@ export function PasswordGate({ children }: { children: ReactNode }) {
           if (event.key === "Enter") void submit();
         }}
       >
+        <div className="rca-gate-logo"><Logo tone="ink" height={30} /></div>
         <div className="rca-gate-eyebrow">Vibrant Wellness</div>
         <h1 className="rca-gate-title">Revenue RCA dashboard</h1>
         <p className="rca-gate-sub">

@@ -2205,3 +2205,6 @@ select.rca-select,
 /* GZ / Total Tox stopped clinics in the clinic list (famstops focus, 2026-10-13) */
 .rca-stop-chips { flex-wrap: wrap; gap: 6px; }
 .rca-stop-cell > div + div { margin-top: 2px; }
+
+.rca-wordmark { display: inline-flex; align-items: center; }
+.rca-gate-logo { margin-bottom: 18px; }

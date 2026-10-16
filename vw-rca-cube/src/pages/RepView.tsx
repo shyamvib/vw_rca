@@ -6,6 +6,7 @@
  * "Sales perf KPIs v2" + KPI library). Numbers come from convex/repView.ts.
  */
 const SHOW_SANKEY = true;
+import { Logo } from "@/components/Logo";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
@@ -306,7 +307,7 @@ export function RepView(props: {
   return (
     <div className="rv-shell">
       <aside className="rv-rail">
-        <div className="rv-brand">VIBRANT</div>
+        <div className="rv-brand"><Logo tone="white" height={18} /></div>
         <div className="rv-rep">{sales}</div>
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}

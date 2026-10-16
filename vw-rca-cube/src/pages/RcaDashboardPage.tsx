@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import { GeoMap, GeoRsmTable, type GeoRow } from "./GeoMap";
@@ -1621,7 +1622,7 @@ export function RcaDashboardPage() {
         </>
       ) : null}
       <header className="rca-topbar">
-        <div className="rca-wordmark">VIBRANT WELLNESS</div>
+        <div className="rca-wordmark"><Logo tone="white" height={22} /></div>
         <div className="rca-view-tabs">
           <button
             type="button"
