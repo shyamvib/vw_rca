@@ -1864,7 +1864,10 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const [mStyle, setMStyle] = useMeterStyle();
   const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
   const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
-  const [pillar, setPillar] = useState(focusPillar ?? "Combined");
+  const [pillar, setPillarRaw] = useState(focusPillar ?? "Combined");
+  // Once the user has picked a dial or row, the rest of the matrix recedes so the choice reads clearly.
+  const [picked, setPicked] = useState(false);
+  const setPillar = (p: string) => { setPillarRaw(p); setPicked(true); };
   useEffect(() => {
     if (!focus) return;
     if (focusPillar) setPillar(focusPillar);
@@ -1935,7 +1938,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
           })}
         </div>
       ) : null}
-      <div className="rv-matrix">
+      <div className={`rv-matrix${picked ? " has-pick" : ""}`}>
         <div className="rv-mx-h">Pillar</div>
         <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
         <div className="rv-mx-h">Leading indicator<span>Will it happen?</span></div>

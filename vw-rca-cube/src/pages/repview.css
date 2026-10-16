@@ -136,8 +136,16 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-mx-row { display: contents; cursor: pointer; }
 .rv-mx-row > div { border-bottom: 1px solid var(--border-subtle); padding: 14px; }
 .rv-mx-row > div + div { border-left: 1px solid var(--border-subtle); }
-.rv-mx-row.is-sel > div { background: var(--vw-blue-tint); }
+/* Selected pillar(s): blue frame around the row (several rows read as one block), a bar on the
+   pillar cell, and, once the user has picked something, the other rows recede. */
+.rv-mx-row.is-sel > .rv-mx-p { background: var(--vw-blue-tint); }
 .rv-mx-row.is-sel .rv-mx-p b { color: var(--vw-blue); }
+.rv-mx-row.is-sel > div { box-shadow: inset 0 2px 0 var(--vw-blue), inset 0 -2px 0 var(--vw-blue); }
+.rv-mx-row.is-sel > div:first-child { box-shadow: inset 6px 0 0 var(--vw-blue), inset 0 2px 0 var(--vw-blue), inset 0 -2px 0 var(--vw-blue); }
+.rv-mx-row.is-sel > div:last-child { box-shadow: inset -2px 0 0 var(--vw-blue), inset 0 2px 0 var(--vw-blue), inset 0 -2px 0 var(--vw-blue); }
+.rv-mx-row.is-sel .rv-mx-p b { font-weight: 700; }
+.rv-matrix.has-pick .rv-mx-row:not(.is-sel) > div { opacity: 0.55; transition: opacity 0.15s; }
+.rv-matrix.has-pick .rv-mx-row:not(.is-sel):hover > div { opacity: 0.9; }
 .rv-mx-row:hover > div { background: var(--vw-gray-02); }
 .rv-mx-p { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 .rv-mx-p b { font-weight: 600; font-size: 14px; color: var(--text-primary); }
