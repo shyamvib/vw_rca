@@ -1996,7 +1996,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const famList = useMemo(() => {
     const t = new Map<string, number>();
     for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
-    return [...t].filter(([f]) => f !== "Unmapped").sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+    return [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
   }, [pgd.data]);
   const family = wsFam || famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
   const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
@@ -3428,16 +3428,17 @@ const NON_ZOOMER = "Non Zoomer";
 function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
   const newSet = new Set<string>(b.newIds ?? []);
   const fams = (r: Record<string, number>) => Object.keys(r).filter(f => f !== "Unmapped" && r[f] > 0);
+  const prod = (r: Record<string, number>) => fams(r).filter(f => f !== NON_ZOOMER);
   // Per selected family (Shyam, 2026-10-06): adoption = new clinics with window
   // orders that ordered this family; repeat = clinics ordering it that did so 2+ times.
-  const newOrd = clinics.filter(c => newSet.has(c.clinic) && fams(c.win).length > 0);
+  // "Non Zoomer" is not a product family (see products per customer below): a new clinic counts as ordering when it bought a Zoomer.
+  const newOrd = clinics.filter(c => newSet.has(c.clinic) && prod(c.win).length > 0);
   const adoptN = newOrd.filter(c => (c.win[family] ?? 0) > 0).length;
   const buyers = clinics.filter(c => (c.win[family] ?? 0) > 0);
   const pairN = buyers.length, repN = buyers.filter(c => c.win[family] >= 2).length;
   // Products per customer: distinct *product* families per clinic ordering in the window. "Non Zoomer" is the
   // catch-all bucket for everything that is not a Zoomer panel, so it is not a product family here (it still
   // counts as ordering for adoption and repeat above). Clinics that only bought Non Zoomer are left out.
-  const prod = (r: Record<string, number>) => fams(r).filter(f => f !== NON_ZOOMER);
   const active = clinics.filter(c => prod(c.win).length > 0);
   const ppc = active.length ? active.reduce((t, c) => t + prod(c.win).length, 0) / active.length : null;
   // Range (Shyam: "2-4", not a decimal): 25th–75th percentile of families per clinic.
