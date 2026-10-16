@@ -547,3 +547,8 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-sk-link.o0{stroke:var(--vw-error)}.rv-sk-link.o1{stroke:var(--vw-result-moderate)}.rv-sk-link.o2{stroke:var(--vw-result-moderate)}.rv-sk-link.o3{stroke:var(--vw-success)}
 .rv-sk-node{cursor:pointer}.rv-sk-node rect{fill:var(--vw-blue-hover)}.rv-sk-node.o0 rect{fill:var(--vw-error)}.rv-sk-node.o1 rect{fill:var(--vw-result-moderate)}.rv-sk-node.o2 rect{fill:var(--vw-result-moderate)}.rv-sk-node.o3 rect{fill:var(--vw-success)}
 @media (max-width:1100px){.rv-outmeters{grid-template-columns:repeat(3,1fr)}}
+
+/* Family-scoped scorecard */
+.rv-allp { font-style: normal; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
+.rv-scope { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 12px; padding: 10px 14px; background: var(--vw-blue-tint); border: 1px solid var(--vw-blue); border-radius: var(--radius-sm); font-size: 13px; }
+.rv-scope button { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; background: var(--vw-white); border: 1px solid var(--vw-blue); color: var(--vw-blue); border-radius: var(--radius-sm); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
