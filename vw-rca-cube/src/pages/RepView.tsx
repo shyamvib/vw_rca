@@ -2073,6 +2073,18 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped },
     ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
   ];
+  // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
+  const bookClinics = (b.allIds ?? []).length;
+  const famBuyers = pg ? pg.buyerIds.length : null;
+  const clinicCount = (p: string): { n: number | null; why: string } => {
+    switch (p) {
+      case "New Business": return { n: (b.newIds ?? []).length, why: "new: first order in this window" };
+      case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
+      case "Product Growth": return { n: famBuyers, why: `ordered ${family}` };
+      case EXISTING: return { n: (b.existingIds ?? []).length, why: "existing: ordered in the baseline" };
+      default: return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: bookClinics, why: "any orders or a baseline" };
+    }
+  };
   const [mStyle, setMStyle] = useMeterStyle();
   const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
   const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
@@ -2166,6 +2178,15 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
               <span><i className="sw heading" />Heading <b>{m.fmt(m.heading)}</b></span>
               <span><i className="sw plan" />{m.planLbl} <b>{m.plan ? m.fmt(m.plan) : "—"}</b></span>
             </div>
+            {(() => {
+              const cc = clinicCount(m.pillar);
+              return (
+                <div className="rv-outm-clin" title={`Clinics this dial is measured over: ${cc.why}`}>
+                  <b>{cc.n ?? "…"}</b> clinics
+                  <span>{cc.why}{m.pillar === "Combined" && !scoped ? "" : ` · of ${bookClinics} in the book`}</span>
+                </div>
+              );
+            })()}
           </button>
         );
         const heroMeter = outcomeMeters.find(m => m.pillar === "Combined");

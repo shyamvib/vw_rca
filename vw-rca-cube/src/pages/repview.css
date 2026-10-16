@@ -618,3 +618,10 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 /* Scorecard embedded in a window tab, between "Great job" and the shortfall tree */
 .rv-sc-embed { margin: 28px 0 8px; padding: 22px 0 6px; border-top: 2px solid var(--vw-ink); border-bottom: 1px solid var(--border-subtle); }
 .rv-sc-embed-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+
+/* clinics each dial is measured over */
+.rv-outm-clin { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); font-size: 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.rv-outm-clin b { font-family: var(--font-mono); font-size: 15px; }
+.rv-outm-clin span { flex-basis: 100%; font-size: 11px; color: var(--text-secondary); }
+.rv-outm-hero .rv-outm-clin { font-size: 13px; }
+.rv-outm-hero .rv-outm-clin b { font-size: 18px; }
