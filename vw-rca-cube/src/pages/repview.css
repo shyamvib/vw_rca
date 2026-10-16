@@ -250,7 +250,7 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 /* Clinic-list in-place expand (Shyam, 2026-09-28 round 5) — full clinic card
  * (hero/timeline/bars/tags/portfolio/providers/footprint) opens under the
  * row it belongs to, closing the same way, instead of a separate modal. */
-.rv-expand-card { padding: 16px 4px 20px; max-width: 640px; }
+.rv-expand-card { padding: 16px 4px 20px; container-type: inline-size; }
 .rv-expand-panel { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
 .rv-focus-list { display: flex; flex-direction: column; gap: 4px; }
 .rv-focus-row { display: grid; grid-template-columns: 1.6fr .6fr 1fr .8fr; gap: 12px; align-items: center; padding: 10px 8px; border-top: 1px solid var(--border-subtle); background: transparent; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; cursor: pointer; font-size: 12px; width: 100%; }
@@ -596,3 +596,21 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-mx-c.is-open { position: relative; z-index: 1; outline: 3px solid var(--vw-blue); outline-offset: -3px; }
 .rv-mx-c.is-open::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 9px; background: var(--vw-blue); }
 .rv-matrix.has-pick .rv-mx-row:not(.is-sel) > .rv-mx-c.is-open { opacity: 1; }
+
+/* Clinic card: head | vs-baseline bars | stats side by side when the card is wide (inline expand), stacked in the modal. */
+.rv-cc-head .rv-modal-h { margin-bottom: 8px; }
+@container (min-width: 820px) {
+  .rv-cc { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.1fr) minmax(240px, 1fr); gap: 8px 40px; align-items: start; }
+  .rv-cc-tables { grid-column: 1 / -1; }
+  .rv-cc-bars .rv-ch-bars { margin-top: 6px; }
+  .rv-cc-stats .rv-modal-grid { grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+  .rv-cc-stats .rv-modal-tags { margin-top: 12px; }
+}
+@container (min-width: 540px) and (max-width: 819px) {
+  .rv-cc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 32px; align-items: start; }
+  .rv-cc-stats, .rv-cc-tables { grid-column: 1 / -1; }
+}
+
+/* Inside a clinic list the table can be wider than the visible area; keep the expanded card at the visible width and in view. */
+.rca-drill .rca-table-wrap { container-type: inline-size; }
+.rca-drill .rca-table-wrap .rv-expand-card { width: calc(100cqw - 32px); position: sticky; left: 0; box-sizing: border-box; }

@@ -2403,7 +2403,8 @@ function CompareBar({
  * the inline expand inside a clinic-list row. */
 function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId: string; winLabel?: string }) {
   return (
-    <>
+    <div className="rv-cc">
+      <div className="rv-cc-head">
       <div className="rv-eyebrow">{detail.state}{detail.country && detail.country !== "US" ? `, ${detail.country}` : ""} · {COHORT[detail.cohort] ?? detail.cohort}</div>
       <h2 className="rv-modal-h">{detail.name}</h2>
 
@@ -2425,14 +2426,28 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
           Last order<b>{detail.daysSinceLast !== null ? `${detail.daysSinceLast}d ago` : "—"}</b>
         </div>
       </div>
+      </div>
 
+      <div className="rv-cc-bars">
       <div className="rv-ch-bars" style={detail.fallback ? { display: "none" } : undefined}>
         <CompareBar label="Revenue" actual={detail.actual} exp={detail.expected} fmt={K} />
         <CompareBar label="Orders" actual={detail.orders} exp={detail.expectedOrders} fmt={(v: number) => v.toFixed(1)} />
         <CompareBar label="AOV" actual={detail.aov} exp={detail.baseAov} fmt={K} higherIsBetter />
         <CompareBar label="Bundle share" actual={detail.bundleShare} exp={detail.baseBundleShare} fmt={(v: number) => P(v)} higherIsBetter />
       </div>
+      {detail.health?.length || detail.pstatus?.length ? (
+        <div className="rv-modal-tags">
+          {(detail.health ?? []).map((h: string) => (
+            <span className="rv-tag" key={`h-${h}`}>{h}</span>
+          ))}
+          {(detail.pstatus ?? []).map((p: string) => (
+            <span className="rv-tag rv-tag-blue" key={`p-${p}`}>{p}</span>
+          ))}
+        </div>
+      ) : null}
+      </div>
 
+      <div className="rv-cc-stats">
       <div className="rv-modal-grid">
         <div><span>Volume effect</span><b className={detail.volume < 0 ? "bad" : "good"}>{SK(detail.volume)}</b></div>
         <div><span>AOV effect</span><b className={detail.aovEffect < 0 ? "bad" : "good"}>{SK(detail.aovEffect)}</b></div>
@@ -2450,21 +2465,15 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
           <div><span>Bundle share</span><b>{detail.fallback.bundleShare !== null ? P(detail.fallback.bundleShare) : "—"}</b></div>
         </div>
       ) : null}
-      {detail.health?.length || detail.pstatus?.length ? (
-        <div className="rv-modal-tags">
-          {(detail.health ?? []).map((h: string) => (
-            <span className="rv-tag" key={`h-${h}`}>{h}</span>
-          ))}
-          {(detail.pstatus ?? []).map((p: string) => (
-            <span className="rv-tag rv-tag-blue" key={`p-${p}`}>{p}</span>
-          ))}
-        </div>
-      ) : null}
 
+      </div>
+
+      <div className="rv-cc-tables">
       <RepClinicPortfolio clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
       <RepFootprintNote clinic={detail.clinic} />
       <RepCustomerTable clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
-    </>
+      </div>
+    </div>
   );
 }
 
