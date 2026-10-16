@@ -1664,7 +1664,8 @@ const ALL_PRODUCTS_CELLS = new Set([
   "Low-AOV customers", "Revenue Retention", "Repeat ordering", "At-risk customers", "Customer churn",
   "Expansion Revenue", "NRR", "Revenue opportunity", "Growth decomposition",
 ]);
-function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: Fam | undefined, family: string, clinics: PGClinic[] | null) {
+type Launch = { firstOrder: string; daysLive: number };
+function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: Fam | undefined, family: string, clinics: PGClinic[] | null, launch?: Launch) {
   const newSet = new Set<string>(b.newIds ?? []);
   const loading = (c: Cell): Cell => NA(c.label, "loading product mix…");
   const none = (c: Cell): Cell => NA(c.label, `no ${family} orders in this book`);
@@ -1672,6 +1673,7 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
     ...r,
     cells: r.cells.map((c): Cell => {
       if (ALL_PRODUCTS_CELLS.has(c.label)) return { ...c, allProducts: true };
+      if (launch && c.label === "Target Product Orders") return { ...c, famScoped: true, tone: "act", sub: `new product · launched ${launch.firstOrder} · ${launch.daysLive}d live` };
       if (PRODUCT_GROWTH_CELLS.has(c.label)) return { ...c, famScoped: true };
       switch (c.label) {
         case "New Revenue": {
@@ -1687,12 +1689,14 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
           if (!hz || !hz.orders) return none(c);
           const aov = hz.revenue / hz.orders;
           const base = hz.expectedOrders ? hz.expected / hz.expectedOrders : 0;
+          if (launch) return { famScoped: true, label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic), sub: `${family} · new product, no baseline`, tone: "act" };
           return {
             famScoped: true, label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic),
             sub: `${family} · ${SK(aov - base)} vs baseline`, tone: vsTone(aov && base ? aov / base : null, 0.97),
           };
         }
         case "Net Revenue Growth": {
+          if (launch) return { ...NA(c.label, "new product · no baseline to compare"), famScoped: true };
           if (!hz || !hz.expected) return none(c);
           const g = hz.revenue / hz.expected - 1;
           return { famScoped: true, label: c.label, value: SP(g), n: g, u: "%", better: 1, sub: `${family} · ${SK(hz.revenue - hz.expected)} vs baseline`, tone: vsTone(1 + g) };
@@ -1701,6 +1705,7 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
           if (!hz || !b.days) return none(c);
           const rr = (hz.revenue / b.days) * 7;
           const plan = (hz.expected / b.days) * 7;
+          if (launch) return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · new product, ${launch.daysLive}d live`, tone: "act" };
           return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · baseline ${K(plan)}/wk`, tone: vsTone(rr && plan ? rr / plan : null) };
         }
         default:
@@ -1710,7 +1715,7 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
   }));
 }
 
-function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: string; clinics: PGClinic[] | null }): Array<{ pillar: string; cells: Cell[] }> {
+function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: string; clinics: PGClinic[] | null; launch?: Launch }): Array<{ pillar: string; cells: Cell[] }> {
   const k = b.kpi;
   const hz: Fam | undefined = pg
     ? (fams?.all ?? []).find((f: Fam) => f.family === pg.family)
@@ -1856,7 +1861,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
       ],
     },
   ];
-  return scope ? scopeRows(rows, b, hz, scope.family, scope.clinics) : rows;
+  return scope ? scopeRows(rows, b, hz, scope.family, scope.clinics, scope.launch) : rows;
 }
 
 /** Pillar status from the scorecard tones: any red cell = behind, any amber = watch. */
@@ -1890,7 +1895,12 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
   const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
   const scoped = wsFam !== "";
-  const rows = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null } : undefined);
+  // New product releases: families whose first order is recent have no fair baseline (analytics/familyLaunch.ts decides which).
+  const launchQ = useRcaQuery(api.familyLaunch.launches, { password: pw() });
+  const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
+  const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
+  const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
+  const rows = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined);
   const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
   const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
   const deltaOf = (c: Cell) => {
@@ -1914,12 +1924,12 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean }> = [
     { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue, heading: k.newRevenue * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline", allProducts: scoped },
     scoped && selFam
-      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: "baseline AOV", famScoped: true }
+      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
-    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: "expected", famScoped: scoped }] : []),
+    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped },
-    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: selFam.expected * scale, fmt: K, planLbl: "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
+    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
   ];
   const [mStyle, setMStyle] = useMeterStyle();
   const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
@@ -1972,7 +1982,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
       </div>
       {scoped ? (
         <div className="rv-scope">
-          <span>Scorecard scoped to <b>{family}</b>. <i className="rv-famkey" /> Blue bar = follows {family}; &ldquo;all products&rdquo; = not family-specific yet (retention and expansion).</span>
+          <span>Scorecard scoped to <b>{family}</b>. <i className="rv-famkey" /> Blue bar = follows {family}; &ldquo;all products&rdquo; = not family-specific yet (retention and expansion).{famLaunch ? ` ${family} launched ${famLaunch.firstOrder}, so there is no baseline and no target yet.` : ""}</span>
           <button type="button" onClick={() => setWsFam("")}>Back to all products</button>
         </div>
       ) : null}
@@ -1986,7 +1996,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
             <div className="rv-outm-nums">
               <span><i className="sw sofar" />So far <b>{m.fmt(m.soFar)}</b></span>
               <span><i className="sw heading" />Heading <b>{m.fmt(m.heading)}</b></span>
-              <span><i className="sw plan" />{m.planLbl} <b>{m.fmt(m.plan)}</b></span>
+              <span><i className="sw plan" />{m.planLbl} <b>{m.plan ? m.fmt(m.plan) : "—"}</b></span>
             </div>
           </button>
         );
@@ -1999,18 +2009,40 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
         );
       })()}
       {pillar === "Product Growth" && famCards.length ? (
-        <div className="rv-famcards">
-          {famCards.map(f => {
-            const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
-            return (
-              <button type="button" key={f.family} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
-                <span>{f.family}</span>
-                <b>{f.orders.toFixed(0)} orders</b>
-                <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div className="rv-famcards">
+            {famCards.filter(f => !isNewFam(f.family)).map(f => {
+              const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
+              return (
+                <button type="button" key={f.family} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
+                  <span>{f.family}</span>
+                  <b>{f.orders.toFixed(0)} orders</b>
+                  <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
+                </button>
+              );
+            })}
+          </div>
+          {famCards.some(f => isNewFam(f.family)) ? (
+            <>
+              <div className="rv-famgroup">
+                <b>New product releases</b>
+                <span>First order within the last 12 months, so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live.</span>
+              </div>
+              <div className="rv-famcards rv-famcards-new">
+                {famCards.filter(f => isNewFam(f.family)).map(f => {
+                  const l = launchOf.get(f.family);
+                  return (
+                    <button type="button" key={f.family} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
+                      <span>{f.family}</span>
+                      <b>{f.orders.toFixed(0)} orders</b>
+                      <em>launched {l?.firstOrder} · {l?.daysLive}d live</em>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+        </>
       ) : null}
       <div className={`rv-matrix${picked ? " has-pick" : ""}`}>
         <div className="rv-mx-h">Pillar</div>
@@ -3422,7 +3454,7 @@ function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; headin
   return (
     <svg viewBox="0 0 100 56" className={`rv-mdial ${tone}`}>
       <path d={`M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`} className="trk" />
-      <circle cx={pl.x} cy={pl.y} r={3.5} className="pl" />
+      {plan ? <circle cx={pl.x} cy={pl.y} r={3.5} className="pl" /> : null}
       <line x1={cx} y1={cy} x2={hd.x} y2={hd.y} className="hd" />
       <line x1={cx} y1={cy} x2={sf.x} y2={sf.y} className="sf" />
       <circle cx={cx} cy={cy} r={3} className="hub" />

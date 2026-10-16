@@ -566,3 +566,11 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-outm-hero .rv-mdial{max-width:270px;margin-top:-14px}
 .rv-outm-hero .rv-outm-nums{font-size:13px;gap:4px}.rv-outm-hero .rv-outm-nums b{font-size:16px}
 @media (max-width:1100px){.rv-outmeters{grid-template-columns:repeat(2,1fr)}}
+
+/* New product releases: separate group, neutral (no expected-orders colouring) */
+.rv-famgroup { display: flex; align-items: baseline; gap: 12px; margin: 14px 0 6px; flex-wrap: wrap; }
+.rv-famgroup b { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.rv-famgroup span { font-size: 12px; color: var(--text-secondary); }
+.rv-famcard.new { background: var(--vw-white); border-style: dashed; }
+.rv-famcard.new b { color: var(--vw-ink); }
+.rv-famcard.new em { color: var(--text-secondary); }

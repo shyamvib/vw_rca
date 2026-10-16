@@ -578,6 +578,13 @@ const schema = defineSchema({
   // editable. Never regenerate a field listed in `edited`.
   // Gut Zoomer / Total Tox STOPPED clinics per month-end (convex/familyStops.ts).
   // Replace-all after each live refresh; not gen-scoped.
+  // First order date per product family (snapshot build step, analytics/familyLaunch.ts): drives "new product releases".
+  familyLaunch: defineTable({
+    family: v.string(),
+    firstOrder: v.string(),
+    orders: v.number(),
+  }).index("by_family", ["family"]),
+
   familyStops: defineTable({
     month: v.string(),
     family: v.string(),

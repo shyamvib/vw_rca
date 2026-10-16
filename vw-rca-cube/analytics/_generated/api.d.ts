@@ -15,6 +15,7 @@ import type * as config from "../config.js";
 import type * as cube from "../cube.js";
 import type * as dateUtils from "../dateUtils.js";
 import type * as families from "../families.js";
+import type * as familyLaunch from "../familyLaunch.js";
 import type * as familyStops from "../familyStops.js";
 import type * as feed from "../feed.js";
 import type * as flags from "../flags.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   cube: typeof cube;
   dateUtils: typeof dateUtils;
   families: typeof families;
+  familyLaunch: typeof familyLaunch;
   familyStops: typeof familyStops;
   feed: typeof feed;
   flags: typeof flags;

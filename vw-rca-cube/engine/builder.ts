@@ -73,11 +73,19 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   const fn = mode === "weekly" ? "refresh:weeklySnapshotTick" : mode === "monthly" ? "refresh:monthlySnapshotTick" : "refresh:refreshData";
   const result = await host.invoke(fn, {});
+  if (mode === "daily") {
+    // First-order dates per product family (new product releases). Best effort: the snapshot is useful without it.
+    try {
+      await host.invoke("familyLaunch:build", { end: (result as { dataThrough?: string } | null)?.dataThrough });
+    } catch (e) {
+      console.error("family launch dates failed:", String(e).slice(0, 200));
+    }
+  }
   if (client) console.log("pushed to convex:", JSON.stringify(await pushToConvex(db, client, startedAt)));
   return { db, result, secs: Math.round((Date.now() - t0) / 1000) };
 }

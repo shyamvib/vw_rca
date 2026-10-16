@@ -33,6 +33,7 @@ export const SERVED_MODULES = [
   "families",
   "clinicalTouch",
   "plan",
+  "familyLaunch",
 ];
 
 /** Individual functions served from otherwise internal modules (the admin rep dropdown reads names from the snapshot). */
