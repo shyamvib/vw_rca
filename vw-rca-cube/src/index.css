@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@import url("/ds/colors.css");
+@import url("/ds/spacing.css");
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -48,52 +50,56 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Vibrant design system (public/ds/*.css): ink + lab-coat white, Rebranding Blue as the one accent,
+   2-8px corners. shadcn's variables below are aliases onto those tokens. */
 :root {
   --sidebar-width: 16rem;
   --sidebar-width-icon: 3rem;
 
-  --primary: var(--color-slate-900);
-  --primary-foreground: var(--color-white);
-  --sidebar-primary: var(--color-slate-900);
-  --sidebar-primary-foreground: var(--color-slate-50);
+  --primary: var(--vw-blue);
+  --primary-foreground: var(--vw-white);
+  --sidebar-primary: var(--vw-blue);
+  --sidebar-primary-foreground: var(--vw-white);
 
-  --success: var(--color-emerald-600);
-  --success-foreground: var(--color-white);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-950);
-  --info: var(--color-cyan-500);
-  --info-foreground: var(--color-white);
+  --success: var(--vw-success);
+  --success-foreground: var(--vw-white);
+  --warning: var(--vw-warning);
+  --warning-foreground: var(--vw-ink);
+  --info: var(--vw-info);
+  --info-foreground: var(--vw-white);
 
-  --chart-1: var(--color-teal-500);
-  --chart-2: var(--color-orange-500);
-  --chart-3: var(--color-cyan-500);
-  --chart-4: var(--color-rose-500);
-  --chart-5: var(--color-lime-500);
+  --chart-1: var(--vw-blue);
+  --chart-2: var(--vw-result-moderate);
+  --chart-3: var(--vw-result-marker);
+  --chart-4: var(--vw-result-high-risk);
+  --chart-5: var(--vw-result-in-control);
 
-  --radius: 0.625rem;
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.15 0.01 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.15 0.01 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.15 0.01 260);
-  --secondary: oklch(0.96 0.005 260);
-  --secondary-foreground: oklch(0.3 0.01 260);
-  --muted: oklch(0.96 0.005 260);
-  --muted-foreground: oklch(0.45 0.015 260);
-  --accent: oklch(0.96 0.005 260);
-  --accent-foreground: oklch(0.15 0.01 260);
-  --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.005 260);
-  --input: oklch(0.92 0.005 260);
-  --ring: oklch(0.3 0.02 260);
-  --sidebar: oklch(0.98 0 0);
-  --sidebar-foreground: oklch(0.15 0.01 260);
-  --sidebar-accent: oklch(0.96 0.005 260);
-  --sidebar-accent-foreground: oklch(0.15 0.01 260);
-  --sidebar-border: oklch(0.92 0.005 260);
-  --sidebar-ring: oklch(0.3 0.02 260);
+  --radius: 0.5rem;
+  --background: var(--vw-paper);
+  --foreground: var(--vw-ink);
+  --card: var(--vw-white);
+  --card-foreground: var(--vw-ink);
+  --popover: var(--vw-white);
+  --popover-foreground: var(--vw-ink);
+  --secondary: var(--vw-gray-05);
+  --secondary-foreground: var(--vw-gray-90);
+  --muted: var(--vw-gray-05);
+  --muted-foreground: var(--vw-gray-60);
+  --accent: var(--vw-blue-tint);
+  --accent-foreground: var(--vw-ink);
+  --destructive: var(--vw-error);
+  --destructive-foreground: var(--vw-white);
+  --border: var(--vw-gray-15);
+  --input: var(--vw-gray-20);
+  --ring: var(--vw-blue);
+  --sidebar: var(--vw-ink);
+  --sidebar-foreground: var(--vw-paper);
+  --sidebar-accent: rgba(255, 255, 255, 0.08);
+  --sidebar-accent-foreground: var(--vw-white);
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: var(--vw-blue);
+
+  font-family: var(--font-sans);
 }
 
 .dark {

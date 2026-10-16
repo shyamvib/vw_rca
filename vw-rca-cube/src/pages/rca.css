@@ -84,7 +84,7 @@
 
 .rca-btn-ghost.is-active {
   background: var(--vw-white);
-  color: var(--vw-black, #111);
+  color: var(--vw-black, var(--vw-ink));
   border-color: var(--vw-white);
 }
 
@@ -416,7 +416,7 @@
   cursor: pointer;
 }
 .rca-leaderboard-row:hover {
-  background: var(--vw-gray-5, #f6f6f6);
+  background: var(--vw-gray-5, var(--vw-gray-05));
 }
 .rca-leaderboard-row.is-active {
   background: var(--vw-ink);
@@ -741,7 +741,7 @@
 }
 .rca-info-icon:hover {
   background: var(--vw-blue);
-  color: #fff;
+  color: var(--vw-white);
 }
 
 .rca-drill {
@@ -920,10 +920,10 @@ select.rca-select,
   font-size: 12px;
 }
 .rca-fam-row:hover {
-  background: var(--vw-gray-05, #f6f7f9);
+  background: var(--vw-gray-05, var(--vw-gray-05));
 }
 .rca-fam-row.is-open {
-  background: var(--vw-gray-10, #eef0f4);
+  background: var(--vw-gray-10, var(--vw-gray-05));
 }
 .rca-fam-name {
   overflow: hidden;
@@ -940,7 +940,7 @@ select.rca-select,
   grid-column: 1 / -1;
   display: block;
   height: 3px;
-  background: var(--vw-gray-10, #eef0f4);
+  background: var(--vw-gray-10, var(--vw-gray-05));
   border-radius: 2px;
   overflow: hidden;
 }
@@ -979,8 +979,8 @@ select.rca-select,
 .rca-chip {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 10px;
-  background: var(--vw-gray-10, #eef0f4);
+  border-radius: var(--radius-lg);
+  background: var(--vw-gray-10, var(--vw-gray-05));
   white-space: nowrap;
 }
 .rca-portfolio {
@@ -991,7 +991,7 @@ select.rca-select,
   letter-spacing: 0.05em;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--vw-gray-10, #eef0f4);
+  background: var(--vw-gray-10, var(--vw-gray-05));
 }
 .rca-status.is-stopped,
 .rca-status.is-declining {
@@ -1027,7 +1027,7 @@ select.rca-select,
   gap: 10px;
   background: var(--vw-white);
   border: 1px solid var(--vw-gray-20);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
   padding: 14px 16px;
   margin-bottom: 4px;
@@ -1167,7 +1167,7 @@ select.rca-select,
 }
 .rca-feed:hover,
 .rca-feed.is-open {
-  background: #fafafa;
+  background: var(--vw-gray-02);
 }
 .rca-feed-alert {
   border-left-color: var(--vw-error);
@@ -1231,7 +1231,7 @@ select.rca-select,
   border-radius: 999px;
   border: 1px solid var(--vw-line);
   background: transparent;
-  color: var(--vw-ink-2, #666);
+  color: var(--vw-ink-2, var(--vw-gray-60));
   cursor: pointer;
 }
 .rca-fam-scope .rca-chip.is-on {
@@ -1245,7 +1245,7 @@ select.rca-select,
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
-  color: var(--vw-blue, #2f6fed);
+  color: var(--vw-blue, var(--vw-blue));
 }
 
 /* Substitution-pair drill: small secondary line inside table cells. */
@@ -1278,9 +1278,9 @@ select.rca-select,
 }
 
 .rca-tag-chip.is-active {
-  background: var(--vw-fg, #111);
-  color: var(--vw-bg, #fff);
-  border-color: var(--vw-fg, #111);
+  background: var(--vw-fg, var(--vw-ink));
+  color: var(--vw-bg, var(--vw-white));
+  border-color: var(--vw-fg, var(--vw-ink));
 }
 
 .rca-topwin {
@@ -1305,7 +1305,7 @@ select.rca-select,
 }
 
 .rca-topwin-dash {
-  color: var(--vw-gray-40, #999);
+  color: var(--vw-gray-40, var(--vw-gray-40));
   font-size: 12px;
 }
 
@@ -1333,7 +1333,7 @@ select.rca-select,
   right: 0;
   bottom: 0;
   width: min(440px, 92vw);
-  background: var(--vw-white, #fff);
+  background: var(--vw-white, var(--vw-white));
   box-shadow: -18px 0 48px rgba(0, 0, 0, 0.18);
   z-index: 61;
   display: flex;
@@ -1367,11 +1367,11 @@ select.rca-select,
 .rca-link {
   color: inherit;
   text-decoration: none;
-  border-bottom: 1px dotted var(--vw-gray-50, #999);
+  border-bottom: 1px dotted var(--vw-gray-50, var(--vw-gray-40));
 }
 
 .rca-link:hover {
-  color: var(--vw-blue, #2563eb);
+  color: var(--vw-blue, var(--vw-blue));
   border-bottom-color: currentColor;
 }
 
@@ -1379,20 +1379,20 @@ select.rca-select,
 .rca-search-input {
   min-width: 190px;
   padding: 6px 10px;
-  border: 1px solid var(--vw-border, #d8dce4);
+  border: 1px solid var(--vw-border, var(--vw-gray-20));
   border-radius: 8px;
-  background: #fff;
+  background: var(--vw-white);
   font-size: 13px;
   /* the topbar is dark, so the inherited colour made typed text invisible */
-  color: #14161a;
-  caret-color: #14161a;
+  color: var(--vw-ink);
+  caret-color: var(--vw-ink);
 }
 .rca-search-input::placeholder {
   color: #8a8f98;
 }
 .rca-search-input:focus {
   outline: none;
-  border-color: var(--vw-accent, #2f6df6);
+  border-color: var(--vw-accent, var(--vw-blue));
 }
 .rca-search-card {
   margin-bottom: 16px;
@@ -1423,8 +1423,8 @@ select.rca-select,
   margin-top: 10px;
 }
 .rca-chips .rca-chip {
-  border: 1px solid var(--vw-border, #d8dce4);
-  background: var(--vw-surface-2, #f6f7f9);
+  border: 1px solid var(--vw-border, var(--vw-gray-20));
+  background: var(--vw-surface-2, var(--vw-gray-05));
   border-radius: 999px;
   padding: 5px 14px;
   line-height: 1.4;
@@ -1434,14 +1434,14 @@ select.rca-select,
   white-space: nowrap;
 }
 .rca-chips .rca-chip:hover {
-  border-color: var(--vw-accent, #2f6df6);
+  border-color: var(--vw-accent, var(--vw-blue));
 }
 .rca-chips .rca-chip-feed {
   background: #fff3f3;
   border-color: #f3c9c9;
 }
 .rca-chips .rca-chip-flag {
-  background: #fff;
+  background: var(--vw-white);
   cursor: default;
 }
 
@@ -1458,9 +1458,9 @@ select.rca-select,
 .rca-gate-card {
   width: 100%;
   max-width: 380px;
-  background: var(--surface-raised, #fff);
+  background: var(--surface-raised, var(--vw-white));
   border: 1px solid var(--vw-gray-20, #e4e6ea);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 32px 30px 28px;
   display: flex;
   flex-direction: column;
@@ -1472,18 +1472,18 @@ select.rca-select,
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--vw-gray-60, #6b7280);
+  color: var(--vw-gray-60, var(--vw-gray-60));
 }
 .rca-gate-title {
   font-size: 22px;
   font-weight: 600;
   margin: 0;
-  color: var(--text-primary, #14161a);
+  color: var(--text-primary, var(--vw-ink));
 }
 .rca-gate-sub {
   margin: 0 0 6px;
   font-size: 13px;
-  color: var(--vw-gray-60, #6b7280);
+  color: var(--vw-gray-60, var(--vw-gray-60));
 }
 .rca-gate-input {
   height: 40px;
@@ -1491,20 +1491,20 @@ select.rca-select,
   border: 1px solid var(--vw-gray-30, #d3d7dd);
   padding: 0 12px;
   font-size: 14px;
-  background: #fff;
-  color: #14161a;
-  caret-color: #14161a;
+  background: var(--vw-white);
+  color: var(--vw-ink);
+  caret-color: var(--vw-ink);
 }
 .rca-gate-input:focus {
   outline: none;
-  border-color: var(--vw-primary, #2f6df6);
+  border-color: var(--vw-primary, var(--vw-blue));
 }
 .rca-gate-btn {
   height: 40px;
   border: none;
   border-radius: 8px;
-  background: var(--vw-primary, #2f6df6);
-  color: #fff;
+  background: var(--vw-primary, var(--vw-blue));
+  color: var(--vw-white);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -1564,7 +1564,7 @@ select.rca-select,
 .rca-plan-now {
   display: inline-block;
   min-width: 56px;
-  color: var(--vw-gray-60, #666);
+  color: var(--vw-gray-60, var(--vw-gray-60));
 }
 .rca-plan-input {
   width: 78px;
@@ -1573,14 +1573,14 @@ select.rca-select,
   font-family: var(--font-mono);
   font-size: 12px;
   text-align: right;
-  border: 1px solid var(--vw-gray-20, #ddd);
+  border: 1px solid var(--vw-gray-20, var(--vw-gray-15));
   border-radius: 3px;
-  background: #fff;
+  background: var(--vw-white);
   color: inherit;
 }
 .rca-plan-input:focus {
   outline: none;
-  border-color: var(--vw-black, #111);
+  border-color: var(--vw-black, var(--vw-ink));
 }
 .rca-plan-ok {
   margin-left: 6px;
@@ -1645,7 +1645,7 @@ select.rca-select,
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary, var(--vw-gray-60));
 }
 .rca-log td.rca-num,
 .rca-log th.rca-num {
@@ -1861,7 +1861,7 @@ select.rca-select,
 }
 .rca-fam-row-sub {
   font-size: 11px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-secondary, var(--vw-gray-60));
 }
 
 .rca-fam-row-top > span:last-child {
@@ -1892,7 +1892,7 @@ select.rca-select,
 
 .rca-fam-sub {
   padding-left: 18px;
-  border-left: 2px solid var(--vw-gray-10, #eef0f4);
+  border-left: 2px solid var(--vw-gray-10, var(--vw-gray-05));
   margin-left: 6px;
 }
 .rca-fam-more {
@@ -1902,7 +1902,7 @@ select.rca-select,
   margin-top: 6px;
   font-size: 10px;
   line-height: 1.4;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-secondary, var(--vw-gray-60));
 }
 
 /* Business Feed — Insights (structured cards), added 2026-09-23. */
@@ -1948,7 +1948,7 @@ select.rca-select,
 }
 .rca-insight-history {
   background: var(--vw-white);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 22px 24px;
   width: min(920px, 92vw);
   max-height: 82vh;
@@ -1981,7 +1981,7 @@ select.rca-select,
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-primary, #14161a);
+  color: var(--text-primary, var(--vw-ink));
   border-bottom: 2px solid var(--vw-gray-15);
 }
 .rca-insight-history-id {
@@ -2105,7 +2105,7 @@ select.rca-select,
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-primary, #14161a);
+  color: var(--text-primary, var(--vw-ink));
   margin-bottom: 3px;
 }
 .rca-insight-row p {
@@ -2167,7 +2167,7 @@ select.rca-select,
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 .rca-rep-account-actions {
   display: flex;
