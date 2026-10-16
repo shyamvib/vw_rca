@@ -617,3 +617,4 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 
 /* Scorecard embedded in a window tab, between "Great job" and the shortfall tree */
 .rv-sc-embed { margin: 28px 0 8px; padding: 22px 0 6px; border-top: 2px solid var(--vw-ink); border-bottom: 1px solid var(--border-subtle); }
+.rv-sc-embed-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }

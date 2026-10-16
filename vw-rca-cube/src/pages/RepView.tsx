@@ -1001,12 +1001,40 @@ function Bar({ v, max }: { v: number; max: number }) {
 
 /** The full Scorecard (dials, matrix, KPI cards, clinic lists) for one window, embedded in that window's tab. */
 function ScorecardInWindow({ b, sales, periodId, periodLabel, prev }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string } }) {
-  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales ? { password: pw(), periodId, sales } : "skip");
+  // Shown by default; the choice is remembered in this browser and shared by every window tab.
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem("rv-scorecard-open") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggle = () =>
+    setOpen(v => {
+      try {
+        localStorage.setItem("rv-scorecard-open", v ? "0" : "1");
+      } catch {
+        /* private window: the choice just lasts for this page */
+      }
+      return !v;
+    });
   return (
     <section className="rv-sc-embed">
-      <ScorecardTab key={periodId} b={b} fams={fams} periodLabel={periodLabel} sales={sales} periodId={periodId} prevId={prev?.id} prevLabel={prev?.label} />
+      <div className="rv-sc-embed-bar">
+        <div className="rv-eyebrow">{open ? "" : `Scorecard hidden · ${periodLabel}`}</div>
+        <button type="button" className="rv-sc-btn" onClick={toggle} aria-expanded={open}>
+          {open ? "Hide scorecard ▲" : "Show scorecard ▼"}
+        </button>
+      </div>
+      {open ? <ScorecardWithFams b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} /> : null}
     </section>
   );
+}
+
+/** Loads the product families for the window (only while the scorecard is shown), then renders the scorecard. */
+function ScorecardWithFams({ b, sales, periodId, periodLabel, prev }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string } }) {
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales ? { password: pw(), periodId, sales } : "skip");
+  return <ScorecardTab key={periodId} b={b} fams={fams} periodLabel={periodLabel} sales={sales} periodId={periodId} prevId={prev?.id} prevLabel={prev?.label} />;
 }
 
 function WindowTab({
