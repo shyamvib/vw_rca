@@ -1909,9 +1909,18 @@ const CONTRIB: Record<string, Contribution> = {
     ],
   },
   "Revenue opportunity": VS_BASELINE,
-  "Revenue Retention": EXISTING_VS_BASELINE,
+  // Retention counts only what existing clinics lost: growth is capped at 100% of baseline, so a clinic above baseline adds nothing.
+  "Revenue Retention": {
+    universe: b => b.existingIds ?? [], f: r => (r.delta >= 0 ? 1 : -1), unit: "clinics", amount: r => Math.min(r.delta, 0),
+    up: "Kept in full (growth not counted)", down: "Lost baseline revenue",
+    note: "Retention = baseline revenue kept ÷ baseline revenue, with each clinic capped at its own baseline. Only clinics below baseline lower it; the dollar figure is what they lost.",
+  },
   NRR: EXISTING_VS_BASELINE,
-  "Expansion Revenue": EXISTING_VS_BASELINE,
+  // Expansion counts only the growth; clinics below baseline are what it has to offset.
+  "Expansion Revenue": {
+    ...EXISTING_VS_BASELINE, up: "Growing: above their baseline", down: "Shrinking: offsets the expansion",
+    note: "Expansion revenue = how far growing clinics sit above their own baseline (the up tile). Clinics below baseline are the losses it has to offset.",
+  },
   "At-risk customers": EXISTING_VS_BASELINE,
   "Customer churn": {
     universe: b => b.existingIds ?? [], f: r => (r.orders > 0 ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned (no orders)",
