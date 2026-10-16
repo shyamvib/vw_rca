@@ -552,3 +552,9 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-allp { font-style: normal; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
 .rv-scope { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 12px; padding: 10px 14px; background: var(--vw-blue-tint); border: 1px solid var(--vw-blue); border-radius: var(--radius-sm); font-size: 13px; }
 .rv-scope button { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; background: var(--vw-white); border: 1px solid var(--vw-blue); color: var(--vw-blue); border-radius: var(--radius-sm); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.rv-mx-c.is-fam { position: relative; }
+.rv-mx-c.is-fam::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--vw-blue); }
+.rv-outm.is-fam { box-shadow: inset 0 5px 0 var(--vw-blue); }
+.rv-famkey { display: inline-block; width: 5px; height: 12px; background: var(--vw-blue); vertical-align: middle; margin: 0 2px 0 6px; }
+/* family-scoped cells keep full strength even when their row recedes, so the bar stays readable */
+.rv-matrix.has-pick .rv-mx-row:not(.is-sel) > .rv-mx-c.is-fam { opacity: 1; }

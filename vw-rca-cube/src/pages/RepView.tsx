@@ -1641,7 +1641,7 @@ function Targets({ b }: { b: Book }) {
   );
 }
 
-type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
+type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; famScoped?: boolean; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
 const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
@@ -1659,6 +1659,7 @@ type Fam = {
 /** Family scope for the whole scorecard (Shyam, 2026-10-16): when a family card is picked, the pillars that
  * can be computed per family follow it. Retention and Expansion need each clinic's baseline *for that family*,
  * which the data does not hold yet, so they stay on all products and say so. */
+const PRODUCT_GROWTH_CELLS = new Set(["Target Product Orders", "Product adoption", "Product whitespace", "Repeat product rate"]);
 const ALL_PRODUCTS_CELLS = new Set([
   "Low-AOV customers", "Revenue Retention", "Repeat ordering", "At-risk customers", "Customer churn",
   "Expansion Revenue", "NRR", "Revenue opportunity", "Growth decomposition",
@@ -1671,13 +1672,14 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
     ...r,
     cells: r.cells.map((c): Cell => {
       if (ALL_PRODUCTS_CELLS.has(c.label)) return { ...c, allProducts: true };
+      if (PRODUCT_GROWTH_CELLS.has(c.label)) return { ...c, famScoped: true };
       switch (c.label) {
         case "New Revenue": {
           if (!clinics) return loading(c);
           const mine = clinics.filter(x => newSet.has(x.clinic) && (x.win[family] ?? 0) > 0);
           const rev = mine.reduce((t, x) => t + (x.rev?.[family] ?? 0), 0);
           return {
-            label: c.label, value: K(rev), tone: "act", ids: mine.map(x => x.clinic), n: rev, u: "$", flow: true, better: 1,
+            famScoped: true, label: c.label, value: K(rev), tone: "act", ids: mine.map(x => x.clinic), n: rev, u: "$", flow: true, better: 1,
             sub: `${mine.length} new clinics ordering ${family}${hz?.revenue ? ` · ${P(rev / hz.revenue)} of ${family} revenue` : ""}`,
           };
         }
@@ -1686,20 +1688,20 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
           const aov = hz.revenue / hz.orders;
           const base = hz.expectedOrders ? hz.expected / hz.expectedOrders : 0;
           return {
-            label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic),
+            famScoped: true, label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic),
             sub: `${family} · ${SK(aov - base)} vs baseline`, tone: vsTone(aov && base ? aov / base : null, 0.97),
           };
         }
         case "Net Revenue Growth": {
           if (!hz || !hz.expected) return none(c);
           const g = hz.revenue / hz.expected - 1;
-          return { label: c.label, value: SP(g), n: g, u: "%", better: 1, sub: `${family} · ${SK(hz.revenue - hz.expected)} vs baseline`, tone: vsTone(1 + g) };
+          return { famScoped: true, label: c.label, value: SP(g), n: g, u: "%", better: 1, sub: `${family} · ${SK(hz.revenue - hz.expected)} vs baseline`, tone: vsTone(1 + g) };
         }
         case "Growth run-rate": {
           if (!hz || !b.days) return none(c);
           const rr = (hz.revenue / b.days) * 7;
           const plan = (hz.expected / b.days) * 7;
-          return { label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · baseline ${K(plan)}/wk`, tone: vsTone(rr && plan ? rr / plan : null) };
+          return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · baseline ${K(plan)}/wk`, tone: vsTone(rr && plan ? rr / plan : null) };
         }
         default:
           return c;
@@ -1909,15 +1911,15 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
   const scale = scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1;
   const newCo = (b.lenses?.cohorts ?? []).find((c: Book) => /new/i.test(c.key));
-  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean }> = [
+  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean }> = [
     { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue, heading: k.newRevenue * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline", allProducts: scoped },
     scoped && selFam
-      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: "baseline AOV" }
+      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
-    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: "expected" }] : []),
+    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: "expected", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped },
-    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: selFam.expected * scale, fmt: K, planLbl: "expected" }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
+    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: selFam.expected * scale, fmt: K, planLbl: "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
   ];
   const [mStyle, setMStyle] = useMeterStyle();
   const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
@@ -1970,13 +1972,13 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
       </div>
       {scoped ? (
         <div className="rv-scope">
-          <span>Scorecard scoped to <b>{family}</b>: new business, bundle growth, product growth and the combined dial follow it. Retention and expansion stay on all products for now.</span>
+          <span>Scorecard scoped to <b>{family}</b>. <i className="rv-famkey" /> Blue bar = follows {family}; &ldquo;all products&rdquo; = not family-specific yet (retention and expansion).</span>
           <button type="button" onClick={() => setWsFam("")}>Back to all products</button>
         </div>
       ) : null}
       <div className="rv-outmeters">
         {outcomeMeters.map(m => (
-          <button type="button" key={m.pillar} className={`rv-outm${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
+          <button type="button" key={m.pillar} className={`rv-outm${m.famScoped ? " is-fam" : ""}${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
             <div className="rv-eyebrow">{m.pillar}{m.allProducts ? <em className="rv-allp"> · all products</em> : null}</div>
             <b>{m.label}</b>
             <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} />
@@ -2026,7 +2028,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}
                   <i className={c.tone} />
