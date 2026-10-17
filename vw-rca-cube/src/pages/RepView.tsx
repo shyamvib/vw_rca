@@ -363,7 +363,7 @@ export function RepView(props: {
                 ) : null}
               </div>
               <p>
-                {SP(me.pct)} vs your baseline
+                {SP(me.pct)} vs your goal
                 {mePrev ? `, from ${SP(mePrev.pct)} last period` : ""}.
                 {me.rank > 1
                   ? ` ${((board[me.rank - 2].pct - me.pct) * 100).toFixed(1)} pts behind ${board[me.rank - 2].name}.`
@@ -372,7 +372,7 @@ export function RepView(props: {
             </>
           ) : me ? (
             <p>
-              <b>{SP(me.pct)}</b> vs your baseline this period
+              <b>{SP(me.pct)}</b> vs your goal this period
               {mePrev ? `, from ${SP(mePrev.pct)} last period` : ""}.
             </p>
           ) : (
@@ -905,7 +905,7 @@ function TodayTab({
               </div>
             </div>
             <div className="rv-card-foot">
-              <span className={c.delta < 0 ? "bad" : "good"}>{SK(c.delta)}</span> vs baseline this period ·{" "}
+              <span className={c.delta < 0 ? "bad" : "good"}>{SK(c.delta)}</span> vs goal this period ·{" "}
               {K(c.expected)} expected
             </div>
           </button>
@@ -1163,7 +1163,7 @@ function WindowTab({
         <div className="rv-eyebrow">{periodLabel}<Info k="headline" /></div>
       </div>
       <h1 className="rv-h1">
-        Your book is {SK(b.totals.delta)} vs baseline
+        Your book is {SK(b.totals.delta)} vs goal
         {worst && worst.delta < 0 ? `, and the biggest drag is ${COHORT[worst.key]?.toLowerCase() ?? worst.key} clinics.` : "."}
       </h1>
 
@@ -1187,10 +1187,10 @@ function WindowTab({
             type="button"
             className="rv-mini-item"
             disabled={!wins?.ready || !wins.beatersIds.length}
-            onClick={() => wins?.ready && openFocus(`ids:${wins.beatersIds.join(",")}`, "Beating baseline")}
+            onClick={() => wins?.ready && openFocus(`ids:${wins.beatersIds.join(",")}`, "Beating goal")}
           >
             <b>{wins?.ready ? wins.beatersCount : "—"}</b>
-            <span>Beating baseline<br />{wins?.ready ? SK(wins.beatersRevenue) : ""} combined</span>
+            <span>Beating goal<br />{wins?.ready ? SK(wins.beatersRevenue) : ""} combined</span>
           </button>
           <button
             type="button"
@@ -1217,7 +1217,7 @@ function WindowTab({
             onClick={() => wins?.ready && openFocus(`ids:${wins.bundleGainerIds.join(",")}`, "Bundle gainers")}
           >
             <b>{wins?.ready ? wins.bundleGainerIds.length : "—"}</b>
-            <span>Bundle gainers<br />bundle $ above baseline</span>
+            <span>Bundle gainers<br />bundle $ above goal</span>
           </button>
         </div>
       </div>
@@ -1386,13 +1386,13 @@ function WindowTab({
                               title={
                                 r.focus === "cohort:new"
                                   ? "New clinics ordering within this cohort's own median days-between-orders (no baseline history to compare to yet)"
-                                  : "See the clinics beating baseline in this cohort"
+                                  : "See the clinics beating goal in this cohort"
                               }
                               onClick={e => {
                                 e.stopPropagation();
                                 openFocus(
                                   `ids:${r.cohortSplit.posIds.join(",")}`,
-                                  r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating baseline`,
+                                  r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating goal`,
                                 );
                               }}
                               onKeyDown={e => {
@@ -1400,7 +1400,7 @@ function WindowTab({
                                   e.stopPropagation();
                                   openFocus(
                                     `ids:${r.cohortSplit.posIds.join(",")}`,
-                                    r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating baseline`,
+                                    r.focus === "cohort:new" ? `${r.l} · on pace` : `${r.l} · beating goal`,
                                   );
                                 }
                               }}
@@ -1419,13 +1419,13 @@ function WindowTab({
                               title={
                                 r.focus === "cohort:new"
                                   ? "New clinics past this cohort's own median days-between-orders — falling behind their own pace, not a baseline"
-                                  : "See the clinics missing baseline in this cohort"
+                                  : "See the clinics missing goal in this cohort"
                               }
                               onClick={e => {
                                 e.stopPropagation();
                                 openFocus(
                                   `ids:${r.cohortSplit.negIds.join(",")}`,
-                                  r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing baseline`,
+                                  r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing goal`,
                                 );
                               }}
                               onKeyDown={e => {
@@ -1433,7 +1433,7 @@ function WindowTab({
                                   e.stopPropagation();
                                   openFocus(
                                     `ids:${r.cohortSplit.negIds.join(",")}`,
-                                    r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing baseline`,
+                                    r.focus === "cohort:new" ? `${r.l} · overdue` : `${r.l} · missing goal`,
                                   );
                                 }
                               }}
@@ -1784,21 +1784,21 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
           if (launch) return { famScoped: true, label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic), sub: `${family} · new product, no baseline`, tone: "act" };
           return {
             famScoped: true, label: c.label, value: K(aov), n: aov, u: "$", better: 1, ids: clinics?.filter(x => (x.win[family] ?? 0) > 0).map(x => x.clinic),
-            sub: `${family} · ${SK(aov - base)} vs baseline`, tone: vsTone(aov && base ? aov / base : null, 0.97),
+            sub: `${family} · ${SK(aov - base)} vs goal`, tone: vsTone(aov && base ? aov / base : null, 0.97),
           };
         }
         case "Net Revenue Growth": {
           if (launch) return { ...NA(c.label, "new product · no baseline to compare"), famScoped: true };
           if (!hz || !hz.expected) return none(c);
           const g = hz.revenue / hz.expected - 1;
-          return { famScoped: true, label: c.label, value: SP(g), n: g, u: "%", better: 1, sub: `${family} · ${SK(hz.revenue - hz.expected)} vs baseline`, tone: vsTone(1 + g) };
+          return { famScoped: true, label: c.label, value: SP(g), n: g, u: "%", better: 1, sub: `${family} · ${SK(hz.revenue - hz.expected)} vs goal`, tone: vsTone(1 + g) };
         }
         case "Growth run-rate": {
           if (!hz || !b.days) return none(c);
           const rr = (hz.revenue / b.days) * 7;
           const plan = (hz.expected / b.days) * 7;
           if (launch) return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · new product, ${launch.daysLive}d live`, tone: "act" };
-          return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · baseline ${K(plan)}/wk`, tone: vsTone(rr && plan ? rr / plan : null) };
+          return { famScoped: true, label: c.label, value: `${K(rr)}/wk`, n: rr, u: "$", better: 1, sub: `${family} · goal ${K(plan)}/wk`, tone: vsTone(rr && plan ? rr / plan : null) };
         }
         default:
           return c;
@@ -1931,14 +1931,14 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "Net Revenue Growth",
           value: SP(k.netGrowth ?? 0),
-          sub: `${SK(b.totals.delta)} vs baseline`,
+          sub: `${SK(b.totals.delta)} vs goal`,
           ids: b.allIds, n: k.netGrowth, u: "%", better: 1,
           tone: vsTone(k.netGrowth === null ? null : 1 + k.netGrowth),
         },
         {
           label: "Growth run-rate",
           value: k.runRate ? `${K(k.runRate)}/wk` : "—",
-          sub: `baseline ${K(k.runRatePlan ?? 0)}/wk`,
+          sub: `goal ${K(k.runRatePlan ?? 0)}/wk`,
           ids: b.allIds, n: k.runRate, u: "$", better: 1,
           tone: vsTone(k.runRate && k.runRatePlan ? k.runRate / k.runRatePlan : null),
         },
@@ -1967,7 +1967,7 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
 /** Which clinics push a scorecard metric up or pull it down (Shyam, 2026-10-16). Each metric names the clinics it
  * is measured over, a signed per-clinic contribution, and how to say it. Metrics with no per-clinic sign yet
  * (the single-family ones: the data holds no per-clinic baseline for a family) just open the plain list. */
-type ContribRow = { clinic: string; actual: number; expected: number; delta: number; orders: number; aovEffect: number; volume: number };
+type ContribRow = { clinic: string; actual: number; expected: number; baseline: number; realChange: number; delta: number; orders: number; aovEffect: number; volume: number };
 type Contribution = {
   universe: (b: Book) => string[];
   f: (r: ContribRow) => number;
@@ -1981,10 +1981,10 @@ type Contribution = {
   variants?: Array<{ label: string; f: (r: ContribRow) => number; note: string; up: string; down: string }>;
 };
 const VS_BASELINE: Contribution = {
-  universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their baseline", down: "Below their baseline",
-  note: "Each clinic's revenue this window against its own expected revenue. Clinic baselines are set per clinic, so these sums can differ from the book-level figure in the card (which uses the rep-level baseline).",
+  universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their goal", down: "Below their goal",
+  note: "Each clinic's revenue this window against its own goal. Clinic baselines are set per clinic, so these sums can differ from the book-level figure in the card (which uses the rep-level baseline).",
 };
-const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline." };
+const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, f: r => r.realChange, up: "Above their baseline", down: "Below their baseline", universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline (real change, before the goal's stretch)." };
 const CONTRIB: Record<string, Contribution> = {
   "New Revenue": { universe: b => [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics (first order in this window) and reactivated ones (back after nothing in the baseline) have no baseline, so each one's revenue counts in full." },
   AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
@@ -2001,7 +2001,7 @@ const CONTRIB: Record<string, Contribution> = {
   },
   // Retention counts only what existing clinics lost: growth is capped at 100% of baseline, so a clinic above baseline adds nothing.
   "Revenue Retention": {
-    universe: b => b.existingIds ?? [], f: r => (r.delta >= 0 ? 1 : -1), unit: "clinics", amount: r => Math.min(r.delta, 0),
+    universe: b => b.existingIds ?? [], f: r => (r.realChange >= 0 ? 1 : -1), unit: "clinics", amount: r => Math.min(r.realChange, 0),
     up: "Kept in full (growth not counted)", down: "Lost baseline revenue",
     note: "Retention = baseline revenue kept ÷ baseline revenue, with each clinic capped at its own baseline. Only clinics below baseline lower it; the dollar figure is what they lost.",
   },
@@ -2014,7 +2014,7 @@ const CONTRIB: Record<string, Contribution> = {
   "Customer churn": {
     universe: b => b.existingIds ?? [], f: r => (r.orders > 0 ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned (no orders)",
     note: "Clinics that ordered in the baseline: churned = no order in this window. The dollar figure is the baseline revenue those clinics stopped bringing.",
-    amount: r => (r.orders > 0 ? 0 : -r.expected),
+    amount: r => (r.orders > 0 ? 0 : -r.baseline),
   },
   "Repeat ordering": { universe: b => b.tenureActiveIds ?? b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
 };
@@ -2210,7 +2210,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     const set = new Set(ids);
     const inList = (r: ContribRow) => set.has(r.clinic);
     if (label === "At-risk customers")
-      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.delta, 0) : 0), up: "Not at risk", down: "At risk: slipping or well under baseline", note: "Existing clinics last seen 5–44 days ago that are flagged slipping or overdue, or are under half their baseline. The dollar figure is their shortfall below baseline; the rest are on rhythm." };
+      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: slipping or well under baseline", note: "Existing clinics last seen 5–44 days ago that are flagged slipping or overdue, or are under half their baseline. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
     if (label === "Low-AOV customers")
       return { universe: b => b.activeIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "AOV at or above $400", down: "AOV under $400", note: "Clinics that ordered in this window, split by whether their average order is under $400." };
     if (label === "Revenue opportunity")
@@ -2491,7 +2491,7 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Bundle growth", "Stack Mix", "Revenue share by panel combination.", null, "needs per-order panel mix"),
     n("Bundle growth", "Zoomers per Order", "Zoomer panels per order.", null, "needs per-order panel mix"),
     n("Product Growth", "Target Product Orders", "Selected family orders in the window.", hz ? hz.orders.toFixed(0) : null, "no Hormone Zoomer orders"),
-    n("Product Growth", "Target Product Growth %", "Selected family revenue vs its baseline.", hz && hz.expected ? SP(hz.revenue / hz.expected - 1) : null, "no baseline"),
+    n("Product Growth", "Target Product Growth %", "Selected family revenue vs its goal.", hz && hz.expected ? SP(hz.revenue / hz.expected - 1) : null, "no baseline"),
     n("Product Growth", "Product Mix %", "Selected family share of revenue.", hz && totalRev ? P(hz.revenue / totalRev, 1) : null, "no Hormone Zoomer orders"),
     n("Product Growth", "Attach Rate", "Orders that attach the target product.", null, "needs per-order panel mix"),
     n("Product Growth", "Product Penetration", "Clinics you marked eligible that have ordered the product.", pg && pg.eligN ? P((pg.eligN - pg.wsN) / pg.eligN) : null, "mark eligible clinics in the planner below"),
@@ -2518,7 +2518,7 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Expansion", "Orders per Customer", "Orders per active clinic.", k.ordersPerCustomer ? k.ordersPerCustomer.toFixed(1) : null),
     n("Expansion", "Products per Customer", "Distinct panels per clinic.", null, MIX),
     n("Expansion", "Product Expansion", "Clinics adding new products.", null, MIX),
-    n("Combined", "Net Revenue Growth", "Revenue vs baseline across the book.", `${SP(k.netGrowth ?? 0)} · ${SK(b.totals.delta)}`),
+    n("Combined", "Net Revenue Growth", "Revenue vs goal across the book.", `${SP(k.netGrowth ?? 0)} · ${SK(b.totals.delta)}`),
     n("Combined", "Growth run-rate", "Weekly revenue pace in the window.", k.runRate ? `${K(k.runRate)}/wk` : null),
     n("Combined", "Revenue opportunity", "At-risk shortfall + AOV gap.", K(k.opportunity)),
     n("Combined", "Growth decomposition", "Volume effect / AOV effect.", `${SK(k.volume)} / ${SK(k.aovEffect)}`),
@@ -3569,7 +3569,7 @@ const INFO: Record<string, string> = {
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
   queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; click the clinic count for the list. Hours and likelihoods are estimates.",
-  great: "What's going right in this window: clinics beating baseline and extra dollars over plan. Click a number for the clinics.",
+  great: "What's going right in this window: clinics beating goal and extra dollars over plan. Click a number for the clinics.",
   headline: "Booked vs plan for this window and the $/day needed for the days left.",
 };
 function Info({ k }: { k: string }) {

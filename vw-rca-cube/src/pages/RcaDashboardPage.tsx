@@ -1443,7 +1443,7 @@ export function RcaDashboardPage() {
     positiveWins === undefined
       ? ""
       : narrativePeriod.delta >= 0
-        ? ` What's working is compounding it — ${INT(positiveWinsCount!)} clinics beating baseline, worth ${MONEY_PLAIN(positiveWins!)}.`
+        ? ` What's working is compounding it — ${INT(positiveWinsCount!)} clinics beating goal, worth ${MONEY_PLAIN(positiveWins!)}.`
         : offsetShare === undefined
           ? ""
           : onTrackToPlug
@@ -1467,7 +1467,7 @@ export function RcaDashboardPage() {
   const headline =
     top20Headline ??
     (narrativePeriod.delta >= 0
-      ? "Revenue is running ahead of the baseline run rate."
+      ? "Revenue is running ahead of goal."
       : `${fullWorstCohort.label.replace("—", "").replace(/\s+/g, " ")} carry ${Math.abs(Math.round((fullWorstCohort.value / narrativePeriod.delta) * 100))}% of the shortfall.`) +
       winsClause;
 
@@ -2372,7 +2372,7 @@ export function RcaDashboardPage() {
                           <span>
                             {row.unit === "patients"
                               ? row.base
-                                ? `${(row.value / row.base) * 100 >= 0 ? "+" : ""}${Math.round((row.value / row.base) * 100)}% vs baseline`
+                                ? `${(row.value / row.base) * 100 >= 0 ? "+" : ""}${Math.round((row.value / row.base) * 100)}% vs goal`
                                 : ""
                               : pct(row.value)}
                           </span>
@@ -2407,12 +2407,12 @@ export function RcaDashboardPage() {
                               role="button"
                               tabIndex={0}
                               className="rca-info-icon"
-                              title="See the clinics beating baseline in this cohort"
+                              title="See the clinics beating goal in this cohort"
                               onClick={e =>
                                 openCohortDriverDrill(
                                   e,
                                   row.key,
-                                  `${row.label} · beating baseline`,
+                                  `${row.label} · beating goal`,
                                   "risers",
                                 )
                               }
@@ -2432,12 +2432,12 @@ export function RcaDashboardPage() {
                               role="button"
                               tabIndex={0}
                               className="rca-info-icon"
-                              title="See the clinics missing baseline in this cohort"
+                              title="See the clinics missing goal in this cohort"
                               onClick={e =>
                                 openCohortDriverDrill(
                                   e,
                                   row.key,
-                                  `${row.label} · missing baseline`,
+                                  `${row.label} · missing goal`,
                                   "losers",
                                 )
                               }
@@ -3111,8 +3111,8 @@ function SalesLeaderboard({
           <div className="rca-eyebrow rca-section-title">Sales leaderboard</div>
           <div className="rca-sub">
             {locked
-              ? `Your book vs. its own baseline — ${active}.`
-              : `Ranked by revenue vs. own baseline. Click a rep to filter the page to their book${active ? ` — showing ${active}` : ""}.`}
+              ? `Your book vs. its own goal — ${active}.`
+              : `Ranked by revenue vs. own goal. Click a rep to filter the page to their book${active ? ` — showing ${active}` : ""}.`}
           </div>
         </div>
         {active && !locked ? (
@@ -3203,15 +3203,15 @@ function WinsPanel({
           <button
             type="button"
             className="rca-card rca-win-card rca-win-card-btn"
-            onClick={() => openIds(data.beatersIds, "Beating baseline")}
+            onClick={() => openIds(data.beatersIds, "Beating goal")}
           >
-            <div className="rca-eyebrow rca-blue">Beating baseline</div>
+            <div className="rca-eyebrow rca-blue">Beating goal</div>
             <div className="rca-readout-value" style={{ color: "var(--vw-success)" }}>
               {INT(data.beatersCount)} clinics
             </div>
             <div className="rca-readout-body">
               {Math.round(data.beatersShare * 100)}% of the {INT(data.totalCount)} clinics with activity in
-              this window are at or above their own baseline, worth {MONEY(data.beatersRevenue)}{" "}
+              this window are at or above their own goal, worth {MONEY(data.beatersRevenue)}{" "}
               combined.
             </div>
             <WinsCardCta count={data.beatersIds.length} />
@@ -3226,7 +3226,7 @@ function WinsPanel({
             <div className="rca-readout-value" style={{ color: "var(--vw-success)" }}>
               {INT(data.momentumIds.length)} clinics
             </div>
-            <div className="rca-readout-body">Orders and revenue both above baseline.</div>
+            <div className="rca-readout-body">Orders and revenue both above goal.</div>
             {data.momentum.length ? (
               <ul className="rca-win-list">
                 {data.momentum.slice(0, 6).map(r => (
@@ -3283,7 +3283,7 @@ function WinsPanel({
             </div>
             <div className="rca-readout-body">
               {data.comebackAvailable
-                ? "Below baseline last week, at or above it this week."
+                ? "Below goal last week, at or above it this week."
                 : "Comeback tracking needs a week-scoped period — pick a week above to see it."}
             </div>
             {data.comeback.length ? (
@@ -3310,7 +3310,7 @@ function WinsPanel({
             <div className="rca-readout-value" style={{ color: "var(--vw-success)" }}>
               {INT(data.bundleGainerIds.length)} clinics
             </div>
-            <div className="rca-readout-body">Bundle revenue above baseline this window.</div>
+            <div className="rca-readout-body">Bundle revenue above goal this window.</div>
             {data.bundleGainers.length ? (
               <ul className="rca-win-list">
                 {data.bundleGainers.slice(0, 6).map(r => (
@@ -3949,7 +3949,7 @@ function ClinicPanel({
             <div className="rca-drill-split">
               <span className="rca-drill-split-pos">
                 +{MONEY_PLAIN(data.posSum)} across {INT(data.posCount)}{" "}
-                {data.posCount === 1 ? "clinic" : "clinics"} beating baseline
+                {data.posCount === 1 ? "clinic" : "clinics"} beating goal
               </span>
               <span className="rca-drill-split-sep">offset by</span>
               <span className="rca-drill-split-neg">
@@ -4103,7 +4103,7 @@ function ClinicPanel({
         The last two columns are the clinic's current weekly rate over the
         analysis window and an editable target. Saved targets are carried over
         the remaining weeks of the year and folded into the year-end projection
-        at the top of the page. Each clinic is measured against its own baseline
+        at the top of the page. Each clinic is measured against its own goal
         day-type run rate, so
         the clinic rows of a node add back to that node. The geography lens is
         the exception: clinics are grouped by their dominant state, while the
@@ -5391,7 +5391,7 @@ const switchTabs = (
   {
     id: "lost",
     label: "Down on both",
-    hint: `${down} down and ${up} also below its own baseline`,
+    hint: `${down} down and ${up} also below its own goal`,
   },
   {
     id: "partial",
@@ -5406,7 +5406,7 @@ const switchTabs = (
   {
     id: "gained",
     label: `${down} orders are flat or up`,
-    hint: `${down} held at or above its own baseline — no decline to explain; these clinics offset the drop elsewhere`,
+    hint: `${down} held at or above its own goal — no decline to explain; these clinics offset the drop elsewhere`,
   },
   {
     id: "uponly",

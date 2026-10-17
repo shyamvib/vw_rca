@@ -30,8 +30,11 @@ export function topDownAllocate(args: {
   identity: Map<string, Idty | undefined>;
   /** Each clinic's mean daily run rate by weekday over the baseline window (clinicMeta rev / ord). */
   rates: Array<{ clinic: string; rev: number[]; ord: number[] }>;
+  /** The company daily series the headline uses (dailyTotals). The goal must come from the same series as the
+   * headline: clinic-level daily rows leave out revenue that has no clinic, which moved some months' P75 by 0.25%. */
+  companyDaily?: Array<{ date: string; revenue: number; orders: number }>;
 }) {
-  const { defs, planOf, days, identity, rates } = args;
+  const { defs, planOf, days, identity, rates, companyDaily } = args;
   // Baseline (mean) run rate by weekday, summed per rep: additive by construction.
   const repDowRev = new Map<string, number[]>(), repDowOrd = new Map<string, number[]>();
   for (const r of rates) {
@@ -60,11 +63,14 @@ export function topDownAllocate(args: {
       geoCache.set(r.clinic, g);
     }
     const rep = id?.sales ?? "—";
-    coR.set(r.date, (coR.get(r.date) ?? 0) + r.revenue);
-    coO.set(r.date, (coO.get(r.date) ?? 0) + r.orders);
+    if (!companyDaily) {
+      coR.set(r.date, (coR.get(r.date) ?? 0) + r.revenue);
+      coO.set(r.date, (coO.get(r.date) ?? 0) + r.orders);
+    }
     bump(gR, g, r.date, r.revenue); bump(gO, g, r.date, r.orders);
     bump(rR, rep, r.date, r.revenue); bump(rO, rep, r.date, r.orders);
   }
+  if (companyDaily) for (const d of companyDaily) { coR.set(d.date, d.revenue); coO.set(d.date, d.orders); }
   const leadOfSales = new Map<string, string>();
   for (const i of identity.values())
     if (i?.sales && i.sales !== "—" && i.teamLead && i.teamLead !== "—")

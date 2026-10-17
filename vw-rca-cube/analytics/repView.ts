@@ -81,9 +81,12 @@ export const book = scopedQuery({
     // Cohorts
     const isNew = (r: ClinicRow) => r.newGroups.length > 0;
     const newRows = rows.filter(isNew);
-    const existing = rows.filter(r => EXISTING.has(r.cohort) && r.expected > 0);
+    // Retention, NRR, expansion and churn compare with what these clinics actually did before (the BASELINE, a mean
+    // run rate), not with the goal (baseline plus the P75 stretch): retention is "did they keep what they had".
+    // Goal-based shortfall stays on the tree; real change vs ambition is explicit there (2026-10-16).
+    const existing = rows.filter(r => EXISTING.has(r.cohort) && r.baseline > 0);
     const exAct = sum(existing, r => r.actual);
-    const exExp = sum(existing, r => r.expected);
+    const exExp = sum(existing, r => r.baseline);
     const exOrd = sum(existing, r => r.orders);
     const exExpOrd = sum(existing, r => r.expectedOrders);
     const newRev = sum(newRows, r => r.actual);
@@ -91,12 +94,12 @@ export const book = scopedQuery({
 
     // Retention
     const churned = existing.filter(r => r.orders === 0);
-    const retainedCap = sum(existing, r => Math.min(r.actual, r.expected));
+    const retainedCap = sum(existing, r => Math.min(r.actual, r.baseline));
     const contraction = sum(
-      existing.filter(r => r.orders > 0 && r.delta < 0),
-      r => -r.delta,
+      existing.filter(r => r.orders > 0 && r.realChange < 0),
+      r => -r.realChange,
     );
-    const revenueChurn = sum(churned, r => r.expected);
+    const revenueChurn = sum(churned, r => r.baseline);
     const repeat = active.filter(r => r.orders >= 2);
     const gapDays = repeat.length
       ? repeat.reduce((s, r) => s + days / r.orders, 0) / repeat.length
@@ -110,7 +113,7 @@ export const book = scopedQuery({
     ).filter(
       r =>
         r.health.some(h => /slipping|overdue|risk|ghost|drop/i.test(h)) ||
-        (r.orders > 0 && r.actual < r.expected * 0.5),
+        (r.orders > 0 && r.actual < r.baseline * 0.5),
     );
     const dormant = rows.filter(r => {
       const s = since(cutoff, r.lastOrderAllTime);
@@ -118,8 +121,8 @@ export const book = scopedQuery({
     });
 
     // Expansion
-    const growing = existing.filter(r => r.delta > 0);
-    const expansionRev = sum(growing, r => r.delta);
+    const growing = existing.filter(r => r.realChange > 0);
+    const expansionRev = sum(growing, r => r.realChange);
     const bundleUp = existing.filter(
       r => r.orders > 0 && r.bundleShare > r.baseBundleShare + 0.001,
     );
@@ -135,7 +138,7 @@ export const book = scopedQuery({
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
     const volume = (orders - expOrders) * baseAov;
     const aovEffect = actual - expected - volume;
-    const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.delta));
+    const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.realChange));
 
     // Reactivated (lifecycle, 2026-10-16): first order before the window, nothing in the baseline, ordering again now.
     // No baseline, so their revenue counts as gain, like new business; the scorecard's New Revenue combines the two.
@@ -155,19 +158,19 @@ export const book = scopedQuery({
       const ex = existing.filter(pick);
       const act = active.filter(pick);
       const exA = sum(ex, r => r.actual);
-      const exE = sum(ex, r => r.expected);
+      const exE = sum(ex, r => r.baseline);
       const ch = ex.filter(r => r.orders === 0);
-      const gr = ex.filter(r => r.delta > 0);
+      const gr = ex.filter(r => r.realChange > 0);
       const rp = act.filter(r => r.orders >= 2);
       const risk = atRiskRows.filter(pick);
       return {
         existingCount: ex.length, existingIds: ids(ex), existingRevenue: exA, existingBaseline: exE,
-        revenueRetention: exE ? sum(ex, r => Math.min(r.actual, r.expected)) / exE : null,
+        revenueRetention: exE ? sum(ex, r => Math.min(r.actual, r.baseline)) / exE : null,
         nrr: exE ? exA / exE : null,
-        expansionRev: sum(gr, r => r.delta), growing: gr.length, growingIds: ids(gr),
+        expansionRev: sum(gr, r => r.realChange), growing: gr.length, growingIds: ids(gr),
         churned: ch.length, churnedIds: ids(ch), churnRate: ex.length ? ch.length / ex.length : null,
         repeatRate: act.length ? rp.length / act.length : null, repeatCount: rp.length, activeCount: act.length, repeatIds: ids(rp), activeIds: ids(act),
-        atRisk: risk.length, atRiskRev: sum(risk, r => Math.max(0, -r.delta)), atRiskIds: ids(risk),
+        atRisk: risk.length, atRiskRev: sum(risk, r => Math.max(0, -r.realChange)), atRiskIds: ids(risk),
       };
     };
     const tenure = {
@@ -426,7 +429,7 @@ export const book = scopedQuery({
     const cfUp = (r: ClinicRow) => Math.max(0, r.expected - r.actual);
     const newAovV = newOrd ? newRev / newOrd : actual && orders ? actual / orders : 0;
     const opp = {
-      atRisk: { n: atRiskRows.length, up: atRiskRev, names: top(atRiskRows, r => Math.max(0, -r.delta)), ids: atRiskRows.map(r => r.clinic) },
+      atRisk: { n: atRiskRows.length, up: atRiskRev, names: top(atRiskRows, r => Math.max(0, -r.realChange)), ids: atRiskRows.map(r => r.clinic) },
       lowAov: { n: lowAov.length, up: sum(lowAov, lowUp), names: top(lowAov, lowUp), ids: lowAov.map(r => r.clinic) },
       callFirst: { n: callFirstPool.length, up: callFirstPool.reduce((s, x) => s + cfUp(x.r), 0), ids: callFirstPool.map(x => x.r.clinic) },
       nurture: { n: stuckAll.length, up: stuckAll.length * newAovV, ids: stuckAll.map(x => x.clinic) },
