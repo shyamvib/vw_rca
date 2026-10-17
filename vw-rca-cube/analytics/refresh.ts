@@ -33,7 +33,10 @@ import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
 
-const COHORTS = ["churned", "new", "retained_top20", "retained_rest"] as const;
+// Lifecycle stages (Shyam, 2026-10-16): new = first order in the window; retained_* = ordered in the baseline AND the
+// window (top 20% by baseline $ is a value tier of "active"); churned = ordered in the baseline, nothing in the window;
+// reactivated = first order before the window, nothing in the baseline, ordering again now (baseline is zero).
+const COHORTS = ["churned", "new", "retained_top20", "retained_rest", "reactivated"] as const;
 type Cohort = (typeof COHORTS)[number];
 
 function chunk<T>(rows: T[], size: number): T[][] {
@@ -659,7 +662,7 @@ export const refreshData = internalAction({
           actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
         } else {
           // Dormant through the baseline, ordering again now.
-          actualCohortOf.set(id, "retained_rest");
+          actualCohortOf.set(id, "reactivated");
         }
       }
       // The label carried on the clinic row (drill lists, search): where the
@@ -2610,7 +2613,7 @@ export const refreshSnapshot = internalAction({
           actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
         } else {
           // Dormant through the baseline, ordering again now.
-          actualCohortOf.set(id, "retained_rest");
+          actualCohortOf.set(id, "reactivated");
         }
       }
       // The label carried on the clinic row (drill lists, search): where the

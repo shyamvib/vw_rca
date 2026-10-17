@@ -625,3 +625,16 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-outm-clin span { flex-basis: 100%; font-size: 11px; color: var(--text-secondary); }
 .rv-outm-hero .rv-outm-clin { font-size: 13px; }
 .rv-outm-hero .rv-outm-clin b { font-size: 18px; }
+
+/* Tenure cut + early-life retention, above the matrix */
+.rv-tenure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin: 6px 0 10px; padding: 10px 14px; background: var(--vw-white); border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
+.rv-tenure-sel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rv-tenure-sel .rv-eyebrow { margin-right: 6px; }
+.rv-tenure-sel button { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--border-default); background: var(--vw-white); border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; color: inherit; }
+.rv-tenure-sel button em { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.rv-tenure-sel button.on { background: var(--vw-blue); border-color: var(--vw-blue); color: var(--vw-white); }
+.rv-tenure-sel button.on em { color: rgba(255, 255, 255, 0.8); }
+.rv-tenure-early { display: inline-flex; align-items: baseline; gap: 10px; border: 0; background: transparent; cursor: pointer; color: inherit; text-align: left; }
+.rv-tenure-early b { font-family: var(--font-mono); font-size: 18px; }
+.rv-tenure-early em { font-style: normal; font-size: 12px; color: var(--text-secondary); }
+.rv-early-lost { margin: 0 0 12px; padding: 14px 18px; max-height: 320px; overflow: auto; }

@@ -11,10 +11,11 @@ import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
 import { loadCfg } from "./config";
 import { newClinicPace } from "./newPace";
-import { addDays, diffDays, dow, eachDay, weekStart } from "./dateUtils";
+import { addDays, diffDays, dow, eachDay, periodDefs, weekStart } from "./dateUtils";
 import { scopedQuery } from "./gated";
 
 const EXISTING = new Set(["retained_top20", "retained_rest", "churned"]);
+const TENURE_DATA_START = "2025-01-01";
 const LOW_AOV = 400;
 
 const sum = (rows: ClinicRow[], f: (r: ClinicRow) => number) =>
@@ -134,6 +135,76 @@ export const book = scopedQuery({
     const volume = (orders - expOrders) * baseAov;
     const aovEffect = actual - expected - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.delta));
+
+    // Reactivated (lifecycle, 2026-10-16): first order before the window, nothing in the baseline, ordering again now.
+    // No baseline, so their revenue counts as gain, like new business; the scorecard's New Revenue combines the two.
+    const reactivated = rows.filter(r => r.cohort === "reactivated" && r.orders > 0);
+    const reactivatedRev = sum(reactivated, r => r.actual);
+
+    // Tenure cut (by first-order year) of the retention / expansion numbers: all, before the data starts
+    // (2025), the years in between, and this year's signups. Same formulas as the whole-book KPIs, on a subset.
+    const curYear = cutoff.slice(0, 4);
+    const tenureOf = (r: ClinicRow): "pre" | "mid" | "cur" => {
+      const fo = r.firstOrder ?? "";
+      if (!fo || fo < TENURE_DATA_START) return "pre";
+      return fo.slice(0, 4) === curYear ? "cur" : "mid";
+    };
+    const ids = (rs: ClinicRow[]) => rs.map(r => r.clinic);
+    const tenureKpis = (pick: (r: ClinicRow) => boolean) => {
+      const ex = existing.filter(pick);
+      const act = active.filter(pick);
+      const exA = sum(ex, r => r.actual);
+      const exE = sum(ex, r => r.expected);
+      const ch = ex.filter(r => r.orders === 0);
+      const gr = ex.filter(r => r.delta > 0);
+      const rp = act.filter(r => r.orders >= 2);
+      const risk = atRiskRows.filter(pick);
+      return {
+        existingCount: ex.length, existingIds: ids(ex), existingRevenue: exA, existingBaseline: exE,
+        revenueRetention: exE ? sum(ex, r => Math.min(r.actual, r.expected)) / exE : null,
+        nrr: exE ? exA / exE : null,
+        expansionRev: sum(gr, r => r.delta), growing: gr.length, growingIds: ids(gr),
+        churned: ch.length, churnedIds: ids(ch), churnRate: ex.length ? ch.length / ex.length : null,
+        repeatRate: act.length ? rp.length / act.length : null, repeatCount: rp.length, activeCount: act.length, repeatIds: ids(rp), activeIds: ids(act),
+        atRisk: risk.length, atRiskRev: sum(risk, r => Math.max(0, -r.delta)), atRiskIds: ids(risk),
+      };
+    };
+    const tenure = {
+      all: tenureKpis(() => true),
+      pre: tenureKpis(r => tenureOf(r) === "pre"),
+      mid: tenureKpis(r => tenureOf(r) === "mid"),
+      cur: tenureKpis(r => tenureOf(r) === "cur"),
+      year: curYear,
+    };
+
+    // Early-life retention: of this year's signups that already had their first order before this window started,
+    // how many ordered in it. Counted from clinicMeta (rows drop clinics with no orders and no baseline, which are
+    // exactly the ones that were lost).
+    const defsForWindow = cfg ? periodDefs(cfg.currentStart, cfg.currentEnd) : [];
+    const windowStart = defsForWindow.find(d => d.id === args.periodId)?.days[0] ?? cfg?.currentStart ?? "";
+    const metaForRep = cfg
+      ? await ctx.db
+          .query("clinicMeta")
+          .withIndex("by_gen_sales", q => q.eq("gen", cfg.gen ?? 0).eq("sales", args.sales!))
+          .collect()
+      : [];
+    const earlyBase = metaForRep.filter(m => m.firstOrder && m.firstOrder >= `${curYear}-01-01` && m.firstOrder < windowStart);
+    const orderedNow = new Set(rows.filter(r => r.orders > 0).map(r => r.clinic));
+    const earlyKept = earlyBase.filter(m => orderedNow.has(m.clinic));
+    const earlyLife = {
+      year: curYear,
+      base: earlyBase.length,
+      kept: earlyKept.length,
+      rate: earlyBase.length ? earlyKept.length / earlyBase.length : null,
+      baseIds: earlyBase.map(m => m.clinic),
+      keptIds: earlyKept.map(m => m.clinic),
+      // The ones that stopped, with the little we hold about them (they are not in the clinic table).
+      lost: earlyBase
+        .filter(m => !orderedNow.has(m.clinic))
+        .sort((a, b) => (b.lastOrderAllTime ?? "").localeCompare(a.lastOrderAllTime ?? ""))
+        .slice(0, 200)
+        .map(m => ({ clinic: m.clinic, name: m.name, state: m.state, firstOrder: m.firstOrder ?? null, lastOrder: m.lastOrderAllTime ?? null })),
+    };
 
     // New clinic funnel (same membership rules as the dashboard's New Clinics card)
     const stage = (k: string) => rows.filter(r => matchesFocus(r, `newgrp:${k}`));
@@ -366,6 +437,9 @@ export const book = scopedQuery({
         ids: [f.f1, f.f2, f.f3, f.f4].map(x => x.map(r => r.clinic)),
       },
       activeIds: active.map(r => r.clinic),
+      reactivatedIds: reactivated.map(r => r.clinic),
+      tenure,
+      earlyLife,
       existingIds: existing.map(r => r.clinic),
       allIds: rows.filter(r => r.orders > 0 || r.expected > 0).map(r => r.clinic),
       oppIds: [...new Set([...atRiskRows, ...aovGap].map(r => r.clinic))],
@@ -406,6 +480,8 @@ export const book = scopedQuery({
       targetClinics,
       kpi: {
         newRevenue: newRev,
+        reactivatedRevenue: reactivatedRev,
+        reactivatedCount: reactivated.length,
         newCustomers: newRows.length,
         newOrders: newOrd,
         newAov: newOrd ? newRev / newOrd : null,

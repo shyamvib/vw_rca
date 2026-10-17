@@ -82,6 +82,7 @@ const COHORT_LABEL: Record<string, string> = {
   new: "New clinics",
   retained_top20: "Retained — top 20%",
   retained_rest: "Retained — remaining 80%",
+  reactivated: "Reactivated clinics",
 };
 
 function fmtInt(n: number): string {

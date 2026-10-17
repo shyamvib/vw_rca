@@ -999,6 +999,7 @@ async function searchClinics(ctx: QueryCtx, term: string, sales?: string) {
       new: "New clinics",
       retained_top20: "Retained top-20% clinics",
       retained_rest: "Retained — everyone else",
+      reactivated: "Reactivated clinics",
     };
     lists.push({
       kind: "node",

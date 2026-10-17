@@ -54,6 +54,7 @@ const COHORT: Record<string, string> = {
   new: "New",
   retained_top20: "Retained top 20%",
   retained_rest: "Retained rest",
+  reactivated: "Reactivated",
 };
 
 export type RepViewPeriod = { id: string; kind: string; label: string; start: string; end: string };
@@ -1679,7 +1680,7 @@ function Targets({ b }: { b: Book }) {
   );
 }
 
-type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; famScoped?: boolean; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
+type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; famScoped?: boolean; tenureTag?: string; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
 const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
@@ -1704,7 +1705,7 @@ const ALL_PRODUCTS_CELLS = new Set([
 ]);
 type Launch = { firstOrder: string; daysLive: number };
 function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: Fam | undefined, family: string, clinics: PGClinic[] | null, launch?: Launch) {
-  const newSet = new Set<string>(b.newIds ?? []);
+  const newSet = new Set<string>([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])]);
   const loading = (c: Cell): Cell => NA(c.label, "loading product mix…");
   const none = (c: Cell): Cell => NA(c.label, `no ${family} orders in this book`);
   return rows.map(r => ({
@@ -1720,7 +1721,7 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
           const rev = mine.reduce((t, x) => t + (x.rev?.[family] ?? 0), 0);
           return {
             famScoped: true, label: c.label, value: K(rev), tone: "act", ids: mine.map(x => x.clinic), n: rev, u: "$", flow: true, better: 1,
-            sub: `${mine.length} new clinics ordering ${family}${hz?.revenue ? ` · ${P(rev / hz.revenue)} of ${family} revenue` : ""}`,
+            sub: `${mine.length} new / reactivated clinics ordering ${family}${hz?.revenue ? ` · ${P(rev / hz.revenue)} of ${family} revenue` : ""}`,
           };
         }
         case "AOV": {
@@ -1764,10 +1765,10 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
       cells: [
         {
           label: "New Revenue",
-          value: K(k.newRevenue),
-          sub: `${k.newCustomers} new clinics · ${P(k.newRevShare)} of revenue`,
-          ids: b.newIds,
-          n: k.newRevenue, u: "$", flow: true, better: 1,
+          value: K(k.newRevenue + (k.reactivatedRevenue ?? 0)),
+          sub: `${k.newCustomers} new + ${k.reactivatedCount ?? 0} reactivated clinics · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
+          ids: [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])],
+          n: k.newRevenue + (k.reactivatedRevenue ?? 0), u: "$", flow: true, better: 1,
           tone: "act",
         },
         NA("Pipeline", "needs CRM pipeline data"),
@@ -1932,7 +1933,7 @@ const VS_BASELINE: Contribution = {
 };
 const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline." };
 const CONTRIB: Record<string, Contribution> = {
-  "New Revenue": { universe: b => b.newIds ?? [], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics have no baseline, so each one's revenue counts in full." },
+  "New Revenue": { universe: b => [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics (first order in this window) and reactivated ones (back after nothing in the baseline) have no baseline, so each one's revenue counts in full." },
   AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
   "Net Revenue Growth": VS_BASELINE,
   "Growth run-rate": VS_BASELINE,
@@ -1962,7 +1963,7 @@ const CONTRIB: Record<string, Contribution> = {
     note: "Clinics that ordered in the baseline: churned = no order in this window. The dollar figure is the baseline revenue those clinics stopped bringing.",
     amount: r => (r.orders > 0 ? 0 : -r.expected),
   },
-  "Repeat ordering": { universe: b => b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
+  "Repeat ordering": { universe: b => b.tenureActiveIds ?? b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
 };
 
 type FocusRows = React.ComponentProps<typeof FocusTable>["rows"];
@@ -2014,11 +2015,44 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
   );
 }
 
+/** Tenure cut (Shyam, 2026-10-16): the retention and expansion numbers for clinics by first-order year. The analytics
+ * service sends the same KPIs for every cut (`book.tenure`); picking one swaps them in, everything else stays. */
+type TenureKey = "all" | "pre" | "mid" | "cur";
+const TENURE_CELLS = new Set(["Revenue Retention", "Repeat ordering", "At-risk customers", "Customer churn", "Expansion Revenue", "NRR"]);
+function applyTenure(b: Book, sel: TenureKey): Book {
+  const t = sel === "all" ? undefined : b.tenure?.[sel];
+  if (!t) return b;
+  return {
+    ...b,
+    existingIds: t.existingIds,
+    tenureActiveIds: t.activeIds,
+    opp: {
+      ...b.opp,
+      atRisk: { ...b.opp.atRisk, n: t.atRisk, up: t.atRiskRev, ids: t.atRiskIds },
+      growing: { ...b.opp.growing, n: t.growing, up: t.expansionRev, ids: t.growingIds },
+    },
+    kpi: {
+      ...b.kpi,
+      existingRevenue: t.existingRevenue, existingBaseline: t.existingBaseline, existingCount: t.existingCount,
+      revenueRetention: t.revenueRetention, nrr: t.nrr, expansionRev: t.expansionRev, growing: t.growing,
+      churned: t.churned, churnedIds: t.churnedIds, churnRate: t.churnRate,
+      repeatRate: t.repeatRate, repeatCount: t.repeatCount, activeCount: t.activeCount, repeatIds: t.repeatIds,
+      atRisk: t.atRisk, atRiskRev: t.atRiskRev,
+    },
+  };
+}
+const tenureLabel = (sel: TenureKey, year: number): string =>
+  sel === "all" ? "All clinics" : sel === "pre" ? "Before 2025" : sel === "mid" ? (year - 1 > 2025 ? `2025–${year - 1}` : "2025") : `${year} signups`;
+
 /** Dial / pillar key for the combined Retention + Expansion view. */
 const EXISTING = "Existing business";
 const isExistingPillar = (p: string) => p === EXISTING || p === "Retention" || p === "Expansion";
 
-function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
+function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
+  const [tenureSel, setTenureSel] = useState<TenureKey>("all");
+  const [earlyOpen, setEarlyOpen] = useState(false);
+  const b = useMemo(() => applyTenure(bAll, tenureSel), [bAll, tenureSel]);
+  const tenureYear = Number(bAll.tenure?.year ?? new Date().getFullYear());
   const k = b.kpi;
   const prevQ = useRcaQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
   const scPaceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
@@ -2042,12 +2076,14 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
   const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
   const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
-  const rows = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined);
+  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined);
+  const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...c, tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
   const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
   const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
   const deltaOf = (c: Cell) => {
     // Prior-window numbers are all-products, so a family-scoped cell has nothing to compare against yet.
     if (scoped && !c.allProducts && !ALL_PRODUCTS_CELLS.has(c.label)) return null;
+    if (tenureSel !== "all" && TENURE_CELLS.has(c.label)) return null;
     const pc = prevCell(c.label);
     if (c.n == null || pc?.n == null || !cmpTag || !prevB) return null;
     const cur = c.flow ? c.n / Math.max(1, b.days) : c.n;
@@ -2063,14 +2099,15 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
   const scale = scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1;
   const newCo = (b.lenses?.cohorts ?? []).find((c: Book) => /new/i.test(c.key));
-  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean }> = [
-    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue, heading: k.newRevenue * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline", allProducts: scoped },
+  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
+    // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline", allProducts: scoped },
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
-    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped },
+    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
     ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
   ];
   // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
@@ -2078,7 +2115,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
   const famBuyers = pg ? pg.buyerIds.length : null;
   const clinicCount = (p: string): { n: number | null; why: string } => {
     switch (p) {
-      case "New Business": return { n: (b.newIds ?? []).length, why: "new: first order in this window" };
+      case "New Business": return { n: (b.newIds ?? []).length + (b.reactivatedIds ?? []).length, why: "new + reactivated" };
       case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
       case "Product Growth": return { n: famBuyers, why: `ordered ${family}` };
       case EXISTING: return { n: (b.existingIds ?? []).length, why: "existing: ordered in the baseline" };
@@ -2170,7 +2207,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
         // Combined revenue is the headline dial: alone on top and larger; the four pillar dials sit in one row below.
         const renderMeter = (m: (typeof outcomeMeters)[number], hero: boolean) => (
           <button type="button" key={m.pillar} className={`rv-outm${hero ? " rv-outm-hero" : ""}${m.famScoped ? " is-fam" : ""}${(m.pillar === EXISTING ? isExistingPillar(pillar) : pillar === m.pillar) ? " is-sel" : ""}`} onClick={() => setPillar(m.pillar)}>
-            <div className="rv-eyebrow">{m.pillar}{m.allProducts ? <em className="rv-allp"> · all products</em> : null}</div>
+            <div className="rv-eyebrow">{m.pillar}{m.allProducts ? <em className="rv-allp"> · all products</em> : null}{m.tenureTag ? <em className="rv-allp"> · {m.tenureTag}</em> : null}</div>
             <b>{m.label}</b>
             <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style={mStyle} big={hero} />
             <div className="rv-outm-nums">
@@ -2233,6 +2270,37 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
           ) : null}
         </>
       ) : null}
+      <div className="rv-tenure">
+        <div className="rv-tenure-sel">
+          <span className="rv-eyebrow">Retention &amp; expansion for</span>
+          {(["all", "pre", "mid", "cur"] as TenureKey[]).map(t => (
+            <button type="button" key={t} className={tenureSel === t ? "on" : ""} onClick={() => setTenureSel(t)}>
+              {tenureLabel(t, tenureYear)}
+              <em>{bAll.tenure?.[t]?.existingCount ?? "…"}</em>
+            </button>
+          ))}
+        </div>
+        {bAll.earlyLife ? (
+          <button type="button" className="rv-tenure-early" onClick={() => setEarlyOpen(v => !v)} title="Clinics whose first order was this year, before this window, and who ordered in it">
+            <span className="rv-eyebrow">Early-life retention · {bAll.earlyLife.year} class</span>
+            <b>{bAll.earlyLife.rate === null ? "—" : P(bAll.earlyLife.rate)}</b>
+            <em>{bAll.earlyLife.kept} of {bAll.earlyLife.base} still ordering{bAll.earlyLife.base - bAll.earlyLife.kept ? ` · ${bAll.earlyLife.base - bAll.earlyLife.kept} lost ${earlyOpen ? "▲" : "▼"}` : ""}</em>
+          </button>
+        ) : null}
+      </div>
+      {earlyOpen && bAll.earlyLife?.lost?.length ? (
+        <div className="rca-card rv-early-lost">
+          <div className="rv-eyebrow">Signed up (first order) in {bAll.earlyLife.year}, before this window, no order in it · {bAll.earlyLife.lost.length}{bAll.earlyLife.base - bAll.earlyLife.kept > bAll.earlyLife.lost.length ? "+" : ""} clinics</div>
+          <table className="rca-table rca-table-sub">
+            <thead><tr><th>Clinic</th><th>State</th><th>First order</th><th>Last order</th></tr></thead>
+            <tbody>
+              {bAll.earlyLife.lost.map((l: { clinic: string; name: string; state?: string; firstOrder: string | null; lastOrder: string | null }) => (
+                <tr key={l.clinic}><td>{l.name}</td><td>{l.state ?? "—"}</td><td>{fmtD(l.firstOrder) || "—"}</td><td>{fmtD(l.lastOrder) || "—"}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <div className={`rv-matrix${picked ? " has-pick" : ""}`}>
         <div className="rv-mx-h">Pillar</div>
         <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
@@ -2259,7 +2327,7 @@ function ScorecardTab({ b, fams, periodLabel, focus, sales, periodId, prevId, pr
             {r.cells.map(c => (
               <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
-                  {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}
+                  {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}{c.tenureTag ? <em className="rv-allp"> · {c.tenureTag}</em> : null}
                   <i className={c.tone} />
                 </div>
                 <div className="rv-mx-v">{c.value}</div>

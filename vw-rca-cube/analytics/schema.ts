@@ -34,7 +34,7 @@ const schema = defineSchema({
   // Actual revenue per clinic cohort per day (current window only).
   cohortDaily: defineTable({
     date: v.string(),
-    cohort: v.string(), // churned | new | retained_top20 | retained_rest
+    cohort: v.string(), // churned | new | retained_top20 | retained_rest | reactivated
     revenue: v.number(),
     // Refresh generation; readers only see rows from the current one.
     gen: v.optional(v.number()),

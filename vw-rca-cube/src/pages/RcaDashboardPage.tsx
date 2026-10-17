@@ -980,6 +980,7 @@ const COHORT_LABEL: Record<string, string> = {
   new: "New clinics",
   retained_top20: "Retained — top 20%",
   retained_rest: "Retained — remaining 80%",
+  reactivated: "Reactivated clinics",
 };
 
 /**
@@ -3389,6 +3390,7 @@ const COHORT_SHORT: Record<string, string> = {
   new: "New",
   retained_top20: "Top 20%",
   retained_rest: "Mid-tail",
+  reactivated: "Reactivated",
 };
 
 const METRIC_TITLE: Record<string, string> = {
