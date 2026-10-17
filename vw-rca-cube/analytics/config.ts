@@ -175,6 +175,9 @@ export const setWindow = gatedMutation({
     autoEnd: v.boolean(),
     lagDays: v.number(),
     baselineMode: v.string(),
+    baselineSource: v.optional(v.string()),
+    baselineStart: v.optional(v.string()),
+    baselineEnd: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -184,7 +187,17 @@ export const setWindow = gatedMutation({
     if (args.currentEnd && args.currentEnd < args.currentStart) {
       throw new Error("Window end must be after the start date.");
     }
+    const source = args.baselineSource ?? "best";
+    if (!["trailing", "best", "custom"].includes(source)) throw new Error("Unknown baseline source.");
+    if (source === "custom") {
+      if (!args.baselineStart || !args.baselineEnd) throw new Error("Pick a baseline start and end date.");
+      if (args.baselineEnd < args.baselineStart) throw new Error("Baseline end must be after its start.");
+      if (args.baselineEnd >= args.currentStart) throw new Error("The baseline must end before the analysis window starts.");
+      if (args.baselineStart < "2025-01-01") throw new Error("Baseline start must be in 2025 or later.");
+    }
     const patch = {
+      baselineSource: source,
+      ...(source === "custom" ? { baselineStart: args.baselineStart!, baselineEnd: args.baselineEnd! } : {}),
       currentStart: args.currentStart,
       currentEnd: args.currentEnd ?? row?.currentEnd ?? DEFAULTS.currentEnd,
       autoEnd: args.autoEnd,

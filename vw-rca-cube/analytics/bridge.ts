@@ -358,7 +358,6 @@ async function computeBridge(ctx: QueryCtx) {
     const baselineOrd = g?.baseOrders ?? 0;
     const realChange = revenue - baselineRev;
     const ambition = expected - baselineRev;
-    const p75Goal = rolling.revenue;
     const fAmb = baselineRev > 0 ? expected / baselineRev - 1 : 0; // goal factor - 1
 
     const volume = (orders - expAll) * rollingBaseAov;

@@ -1165,7 +1165,9 @@ export function RcaDashboardPage() {
   const [startDraft, setStartDraft] = useState<string | null>(null);
   const [endDraft, setEndDraft] = useState<string | null>(null);
   const [autoEndDraft, setAutoEndDraft] = useState<boolean | null>(null);
-  const [modeDraft, setModeDraft] = useState<string | null>(null);
+  const [sourceDraft, setSourceDraft] = useState<string | null>(null);
+  const [bStartDraft, setBStartDraft] = useState<string | null>(null);
+  const [bEndDraft, setBEndDraft] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0); // bars shown in daily view; 0 = all
   const [pan, setPan] = useState(0); // index of the first visible bar
   const [drill, setDrill] = useState<{
@@ -1497,11 +1499,16 @@ export function RcaDashboardPage() {
     return sameDirection ? `${share}% of ${noun}` : `${share}% offset`;
   };
 
+  const savedSource = (cfg as { baselineSource?: string }).baselineSource ?? "best";
+  const sourceNow = sourceDraft ?? savedSource;
+  const bStartNow = bStartDraft ?? cfg.baselineStart;
+  const bEndNow = bEndDraft ?? cfg.baselineEnd;
   const dirty =
     (startDraft !== null && startDraft !== cfg.currentStart) ||
     (endDraft !== null && endDraft !== cfg.currentEnd) ||
     (autoEndDraft !== null && autoEndDraft !== cfg.autoEnd) ||
-    (modeDraft !== null && modeDraft !== base.mode);
+    sourceNow !== savedSource ||
+    (sourceNow === "custom" && (bStartNow !== cfg.baselineStart || bEndNow !== cfg.baselineEnd));
 
   // One shared window for everyone: Apply stores it and rebuilds the snapshot.
   const applyRepWindow = async () => {
@@ -1514,10 +1521,15 @@ export function RcaDashboardPage() {
         autoEnd: false,
         lagDays: cfg.lagDays ?? 1,
         baselineMode: base.mode,
+        baselineSource: sourceNow,
+        ...(sourceNow === "custom" ? { baselineStart: bStartNow, baselineEnd: bEndNow } : {}),
       });
       setSelected("all");
       setStartDraft(null);
       setEndDraft(null);
+      setSourceDraft(null);
+      setBStartDraft(null);
+      setBEndDraft(null);
       toast.success("Window saved. Recalculating for everyone…");
       const res = await refresh({ password: pw() });
       toast.success(`Recalculated — data through ${res.dataThrough}`);
@@ -1533,7 +1545,7 @@ export function RcaDashboardPage() {
   const repCalculating = repWin?.status === "running";
 
   const applyWindow = applyRepWindow;
-  void autoEndDraft; void setAutoEndDraft; void modeDraft; void setModeDraft;
+  void autoEndDraft; void setAutoEndDraft;
 
   const doRefresh = async () => {
     setBusy(true);
@@ -1573,29 +1585,41 @@ export function RcaDashboardPage() {
               <section className="rca-card rca-controls">
                 <div className="rca-controls-row">
                   <label>
-                    Baseline
+                    Baseline period
                     <select
-                      value={modeDraft ?? base.mode}
-                      onChange={e => setModeDraft(e.target.value)}
+                      value={sourceNow}
+                      onChange={e => setSourceDraft(e.target.value)}
                     >
-                      <option value="p75">
-                        Strong-period benchmark · day 13-wk same weekday, week
-                        13 wks, month YTD months
+                      <option value="trailing">
+                        Last 13 weeks before the window
                       </option>
-                      <option value="prior_equal">
-                        Prior equal-length period · run rate
+                      <option value="best">
+                        Best 13 weeks (91 days) of data before the window
                       </option>
-                      <option value="prior_3m">
-                        Prior 3 months · run rate
-                      </option>
-                      <option value="trailing_13w">
-                        Trailing 13 weeks · same weekday
-                      </option>
-                      <option value="yoy">
-                        Same period last year · same weekday
-                      </option>
+                      <option value="custom">Custom dates</option>
                     </select>
                   </label>
+                  {sourceNow === "custom" ? (
+                    <>
+                      <label>
+                        From
+                        <input
+                          type="date"
+                          min="2025-01-01"
+                          value={bStartNow}
+                          onChange={e => setBStartDraft(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        To
+                        <input
+                          type="date"
+                          value={bEndNow}
+                          onChange={e => setBEndDraft(e.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     className="rca-btn"
@@ -1668,9 +1692,10 @@ export function RcaDashboardPage() {
                     ? ", each day compared with the average of the same weekday"
                     : ", weekday and weekend days rated separately"}
                   ).{" "}
-                  {base.mode === "p75"
-                    ? "This benchmark expects a strong-but-normal period rather than an average one: a day is held to the upper quartile of the same weekday over the trailing 13 weeks, a week to the upper quartile of the last 13 full weeks, and a month to the upper quartile of the full calendar months of the current year so far. Because each granularity has its own benchmark, daily gaps no longer add up exactly to the weekly or monthly gap. "
-                    : ""}
+                  The baseline is the mean run rate of that period, by weekday.
+                  The goal is the annual target spread over the year by those
+                  weekday weights, so a higher baseline period lowers the
+                  goal's stretch above it.{" "}
                   Changing any of these re-pulls Power BI and recomputes
                   every lens, which takes about 30 seconds. Clinic cohorts are
                   defined against the baseline you pick: "churned" means active

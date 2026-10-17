@@ -81,6 +81,43 @@ async function runAll(limit: number, tasks: Array<() => Promise<unknown>>) {
 }
 
 /**
+ * Baseline window (Shyam, 2026-10-17): by default the 91 days before the analysis window; "best" picks the 91-day
+ * stretch of data with the highest revenue that ends before the window starts; "custom" uses the dates saved in
+ * Settings. Both fall back to the default when they cannot be honoured (too little data, overlap with the window).
+ */
+const BEST_FROM = "2025-01-01";
+export async function resolveBaseline(
+  cfg: { autoBaseline?: boolean; baselineSource?: string; baselineStart: string; baselineEnd: string },
+  mode: BaselineMode,
+  currentStart: string,
+  currentEnd: string,
+): Promise<{ start: string; end: string }> {
+  const trailing = baselineWindow(mode, currentStart, currentEnd);
+  if (mode === "yoy") return trailing;
+  const source = cfg.baselineSource ?? (cfg.autoBaseline === false ? "custom" : "best");
+  if (source === "custom" && cfg.baselineStart && cfg.baselineEnd && cfg.baselineEnd < currentStart)
+    return { start: cfg.baselineStart, end: cfg.baselineEnd };
+  if (source === "best") {
+    const last = addDays(currentStart, -1);
+    const rows = await ordersRows({ day: true, start: BEST_FROM, end: last, m: { rev: "revenue" } });
+    const rev = new Map(rows.map(r => [dateOf(r, "order_date"), num(r, "rev")]));
+    const N = 91;
+    if (diffDays(BEST_FROM, last) + 1 >= N) {
+      let sum = 0, best = -1, bestEnd = last;
+      const win: number[] = [];
+      for (let d = BEST_FROM; d <= last; d = addDays(d, 1)) {
+        const x = rev.get(d) ?? 0;
+        win.push(x); sum += x;
+        if (win.length > N) sum -= win[win.length - N - 1];
+        if (win.length >= N && sum > best) { best = sum; bestEnd = d; }
+      }
+      if (best > 0) return { start: addDays(bestEnd, -(N - 1)), end: bestEnd };
+    }
+  }
+  return trailing;
+}
+
+/**
  * Distinct order dates per clinic up to `cutoff` (no future leak), pulled in
  * month slices from the first order date to keep each DAX payload small.
  */
@@ -160,9 +197,7 @@ export const refreshData = internalAction({
       const windowLen = diffDays(currentStart, currentEnd) + 1;
       const mode = (cfg.baselineMode ?? "prior_equal") as BaselineMode;
       const bucket = bucketing(mode);
-      const win = cfg.autoBaseline
-        ? baselineWindow(mode, currentStart, currentEnd)
-        : { start: cfg.baselineStart, end: cfg.baselineEnd };
+      const win = await resolveBaseline(cfg, mode, currentStart, currentEnd);
       const baselineStart = win.start;
       const baselineEnd = win.end;
       void windowLen;
@@ -2123,9 +2158,7 @@ export const refreshSnapshot = internalAction({
       const windowLen = diffDays(currentStart, currentEnd) + 1;
       const mode = (cfg.baselineMode ?? "prior_equal") as BaselineMode;
       const bucket = bucketing(mode);
-      const win = cfg.autoBaseline
-        ? baselineWindow(mode, currentStart, currentEnd)
-        : { start: cfg.baselineStart, end: cfg.baselineEnd };
+      const win = await resolveBaseline(cfg, mode, currentStart, currentEnd);
       const baselineStart = win.start;
       const baselineEnd = win.end;
       void windowLen;
