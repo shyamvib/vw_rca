@@ -1,3 +1,4 @@
+import { targetScale } from "./baseline";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
 import { v } from "convex/values";
@@ -308,7 +309,8 @@ export const salesReps = scopedQuery({
       .withIndex("by_gen_period", q => q.eq("gen", cfgL?.gen ?? 0).eq("periodId", args.periodId))
       .collect();
     if (sp.length) {
-      const by = new Map(sp.map(x => [x.sales, x.expectedRevenue]));
+      const k = await targetScale(ctx, cfgL, args.periodId);
+      const by = new Map(sp.map(x => [x.sales, x.expectedRevenue * k]));
       for (const r of byRep.values()) {
         r.expected = by.get(r.name) ?? 0;
         r.delta = r.actual - r.expected;
@@ -385,8 +387,9 @@ export const scopeTotals = scopedQuery({
         )
         .filter(q => q.eq(q.field("lead"), args.teamLead))
         .unique();
-      expected = row?.expectedRevenue ?? 0;
-      expectedOrders = row?.expectedOrders ?? 0;
+      const k = await targetScale(ctx, cfg, args.periodId);
+      expected = (row?.expectedRevenue ?? 0) * k;
+      expectedOrders = (row?.expectedOrders ?? 0) * k;
     } else if (args.sales) {
       const row = await ctx.db
         .query("salesPeriodBaseline")
@@ -395,8 +398,9 @@ export const scopeTotals = scopedQuery({
         )
         .filter(q => q.eq(q.field("sales"), args.sales))
         .unique();
-      expected = row?.expectedRevenue ?? 0;
-      expectedOrders = row?.expectedOrders ?? 0;
+      const k = await targetScale(ctx, cfg, args.periodId);
+      expected = (row?.expectedRevenue ?? 0) * k;
+      expectedOrders = (row?.expectedOrders ?? 0) * k;
     } else {
       // No scope filter — sum of clinic rows is fine here (this branch isn't
       // used by the dashboard today since scopeTotals is only queried with

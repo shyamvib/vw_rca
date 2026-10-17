@@ -7,6 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
+import { targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
 import { loadCfg } from "./config";
@@ -32,7 +33,9 @@ async function repBaseline(ctx: any, periodId: string, sales: string, gen: numbe
     .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
     .filter((q: any) => q.eq(q.field("sales"), sales))
     .unique();
-  return row ? { rev: row.expectedRevenue as number, ord: row.expectedOrders as number } : null;
+  if (!row) return null;
+  const k = await targetScale(ctx, { gen }, periodId);
+  return { rev: (row.expectedRevenue as number) * k, ord: (row.expectedOrders as number) * k };
 }
 
 export const book = scopedQuery({

@@ -33,8 +33,12 @@ export function topDownAllocate(args: {
   /** The company daily series the headline uses (dailyTotals). The goal must come from the same series as the
    * headline: clinic-level daily rows leave out revenue that has no clinic, which moved some months' P75 by 0.25%. */
   companyDaily?: Array<{ date: string; revenue: number; orders: number }>;
+  /** Settings annual target and the calendar year it belongs to. When given, goal = the target spread by baseline
+   * weekday weights (additive over time and entities, identical for the same days in any period kind); otherwise
+   * the goal is the company rolling P75. */
+  target?: { annual: number; year: number };
 }) {
-  const { defs, planOf, days, identity, rates, companyDaily } = args;
+  const { defs, planOf, days, identity, rates, companyDaily, target } = args;
   // Baseline (mean) run rate by weekday, summed per rep: additive by construction.
   const repDowRev = new Map<string, number[]>(), repDowOrd = new Map<string, number[]>();
   for (const r of rates) {
@@ -43,7 +47,18 @@ export function topDownAllocate(args: {
     const b = repDowOrd.get(rep) ?? repDowOrd.set(rep, [0, 0, 0, 0, 0, 0, 0]).get(rep)!;
     for (let w = 0; w < 7; w++) { a[w] += r.rev[w] ?? 0; b[w] += r.ord[w] ?? 0; }
   }
-  const periodGoal: Array<{ periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number }> = [];
+  const periodGoal: Array<{
+    periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number;
+    target?: number; yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
+  }> = [];
+  // Company mean revenue per weekday, and the baseline of the whole target year (every day, Jan 1 to Dec 31).
+  const coRate = [0, 0, 0, 0, 0, 0, 0];
+  for (const a of repDowRev.values()) for (let w = 0; w < 7; w++) coRate[w] += a[w];
+  let yearBase = 0;
+  if (target) {
+    for (let t = Date.UTC(target.year, 0, 1); t < Date.UTC(target.year + 1, 0, 1); t += 86400000)
+      yearBase += coRate[new Date(t).getUTCDay()];
+  }
   const bump = (s: Map<string, Map<string, number>>, k: string, d: string, x: number) => {
     let m = s.get(k);
     if (!m) s.set(k, (m = new Map()));
@@ -82,7 +97,7 @@ export function topDownAllocate(args: {
   for (const { id, kind, days: pd } of defs) {
     const plan = planOf.get(id);
     const p75 = (m?: Map<string, number>) => (m ? rollingBaseline(kind, pd, d => m.get(d) ?? 0, plan) : 0);
-    const totR = p75(coR), totO = p75(coO);
+    const p75R = p75(coR), p75O = p75(coO);
     // Goal is the company's rolling P75 (the one plan). It is split to reps by *baseline* share (mean run rate over
     // the baseline window), not by each rep's own P75: means add up, percentiles do not, so reps -> company and
     // clinics -> rep reconcile exactly and a rep with many small clinics is not penalised (2026-10-16).
@@ -91,7 +106,21 @@ export function topDownAllocate(args: {
     const baseOf = (m: Map<string, number[]>, k: string) => (m.get(k) ?? []).reduce((t, x, w) => t + x * cnt[w], 0);
     const reps = [...new Set([...repDowRev.keys(), ...rR.keys()])].map(k => ({ k, r: baseOf(repDowRev, k), o: baseOf(repDowOrd, k) }));
     const sumR = reps.reduce((x, y) => x + y.r, 0), sumO = reps.reduce((x, y) => x + y.o, 0);
-    periodGoal.push({ periodId: id, goalRevenue: totR, goalOrders: totO, baseRevenue: sumR, baseOrders: sumO });
+    let totR = p75R, totO = p75O;
+    let tShare: number | undefined;
+    if (target && yearBase > 0 && sumR > 0) {
+      let inYear = 0;
+      for (const d of pd) if (Number(d.slice(0, 4)) === target.year) inYear += coRate[dow(d)];
+      const allBase = pd.reduce((t, d) => t + coRate[dow(d)], 0);
+      tShare = allBase > 0 ? inYear / allBase : 0;
+      const m = tShare * (target.annual / yearBase) + (1 - tShare);
+      totR = sumR * m; totO = sumO * m;
+    }
+    periodGoal.push({
+      periodId: id, goalRevenue: totR, goalOrders: totO, baseRevenue: sumR, baseOrders: sumO,
+      ...(tShare === undefined ? {} : { target: target!.annual, yearBaseRevenue: yearBase, tShare }),
+      p75Revenue: p75R, p75Orders: p75O,
+    });
     const repR = new Map<string, number>(), repO = new Map<string, number>();
     for (const y of reps) {
       repR.set(y.k, sumR > 0 ? (totR * y.r) / sumR : 0);

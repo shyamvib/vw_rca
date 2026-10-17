@@ -237,6 +237,14 @@ const schema = defineSchema({
     goalOrders: v.number(),
     baseRevenue: v.number(),
     baseOrders: v.number(),
+    // Goal is the Settings annual target spread by baseline weekday weights (2026-10-16). These let the read side
+    // re-base the goal when the target changes without a rebuild: m = tShare x target / yearBaseRevenue + (1 - tShare).
+    target: v.optional(v.number()),
+    yearBaseRevenue: v.optional(v.number()),
+    tShare: v.optional(v.number()),
+    /** The company rolling P75 for the period (the old goal), kept as a benchmark. */
+    p75Revenue: v.optional(v.number()),
+    p75Orders: v.optional(v.number()),
     gen: v.optional(v.number()),
   })
     .index("by_gen", ["gen"])

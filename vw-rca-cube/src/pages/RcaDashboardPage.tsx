@@ -1641,10 +1641,22 @@ export function RcaDashboardPage() {
                   </button>
                 </div>
                 <div className="rca-control-note">
-                  The target drives the year-end projection card. It applies
+                  The target drives the year-end projection card and the Goal:
+                  it is spread over the year by baseline weekday weights, so
+                  every goal (period, rep, clinic) adds up to it. It applies
                   instantly — no Power BI refresh needed.
                   {targetSaved ? " Saved." : ""}
                 </div>
+                {(() => {
+                  const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
+                  const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
+                  return base && t < base ? (
+                    <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
+                      Target is below the current run rate ({"$"}{(base / 1e6).toFixed(1)}M a year): goals sit
+                      under baseline, so ambition shows negative.
+                    </div>
+                  ) : null;
+                })()}
                 <div className="rca-control-note">
                   Current:{" "}
                   <strong>
@@ -2203,7 +2215,7 @@ export function RcaDashboardPage() {
                 {INT(active.expectedOrders)} orders · AOV ${INT(active.baseAov)}
               </div>
               {active.baseline !== undefined ? (
-                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the rolling P75 on top of it">
+                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the Settings target spread over the year by baseline weekday weights">
                   Baseline {MONEY_PLAIN(active.baseline)}
                 </div>
               ) : null}
@@ -2883,7 +2895,7 @@ function ProviderSearchResults({
                 <th>Clinic</th>
                 <th>State</th>
                 <th>Owner</th>
-                <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
+                <th className="rca-num" title="Baseline plus the stretch: the Settings target spread over the year by baseline weekday weights">Goal</th>
                 <th className="rca-num">Actual</th>
                 <th className="rca-num">Orders</th>
                 <th className="rca-num">AOV</th>
@@ -4471,7 +4483,7 @@ function UnmappedTestsInner({ periodId }: { periodId: string }) {
                     <th>#</th>
                     <th>Test</th>
                     <th className="rca-num">Orders</th>
-                    <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
+                    <th className="rca-num" title="Baseline plus the stretch: the Settings target spread over the year by baseline weekday weights">Goal</th>
                     <th className="rca-num">Order Δ</th>
                     <th className="rca-num">Revenue on those orders</th>
                     <th className="rca-num">Revenue Δ</th>
@@ -4933,7 +4945,7 @@ function CustomerTable({
         <tr>
           <th>Customer</th>
           <th>Type</th>
-          <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
+          <th className="rca-num" title="Baseline plus the stretch: the Settings target spread over the year by baseline weekday weights">Goal</th>
           <th className="rca-num">Actual</th>
           <th className="rca-num">Orders</th>
           <th className="rca-num">Patients</th>

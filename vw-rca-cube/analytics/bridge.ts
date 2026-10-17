@@ -1,3 +1,4 @@
+import { mainTarget, targetScaleOf } from "./baseline";
 import { geoKeyOf } from "./geoKey";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
@@ -84,6 +85,8 @@ export type Period = {
   baseline?: number;
   realChange?: number;
   ambition?: number;
+  /** The company rolling P75 for the period: the old goal, kept as a benchmark. */
+  p75Goal?: number;
   baselineOrders?: number;
   lensD: Row[];
   topStates: Array<{ state: string; value: number }>;
@@ -174,6 +177,7 @@ async function computeBridge(ctx: QueryCtx) {
     .query("periodGoal")
     .withIndex("by_gen", q => q.eq("gen", gen))
     .collect();
+  const mainTargetNow = await mainTarget(ctx);
   const goalMap = new Map(goalRows.map(g => [g.periodId, g]));
 
   // ---------- baseline rates (per weekday, bucketed by the chosen mode) ----------
@@ -303,8 +307,9 @@ async function computeBridge(ctx: QueryCtx) {
   ): Period {
     // Baseline x goal factor (analytics/baseline.ts); falls back to the old per-day P75 scale on an older snapshot.
     const g = goalMap.get(id);
-    const fR = g && g.baseRevenue > 0 ? g.goalRevenue / g.baseRevenue : null;
-    const fO = g && g.baseOrders > 0 ? g.goalOrders / g.baseOrders : fR;
+    const k = targetScaleOf(g, mainTargetNow);
+    const fR = g && g.baseRevenue > 0 ? (g.goalRevenue * k) / g.baseRevenue : null;
+    const fO = g && g.baseOrders > 0 ? (g.goalOrders * k) / g.baseOrders : fR;
     const sc = (d: string): number => fR ?? p75Scale(p75f, kind, d);
     const scO = (d: string): number => fO ?? p75Scale(p75f, kind, d);
     let orders = 0;
@@ -341,8 +346,10 @@ async function computeBridge(ctx: QueryCtx) {
     // (trailing 13 weeks for day/week, trailing 3 months for month), so the
     // baseline shown here moves the same way Revenue Intelligence's does.
     const rolling = rollingExpected(kind, days);
-    const expected = rolling.revenue;
-    const expAll = rolling.orders;
+    // Goal = the Settings target spread by baseline weekday weights (periodGoal, rebased to the current target at read
+    // time); the P75 above is kept as a benchmark. Older snapshots without a goal row keep the P75.
+    const expected = g && g.baseRevenue > 0 ? g.goalRevenue * k : rolling.revenue;
+    const expAll = g && g.baseOrders > 0 ? g.goalOrders * k : rolling.orders;
     const delta = revenue - expected;
     const aov = orders ? revenue / orders : 0;
     const rollingBaseAov = expAll ? expected / expAll : 0;
@@ -351,6 +358,7 @@ async function computeBridge(ctx: QueryCtx) {
     const baselineOrd = g?.baseOrders ?? 0;
     const realChange = revenue - baselineRev;
     const ambition = expected - baselineRev;
+    const p75Goal = rolling.revenue;
     const fAmb = baselineRev > 0 ? expected / baselineRev - 1 : 0; // goal factor - 1
 
     const volume = (orders - expAll) * rollingBaseAov;
@@ -524,6 +532,7 @@ async function computeBridge(ctx: QueryCtx) {
       baselineOrders: baselineOrd,
       realChange,
       ambition,
+      p75Goal: rolling.revenue,
       delta,
       orders,
       expectedOrders: expAll,

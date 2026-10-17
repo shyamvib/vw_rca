@@ -67,7 +67,13 @@ export const get = scopedQuery({
   args: {},
   handler: async ctx => {
     const row = await loadCfg(ctx);
-    return row ?? { ...DEFAULTS, _id: null };
+    if (!row) return { ...DEFAULTS, _id: null };
+    // Calendar-year baseline run rate, so Settings can warn when the target is below it (ambition would be negative).
+    const g = await ctx.db
+      .query("periodGoal")
+      .withIndex("by_gen_period", q => q.eq("gen", row.gen ?? 0).eq("periodId", "all"))
+      .first();
+    return { ...row, yearBaseline: g?.yearBaseRevenue ?? null };
   },
 });
 
