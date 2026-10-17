@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
+import { ACTIVE_COHORTS } from "./lifecycle";
 import {
   addDays,
   dayType,
@@ -527,7 +528,8 @@ export async function drill(
   for (const m of meta) {
     if (args.teamLead && (m.teamLead ?? "—") !== args.teamLead) continue;
     if (args.sales && (m.sales ?? "—") !== args.sales) continue;
-    if (lens === "cohort" && m.cohort !== args.key) continue;
+    // "active" is the grouped lifecycle stage (retained top 20% + the rest); see lifecycle.ts
+    if (lens === "cohort" && (args.key === "active" ? !ACTIVE_COHORTS.includes(m.cohort as never) : m.cohort !== args.key)) continue;
     if (lens === "state") {
       const inSet = stateKeys.has(m.state);
       if (exclude ? inSet : !inSet) continue;
@@ -880,9 +882,23 @@ export const cohortDriverSplit = scopedQuery({
       }
       byCohort.set(r.cohort, s);
     }
+    // The grouped lifecycle stage "Active" (retained top 20% + the rest), see lifecycle.ts
+    const active = { posSum: 0, posCount: 0, negSum: 0, negCount: 0 };
+    for (const k of ACTIVE_COHORTS) {
+      const c = byCohort.get(k);
+      if (!c) continue;
+      active.posSum += c.posSum;
+      active.posCount += c.posCount;
+      active.negSum += c.negSum;
+      active.negCount += c.negCount;
+    }
+    const cohortsOut: Record<string, { posSum: number; posCount: number; negSum: number; negCount: number }> = {
+      ...Object.fromEntries(byCohort),
+      active,
+    };
     return {
       ready: true as const,
-      cohorts: Object.fromEntries(byCohort),
+      cohorts: cohortsOut,
     };
   },
 });

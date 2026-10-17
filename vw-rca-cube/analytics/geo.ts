@@ -1,4 +1,5 @@
 import { loadCfg } from "./config";
+import { calibrate } from "./lifecycle";
 import { v } from "convex/values";
 import { drill } from "./clinics";
 import { geoKeyOf } from "./geoKey";
@@ -349,7 +350,7 @@ export const scopeTotals = scopedQuery({
       nonBundleDelta = 0,
       patients = 0,
       expectedPatients = 0;
-    const cohorts = new Map<string, number>();
+    const cohorts = new Map<string, { actual: number; expected: number; clinics: number }>();
     for (const r of res.rows) {
       actual += r.actual;
       orders += r.orders;
@@ -357,7 +358,11 @@ export const scopeTotals = scopedQuery({
       nonBundleDelta += r.nonBundleDelta;
       patients += r.patients;
       expectedPatients += r.expectedPatients;
-      cohorts.set(r.cohort, (cohorts.get(r.cohort) ?? 0) + r.delta);
+      const c = cohorts.get(r.cohort) ?? { actual: 0, expected: 0, clinics: 0 };
+      c.actual += r.actual;
+      c.expected += r.expected;
+      c.clinics += 1;
+      cohorts.set(r.cohort, c);
     }
     // Rolling P75 baseline for this RSM's / team lead's own book: sourced
     // from leadPeriodBaseline/salesPeriodBaseline, which is the trailing
@@ -417,7 +422,11 @@ export const scopeTotals = scopedQuery({
       expectedPatients,
       aov: orders ? actual / orders : 0,
       baseAov: scopeBaseAov,
-      cohorts: [...cohorts].map(([cohort, delta]) => ({ cohort, delta })),
+      // Calibrated to the scope's headline baseline, so the cohort rows add up to `delta` (analytics/lifecycle.ts).
+      ...(() => {
+        const cal = calibrate([...cohorts].map(([cohort, c]) => ({ cohort, ...c })), expected);
+        return { cohorts: cal.rows.map(r => ({ cohort: r.cohort, delta: r.delta, clinics: r.clinics })), cohortCalibration: cal.factor };
+      })(),
     };
   },
 });

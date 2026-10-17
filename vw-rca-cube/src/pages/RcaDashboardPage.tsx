@@ -2,7 +2,7 @@ import { Logo } from "@/components/Logo";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import { GeoMap, GeoRsmTable, type GeoRow } from "./GeoMap";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
@@ -16,6 +16,10 @@ type Row = {
   value: number;
   lens: string;
   key: string;
+  /** Clinic count behind a cohort row (used to total the grouped "Active" stage). */
+  clinics?: number;
+  /** The grouped "Active" lifecycle stage keeps its size tiers (top 20% / everyone else) here. */
+  tiers?: Row[];
   /** "patients" rows carry a headcount, not dollars, and are read on their
    * own scale rather than as a share of the revenue gap. */
   unit?: "patients";
@@ -32,6 +36,8 @@ type FamilyRow = {
   orderDelta: number;
 };
 type Period = {
+  /** Factor the cohort rows' expected was scaled by so they add up to the headline delta. */
+  cohortCalibration?: number;
   id: string;
   kind: "all" | "quarter" | "month" | "week" | "day";
   label: string;
@@ -972,14 +978,15 @@ type ScopeTotals = {
   expectedPatients?: number;
   aov?: number;
   baseAov?: number;
-  cohorts?: Array<{ cohort: string; delta: number }>;
+  cohorts?: Array<{ cohort: string; delta: number; clinics?: number }>;
+  cohortCalibration?: number;
 };
 
 const COHORT_LABEL: Record<string, string> = {
   churned: "Churned clinics",
   new: "New clinics",
-  retained_top20: "Retained — top 20%",
-  retained_rest: "Retained — remaining 80%",
+  retained_top20: "Active — top 20%",
+  retained_rest: "Active — remaining 80%",
   reactivated: "Reactivated clinics",
 };
 
@@ -991,6 +998,29 @@ const COHORT_LABEL: Record<string, string> = {
  * built from the same underlying rows in refresh.ts so the two reconcile) —
  * pass whichever one matches the current filter as `fams`.
  */
+/** Lifecycle view of the cohort branch: retained top 20% + the rest are one stage, Active, cut by size.
+ * The cohort rows themselves (and the narrative that reads them) stay as they are; only the tree groups them. */
+function groupActive(rows: Row[]): Row[] {
+  const top = rows.find(r => r.key === "retained_top20");
+  const rest = rows.find(r => r.key === "retained_rest");
+  if (!top || !rest) return rows;
+  const tiers: Row[] = [
+    { ...top, label: "Largest 20%", sub: top.clinics !== undefined ? `${top.clinics.toLocaleString("en-US")} clinics` : top.sub },
+    { ...rest, label: "Everyone else", sub: rest.clinics !== undefined ? `${rest.clinics.toLocaleString("en-US")} clinics` : rest.sub },
+  ];
+  const n = (top.clinics ?? 0) + (rest.clinics ?? 0);
+  const active: Row = {
+    label: "Active clinics",
+    sub: n ? `${n.toLocaleString("en-US")} clinics · ordered in the baseline and now` : "ordered in the baseline and now",
+    value: top.value + rest.value,
+    lens: "cohort",
+    key: "active",
+    clinics: n || undefined,
+    tiers,
+  };
+  return [...rows.filter(r => r !== top && r !== rest), active].sort((a, b) => a.value - b.value);
+}
+
 type LeadFams = {
   ready: boolean;
   all: FamilyRow[];
@@ -1069,11 +1099,13 @@ function scopePeriod(
     ],
     lensC: cohorts.map(c => ({
       label: COHORT_LABEL[c.cohort] ?? c.cohort,
-      sub: "clinic cohort",
+      sub: c.clinics ? `${int(c.clinics)} clinics` : "clinic cohort",
       value: c.delta,
       lens: "cohort",
       key: c.cohort,
+      clinics: c.clinics,
     })),
+    cohortCalibration: scoped.cohortCalibration,
     lensD: [
       ...worst.map(g => ({
         label: g.label,
@@ -2093,7 +2125,7 @@ export function RcaDashboardPage() {
           <ReadoutCard
             n="Q3"
             q="Which clinics?"
-            value={worstCohort.label.replace("Retained — ", "Retained ")}
+            value={worstCohort.label.replace("Active — ", "Active ")}
             tone={worstCohort.value < 0 ? "bad" : "good"}
             body={`${worstCohort.sub} at ${MONEY(worstCohort.value)}, ${pct(worstCohort.value)}. ${active.lensC[active.lensC.length - 1].label} runs ${MONEY(active.lensC[active.lensC.length - 1].value)}.`}
           />
@@ -2249,7 +2281,7 @@ export function RcaDashboardPage() {
                       </div>
                     </div>
                   )}
-                  {active[lens.key].map(row => {
+                  {(lens.key === "lensC" ? groupActive(active.lensC) : active[lens.key]).map(row => {
                     // A patient-count row is not a slice of the revenue gap,
                     // so it is scaled against its own expected headcount.
                     const w =
@@ -2261,6 +2293,7 @@ export function RcaDashboardPage() {
                         : (Math.abs(row.value) / lensMax) * 50;
                     const neg = row.value < 0;
                     return (
+                      <Fragment key={row.label}>
                       <button
                         type="button"
                         className={`rca-lens-row${
@@ -2270,7 +2303,6 @@ export function RcaDashboardPage() {
                             ? " is-open"
                             : ""
                         }`}
-                        key={row.label}
                         onClick={() => {
                           setDrillLimit(25);
                           setDrill(
@@ -2391,8 +2423,37 @@ export function RcaDashboardPage() {
                             : "clinics ↓"}
                         </span>
                       </button>
+                      {row.tiers ? (
+                        <div className="rca-lens-tiers">
+                          {row.tiers.map(t => (
+                            <button
+                              type="button"
+                              key={t.key}
+                              className={`rca-lens-tier${drill && drill.lens === t.lens && drill.key === t.key ? " is-open" : ""}`}
+                              onClick={() => {
+                                setDrillLimit(25);
+                                setDrill(
+                                  drill && drill.lens === t.lens && drill.key === t.key
+                                    ? null
+                                    : { lens: t.lens, key: t.key, label: `Active · ${t.label}` },
+                                );
+                              }}
+                            >
+                              <span>{t.label}</span>
+                              <span className="rca-mono" style={{ color: t.value < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>{MONEY(t.value)}</span>
+                              <span className="rca-lens-row-sub-inline">{t.sub}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      </Fragment>
                     );
                   })}
+                  {lens.key === "lensC" && active.cohortCalibration && Math.abs(active.cohortCalibration - 1) > 0.002 ? (
+                    <div className="rca-lens-note">
+                      Cohort rows are calibrated to the headline baseline (expected ×{active.cohortCalibration.toFixed(3)}) so they add up to the period total. Clinic lists use each clinic's own baseline.
+                    </div>
+                  ) : null}
                   {lens.key === "lensA" || lens.key === "lensB" ? (
                     <FamilyLevel
                       rows={

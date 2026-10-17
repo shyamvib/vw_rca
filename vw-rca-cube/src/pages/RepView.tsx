@@ -52,8 +52,8 @@ const fmtD = (d?: string | null) =>
 const COHORT: Record<string, string> = {
   churned: "Churned",
   new: "New",
-  retained_top20: "Retained top 20%",
-  retained_rest: "Retained rest",
+  retained_top20: "Active · top 20%",
+  retained_rest: "Active · rest",
   reactivated: "Reactivated",
 };
 
@@ -1085,11 +1085,26 @@ function WindowTab({
     const noun = b.totals.delta < 0 ? "gap" : "gain";
     return sameDirection ? `${share}% of ${noun}` : `${share}% offset`;
   };
+  // Lifecycle view of the cohort card: retained top 20% + the rest are one stage, Active, cut by size.
+  const lifecycleRows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; focus: string; sub: string }> }> = (() => {
+    const one = (c: Book) => ({ l: `${COHORT[c.key] ?? c.key} (${c.clinics})`, v: c.delta, focus: `cohort:${c.key}`, sub: "clinic cohort", cohortSplit: c });
+    const top = cohorts.find((c: Book) => c.key === "retained_top20");
+    const rest = cohorts.find((c: Book) => c.key === "retained_rest");
+    if (!top || !rest) return cohorts.map(one);
+    const merged: Book = {
+      key: "active", clinics: top.clinics + rest.clinics, delta: top.delta + rest.delta,
+      posSum: top.posSum + rest.posSum, posCount: top.posCount + rest.posCount, posIds: [...top.posIds, ...rest.posIds],
+      negSum: top.negSum + rest.negSum, negCount: top.negCount + rest.negCount, negIds: [...top.negIds, ...rest.negIds],
+    };
+    const tier = (c: Book, name: string) => ({ l: `${name} (${c.clinics})`, v: c.delta, focus: `cohort:${c.key}`, sub: "size tier of Active" });
+    const active = { l: `Active (${merged.clinics})`, v: merged.delta, focus: "cohort:active", sub: "ordered in the baseline and now", cohortSplit: merged, tiers: [tier(top, "Largest 20%"), tier(rest, "Everyone else")] };
+    return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest").map(one), active].sort((a, b) => a.v - b.v);
+  })();
   const lensCards: Array<{
     k: string;
     t: string;
     q: string;
-    rows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book }>;
+    rows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; focus: string; sub: string }> }>;
     note: string;
   }> = [
     {
@@ -1126,14 +1141,8 @@ function WindowTab({
       k: "C",
       t: "Clinic cohort",
       q: "Which clinics?",
-      rows: cohorts.map((c: Book) => ({
-        l: `${COHORT[c.key] ?? c.key} (${c.clinics})`,
-        v: c.delta,
-        focus: `cohort:${c.key}`,
-        sub: "clinic cohort",
-        cohortSplit: c,
-      })),
-      note: worst ? `${COHORT[worst.key] ?? worst.key} is the biggest swing.` : "",
+      rows: lifecycleRows,
+      note: `${worst ? `${COHORT[worst.key] ?? worst.key} is the biggest swing. ` : ""}${Math.abs((L.cohortCalibration ?? 1) - 1) > 0.002 ? `Cohort rows are calibrated to the book baseline (expected ×${(L.cohortCalibration as number).toFixed(3)}) so they add up to the total; clinic lists use each clinic's own baseline.` : ""}`,
     },
     {
       k: "D",
@@ -1248,13 +1257,21 @@ function WindowTab({
                   <em>{c.k}</em> {c.t}
                 </div>
                 {c.rows.map(r => (
-                  <button type="button" className="rv-lens-row rv-lens-row-click" key={r.l} onClick={() => openFocus(r.focus, r.l)}>
-                    <div>
-                      <span>{r.l}</span>
-                      <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
-                    </div>
-                    <Bar v={r.v} max={max} />
-                  </button>
+                  <Fragment key={r.l}>
+                    <button type="button" className="rv-lens-row rv-lens-row-click" onClick={() => openFocus(r.focus, r.l)}>
+                      <div>
+                        <span>{r.l}</span>
+                        <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
+                      </div>
+                      <Bar v={r.v} max={max} />
+                    </button>
+                    {r.tiers?.map(t => (
+                      <button type="button" className="rv-lens-tier" key={t.l} onClick={() => openFocus(t.focus, `Active · ${t.l}`)}>
+                        <span>{t.l}</span>
+                        <b className={t.v < 0 ? "bad" : "good"}>{SK(t.v)}</b>
+                      </button>
+                    ))}
+                  </Fragment>
                 ))}
                 <div className="rv-lens-note">{c.note}</div>
               </div>
@@ -1304,10 +1321,10 @@ function WindowTab({
                     const w = (Math.abs(r.v) / max) * 50;
                     const neg = r.v < 0;
                     return (
+                      <Fragment key={r.l}>
                       <button
                         type="button"
                         className={`rca-lens-row${focus && focus.focus === r.focus ? " is-open" : ""}`}
-                        key={r.l}
                         onClick={() => openFocus(r.focus, r.l)}
                       >
                         <div className="rca-lens-row-top">
@@ -1401,6 +1418,17 @@ function WindowTab({
                           </div>
                         ) : null}
                       </button>
+                      {r.tiers ? (
+                        <div className="rca-lens-tiers">
+                          {r.tiers.map(t => (
+                            <button type="button" key={t.l} className={`rca-lens-tier${focus && focus.focus === t.focus ? " is-open" : ""}`} onClick={() => openFocus(t.focus, `Active · ${t.l}`)}>
+                              <span>{t.l}</span>
+                              <span className="rca-mono" style={{ color: t.v < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>{SK(t.v)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      </Fragment>
                     );
                   })}
                   {(c.k === "A" || c.k === "B") && treeFams?.ready ? (

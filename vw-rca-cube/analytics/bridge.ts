@@ -1,5 +1,6 @@
 import { geoKeyOf } from "./geoKey";
 import { loadCfg } from "./config";
+import { calibrate } from "./lifecycle";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import {
   BASELINE_LABEL,
@@ -28,6 +29,7 @@ import {
 import { scopedQuery } from "./gated";
 
 type Row = {
+  clinics?: number;
   label: string;
   sub: string;
   value: number;
@@ -73,6 +75,8 @@ export type Period = {
   lensA: Row[];
   lensB: Row[];
   lensC: Row[];
+  /** Factor the cohort rows' expected was scaled by so they sum to the headline delta. */
+  cohortCalibration?: number;
   lensD: Row[];
   topStates: Array<{ state: string; value: number }>;
 };
@@ -80,8 +84,8 @@ export type Period = {
 const COHORT_LABEL: Record<string, string> = {
   churned: "Churned clinics",
   new: "New clinics",
-  retained_top20: "Retained — top 20%",
-  retained_rest: "Retained — remaining 80%",
+  retained_top20: "Active — top 20%",
+  retained_rest: "Active — remaining 80%",
   reactivated: "Reactivated clinics",
 };
 
@@ -329,20 +333,25 @@ async function computeBridge(ctx: QueryCtx) {
       nbOrders * ((nbOrders ? nbRevenue / nbOrders : 0) - baseAov.nonBundle);
 
     // Lens C — clinic cohorts
-    const lensC: Row[] = cohortBaseline.map(cb => {
+    const cohortAgg = cohortBaseline.map(cb => {
       let actual = 0;
       for (const d of days) actual += cohortActual.get(d)?.get(cb.cohort) ?? 0;
       let exp = 0;
       for (const d of days) exp += cb.rates[dow(d)] * sc(d);
-      return {
-        label: COHORT_LABEL[cb.cohort] ?? cb.cohort,
-        sub: `${fmtInt(cb.clinics)} clinics`,
-        value: actual - exp,
-        lens: "cohort",
-        key: cb.cohort,
-      };
+      return { cohort: cb.cohort, actual, expected: exp, clinics: cb.clinics };
     });
+    // Calibrated to the headline baseline so the cohort rows add up to the headline delta (analytics/lifecycle.ts).
+    const cal = calibrate(cohortAgg, expected);
+    const lensC: Row[] = cal.rows.map(r => ({
+      label: COHORT_LABEL[r.cohort] ?? r.cohort,
+      sub: `${fmtInt(r.clinics)} clinics`,
+      value: r.delta,
+      lens: "cohort",
+      key: r.cohort,
+      clinics: r.clinics,
+    }));
     lensC.sort((a, b) => a.value - b.value);
+    const cohortCalibration = cal.factor;
 
     // Lens D — states
     const stateDelta = new Map<string, number>();
@@ -509,6 +518,7 @@ async function computeBridge(ctx: QueryCtx) {
         },
       ],
       lensC,
+      cohortCalibration,
       lensD,
       topStates: sorted.slice(0, 6).map(([state, value]) => ({ state, value })),
     };

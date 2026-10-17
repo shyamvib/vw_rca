@@ -2208,3 +2208,10 @@ select.rca-select,
 
 .rca-wordmark { display: inline-flex; align-items: center; }
 .rca-gate-logo { margin-bottom: 18px; }
+
+/* Active lifecycle stage: its size tiers sit under the row */
+.rca-lens-tiers { display: flex; flex-direction: column; gap: 2px; margin: -2px 0 8px 18px; padding-left: 12px; border-left: 3px solid var(--vw-gray-15); }
+.rca-lens-tier { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; border: 0; background: transparent; padding: 5px 8px; font-size: 12px; color: inherit; cursor: pointer; text-align: left; border-radius: var(--radius-sm); }
+.rca-lens-tier:hover, .rca-lens-tier.is-open { background: var(--vw-gray-05); }
+.rca-lens-tier > span:first-child { flex: 1; }
+.rca-lens-row-sub-inline { color: var(--text-tertiary); font-size: 11px; min-width: 90px; text-align: right; }

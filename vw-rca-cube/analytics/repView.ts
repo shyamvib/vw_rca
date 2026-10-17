@@ -11,6 +11,7 @@ import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
 import { loadCfg } from "./config";
 import { newClinicPace } from "./newPace";
+import { ACTIVE_COHORTS, calibrate } from "./lifecycle";
 import { addDays, diffDays, dow, eachDay, periodDefs, weekStart } from "./dateUtils";
 import { scopedQuery } from "./gated";
 
@@ -329,13 +330,15 @@ export const book = scopedQuery({
     // Lens cuts for "This week"
     const byCohort = new Map<
       string,
-      { n: number; d: number; posSum: number; posCount: number; posIds: string[]; negSum: number; negCount: number; negIds: string[] }
+      { n: number; d: number; a: number; e: number; posSum: number; posCount: number; posIds: string[]; negSum: number; negCount: number; negIds: string[] }
     >();
     const byState = new Map<string, number>();
     for (const r of rows) {
       const c = byCohort.get(r.cohort) ?? {
         n: 0,
         d: 0,
+        a: 0,
+        e: 0,
         posSum: 0,
         posCount: 0,
         posIds: [] as string[],
@@ -345,6 +348,8 @@ export const book = scopedQuery({
       };
       c.n++;
       c.d += r.delta;
+      c.a += r.actual;
+      c.e += r.expected;
       if (r.delta >= 0) {
         c.posSum += r.delta;
         c.posCount++;
@@ -373,6 +378,8 @@ export const book = scopedQuery({
       const reset = {
         n: newCohort.n,
         d: newCohort.d,
+        a: newCohort.a,
+        e: newCohort.e,
         posSum: 0,
         posCount: 0,
         posIds: [] as string[],
@@ -393,6 +400,8 @@ export const book = scopedQuery({
       }
       byCohort.set("new", reset);
     }
+    const cohortRows = [...byCohort];
+    const cohortCal = calibrate(cohortRows.map(([k, c]) => ({ cohort: k, actual: c.a, expected: c.e, clinics: c.n })), expected);
     const states = [...byState].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 
     // Top clinics by baseline for the weekly-target editor
@@ -464,10 +473,11 @@ export const book = scopedQuery({
         aovEffect,
         bundle: sum(rows, r => r.bundleDelta),
         nonBundle: sum(rows, r => r.nonBundleDelta),
-        cohorts: [...byCohort].map(([k, c]) => ({
+        cohorts: cohortRows.map(([k, c]) => ({
           key: k,
           clinics: c.n,
-          delta: c.d,
+          // calibrated to the rep's headline baseline so the rows add up to the book delta (analytics/lifecycle.ts)
+          delta: c.a - c.e * cohortCal.factor,
           posSum: c.posSum,
           posCount: c.posCount,
           posIds: c.posIds,
@@ -475,6 +485,7 @@ export const book = scopedQuery({
           negCount: c.negCount,
           negIds: c.negIds,
         })),
+        cohortCalibration: cohortCal.factor,
         states: states.slice(0, 4).map(([k, d]) => ({ key: k, delta: d })),
       },
       targetClinics,
@@ -723,7 +734,7 @@ export const rowsByFocus = scopedQuery({
     let rows = res.rows;
     if (focus.startsWith("cohort:")) {
       const k = focus.slice(7);
-      rows = rows.filter(r => r.cohort === k);
+      rows = rows.filter(r => (k === "active" ? (ACTIVE_COHORTS as readonly string[]).includes(r.cohort) : r.cohort === k));
     } else if (focus.startsWith("state:")) {
       const k = focus.slice(6);
       rows = rows.filter(r => (r.state || "—") === k);
