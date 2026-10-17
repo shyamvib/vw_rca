@@ -330,7 +330,7 @@ export const book = scopedQuery({
     // Lens cuts for "This week"
     const byCohort = new Map<
       string,
-      { n: number; d: number; a: number; e: number; posSum: number; posCount: number; posIds: string[]; negSum: number; negCount: number; negIds: string[] }
+      { n: number; d: number; a: number; e: number; b: number; posSum: number; posCount: number; posIds: string[]; negSum: number; negCount: number; negIds: string[] }
     >();
     const byState = new Map<string, number>();
     for (const r of rows) {
@@ -339,6 +339,7 @@ export const book = scopedQuery({
         d: 0,
         a: 0,
         e: 0,
+        b: 0,
         posSum: 0,
         posCount: 0,
         posIds: [] as string[],
@@ -350,6 +351,7 @@ export const book = scopedQuery({
       c.d += r.delta;
       c.a += r.actual;
       c.e += r.expected;
+      c.b += r.baseline;
       if (r.delta >= 0) {
         c.posSum += r.delta;
         c.posCount++;
@@ -380,6 +382,7 @@ export const book = scopedQuery({
         d: newCohort.d,
         a: newCohort.a,
         e: newCohort.e,
+        b: newCohort.b,
         posSum: 0,
         posCount: 0,
         posIds: [] as string[],
@@ -437,7 +440,17 @@ export const book = scopedQuery({
       newIds: newRows.map(r => r.clinic),
       days,
       clinics: rows.length,
-      totals: { actual, expected, delta: actual - expected, orders, expOrders },
+      totals: {
+        actual,
+        expected,
+        delta: actual - expected,
+        // Baseline = the book's mean run rate; real change = actual - baseline; ambition = goal (expected) - baseline.
+        baseline: sum(rows, r => r.baseline),
+        realChange: actual - sum(rows, r => r.baseline),
+        ambition: expected - sum(rows, r => r.baseline),
+        orders,
+        expOrders,
+      },
       funnel: {
         o1: f.f1.length,
         o2: f.f2.length,
@@ -478,6 +491,9 @@ export const book = scopedQuery({
           clinics: c.n,
           // calibrated to the rep's headline baseline so the rows add up to the book delta (analytics/lifecycle.ts)
           delta: c.a - c.e * cohortCal.factor,
+          // real change (actual - baseline) and ambition (goal - baseline) behind that delta
+          real: c.a - c.b,
+          ambition: c.e * cohortCal.factor - c.b,
           posSum: c.posSum,
           posCount: c.posCount,
           posIds: c.posIds,
@@ -692,6 +708,9 @@ export const clinicDetail = scopedQuery({
       pstatus: r.pstatus,
       actual: r.actual,
       expected: r.expected,
+      baseline: r.baseline,
+      realChange: r.realChange,
+      ambition: r.ambition,
       delta: r.delta,
       orders: r.orders,
       expectedOrders: r.expectedOrders,
@@ -762,6 +781,9 @@ export const rowsByFocus = scopedQuery({
         pstatus: r.pstatus,
         actual: r.actual,
         expected: r.expected,
+        baseline: r.baseline,
+        realChange: r.realChange,
+        ambition: r.ambition,
         delta: r.delta,
         orders: r.orders,
         expectedOrders: r.expectedOrders,

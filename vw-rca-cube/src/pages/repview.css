@@ -640,3 +640,7 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-early-lost { margin: 0 0 12px; padding: 14px 18px; max-height: 320px; overflow: auto; }
 .rv-lens-tier { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 4px 16px; padding: 4px 8px; border: 0; border-left: 3px solid var(--vw-gray-15); background: transparent; font-size: 12px; cursor: pointer; color: inherit; text-align: left; width: calc(100% - 16px); }
 .rv-lens-tier:hover { background: var(--vw-gray-05); }
+.rv-tree-split { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; font-family: var(--font-mono); font-size: 11px; }
+.rv-lens-real { display: flex; gap: 12px; font-family: var(--font-mono); font-size: 10px; margin: 0 0 2px; }
+.rv-lens-real .bad, .rv-tree-split .bad { color: var(--vw-error); }
+.rv-lens-real .good, .rv-tree-split .good { color: var(--vw-success); }

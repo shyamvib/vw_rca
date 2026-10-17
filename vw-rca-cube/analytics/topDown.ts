@@ -6,7 +6,7 @@
  * separate (clinic rows only, not scaled to these totals).
  */
 import { geoKeyOf } from "./geoKey";
-import { rollingBaseline, type baselinePlan } from "./dateUtils";
+import { dow, rollingBaseline, type baselinePlan } from "./dateUtils";
 
 type Kind = "all" | "quarter" | "month" | "week" | "day";
 type Def = { id: string; kind: Kind; days: string[] };
@@ -28,8 +28,19 @@ export function topDownAllocate(args: {
   planOf: Map<string, ReturnType<typeof baselinePlan>>;
   days: Day[];
   identity: Map<string, Idty | undefined>;
+  /** Each clinic's mean daily run rate by weekday over the baseline window (clinicMeta rev / ord). */
+  rates: Array<{ clinic: string; rev: number[]; ord: number[] }>;
 }) {
-  const { defs, planOf, days, identity } = args;
+  const { defs, planOf, days, identity, rates } = args;
+  // Baseline (mean) run rate by weekday, summed per rep: additive by construction.
+  const repDowRev = new Map<string, number[]>(), repDowOrd = new Map<string, number[]>();
+  for (const r of rates) {
+    const rep = identity.get(r.clinic)?.sales ?? "—";
+    const a = repDowRev.get(rep) ?? repDowRev.set(rep, [0, 0, 0, 0, 0, 0, 0]).get(rep)!;
+    const b = repDowOrd.get(rep) ?? repDowOrd.set(rep, [0, 0, 0, 0, 0, 0, 0]).get(rep)!;
+    for (let w = 0; w < 7; w++) { a[w] += r.rev[w] ?? 0; b[w] += r.ord[w] ?? 0; }
+  }
+  const periodGoal: Array<{ periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number }> = [];
   const bump = (s: Map<string, Map<string, number>>, k: string, d: string, x: number) => {
     let m = s.get(k);
     if (!m) s.set(k, (m = new Map()));
@@ -66,9 +77,15 @@ export function topDownAllocate(args: {
     const plan = planOf.get(id);
     const p75 = (m?: Map<string, number>) => (m ? rollingBaseline(kind, pd, d => m.get(d) ?? 0, plan) : 0);
     const totR = p75(coR), totO = p75(coO);
-    // v4 [Shyam, 2026-10-12]: overall → rep → clinic (no state layer).
-    const reps = [...rR.keys()].map(k => ({ k, r: p75(rR.get(k)), o: p75(rO.get(k)) }));
+    // Goal is the company's rolling P75 (the one plan). It is split to reps by *baseline* share (mean run rate over
+    // the baseline window), not by each rep's own P75: means add up, percentiles do not, so reps -> company and
+    // clinics -> rep reconcile exactly and a rep with many small clinics is not penalised (2026-10-16).
+    const cnt = [0, 0, 0, 0, 0, 0, 0];
+    for (const d of pd) cnt[dow(d)]++;
+    const baseOf = (m: Map<string, number[]>, k: string) => (m.get(k) ?? []).reduce((t, x, w) => t + x * cnt[w], 0);
+    const reps = [...new Set([...repDowRev.keys(), ...rR.keys()])].map(k => ({ k, r: baseOf(repDowRev, k), o: baseOf(repDowOrd, k) }));
     const sumR = reps.reduce((x, y) => x + y.r, 0), sumO = reps.reduce((x, y) => x + y.o, 0);
+    periodGoal.push({ periodId: id, goalRevenue: totR, goalOrders: totO, baseRevenue: sumR, baseOrders: sumO });
     const repR = new Map<string, number>(), repO = new Map<string, number>();
     for (const y of reps) {
       repR.set(y.k, sumR > 0 ? (totR * y.r) / sumR : 0);
@@ -87,7 +104,7 @@ export function topDownAllocate(args: {
     }
     for (const [l, r] of lR) lead.push({ periodId: id, lead: l, expectedRevenue: r, expectedOrders: lO.get(l) ?? 0 });
   }
-  return { geoRows, sales, lead, repAlloc, geoAct };
+  return { geoRows, sales, lead, repAlloc, geoAct, periodGoal };
 }
 
 /**

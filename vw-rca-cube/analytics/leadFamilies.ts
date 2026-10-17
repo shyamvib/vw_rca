@@ -1,4 +1,5 @@
 import { loadCfg } from "./config";
+import { goalFactors } from "./baseline";
 import { v } from "convex/values";
 import {
   dow,
@@ -91,6 +92,7 @@ export const leadFamilies = gatedQuery({
       cfg.currentEnd,
     );
     const dayset = new Set(days);
+    const gf = await goalFactors(ctx, cfg, args.periodId);
     const p75f: P75Factors | null =
       cfg.baselineMode === "p75"
         ? ((cfg.p75 as P75Factors | undefined) ?? null)
@@ -105,9 +107,10 @@ export const leadFamilies = gatedQuery({
       let expected = 0;
       let expectedOrders = 0;
       for (const d of days) {
-        const f = p75Scale(p75f, kind, d);
-        expected += (s.rates[dow(d)] ?? 0) * f;
-        expectedOrders += (s.ordRates[dow(d)] ?? 0) * f;
+        const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
+        const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
+        expected += (s.rates[dow(d)] ?? 0) * fR;
+        expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
       }
       let revenue = 0;
       let orders = 0;
@@ -175,6 +178,7 @@ export const salesFamilies = scopedQuery({
       cfg.currentEnd,
     );
     const dayset = new Set(days);
+    const gf = await goalFactors(ctx, cfg, args.periodId);
     const p75f: P75Factors | null =
       cfg.baselineMode === "p75"
         ? ((cfg.p75 as P75Factors | undefined) ?? null)
@@ -189,9 +193,10 @@ export const salesFamilies = scopedQuery({
       let expected = 0;
       let expectedOrders = 0;
       for (const d of days) {
-        const f = p75Scale(p75f, kind, d);
-        expected += (s.rates[dow(d)] ?? 0) * f;
-        expectedOrders += (s.ordRates[dow(d)] ?? 0) * f;
+        const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
+        const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
+        expected += (s.rates[dow(d)] ?? 0) * fR;
+        expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
       }
       let revenue = 0;
       let orders = 0;

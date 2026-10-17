@@ -28,7 +28,7 @@ import {
 } from "./dateUtils";
 import { buyingRhythm } from "./flags";
 import { gatedAction } from "./gated";
-import { topDownAllocate, scaleClinicsToReps } from "./topDown";
+import { topDownAllocate } from "./topDown";
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
@@ -1831,16 +1831,10 @@ export const refreshData = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })) });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
-      scaleClinicsToReps({
-        rows: clinicPeriod as any,
-        td,
-        identity,
-        histRev: c => { let t = 0; for (const v of clinicDateRev.get(c)?.values() ?? []) t += v; return t; },
-        histOrd: c => { let t = 0; for (const v of clinicDateOrd.get(c)?.values() ?? []) t += v; return t; },
-      });
+      // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
       // Reverted state layer [Shyam, 2026-10-12]: no geo plan rows; geo views
       // sum the (top-down scaled) clinic rows instead.
       const geoPeriodBaseline: Array<any> = [];
@@ -1922,6 +1916,9 @@ export const refreshData = internalAction({
               rows,
               gen,
             }),
+        ),
+        ...chunk(td.periodGoal, 500).map(
+          rows => () => ctx.runMutation(internal.ingest.putPeriodGoal, { rows, gen }),
         ),
         ...chunk(geoPeriodBaseline, 150).map(
           rows => () =>
@@ -3756,16 +3753,10 @@ export const refreshSnapshot = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })) });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
-      scaleClinicsToReps({
-        rows: clinicPeriod as any,
-        td,
-        identity,
-        histRev: c => { let t = 0; for (const v of clinicDateRev.get(c)?.values() ?? []) t += v; return t; },
-        histOrd: c => { let t = 0; for (const v of clinicDateOrd.get(c)?.values() ?? []) t += v; return t; },
-      });
+      // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
       // Reverted state layer [Shyam, 2026-10-12]: no geo plan rows; geo views
       // sum the (top-down scaled) clinic rows instead.
       const geoPeriodBaseline: Array<any> = [];
@@ -3846,6 +3837,9 @@ export const refreshSnapshot = internalAction({
               rows,
               gen,
             }),
+        ),
+        ...chunk(td.periodGoal, 500).map(
+          rows => () => ctx.runMutation(internal.ingest.putPeriodGoal, { rows, gen }),
         ),
         ...chunk(geoPeriodBaseline, 150).map(
           rows => () =>

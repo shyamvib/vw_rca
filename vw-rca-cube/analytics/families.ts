@@ -1,4 +1,5 @@
 import { loadCfg, viewerCfgKey } from "./config";
+import { goalFactors } from "./baseline";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
@@ -80,9 +81,11 @@ export const context = internalQuery({
     // full window for callers that don't have a natural period of their own
     // (e.g. the provider name search).
     periodId: v.optional(v.string()),
+    /** Period whose goal factor to return when it differs from the health-flag period. */
+    goalPeriodId: v.optional(v.string()),
     cfgKey: v.optional(v.string()),
   },
-  handler: async (ctx, { family, scope, periodId, cfgKey }) => {
+  handler: async (ctx, { family, scope, periodId, goalPeriodId, cfgKey }) => {
     // Pin the rep's window for helpers called below (they read loadCfg(ctx)).
     if (cfgKey) (ctx as { __cfgKey?: string }).__cfgKey = cfgKey;
     const cfg = await loadCfg(ctx);
@@ -105,8 +108,10 @@ export const context = internalQuery({
     // the whole table a second time in one query risks Convex's per-
     // execution byte-read cap (hit in practice at ~7k clinics, 2026-09-21).
     const health = await clinicHealthMap(ctx, periodId ?? "all", clinics);
+    const goal = cfg ? await goalFactors(ctx, cfg, goalPeriodId ?? periodId ?? "all") : null;
     return {
       cfg,
+      goal,
       fam,
       clinics: clinics.map(c => ({
         clinic: c.clinic,
@@ -185,7 +190,7 @@ async function familyClinics(
   note?: string;
 }> {
   const scope = args.scope ?? "all";
-  const { cfg, fam, clinics } = await ctx.runQuery(internal.families.context, {
+  const { cfg, fam, clinics, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     family: args.family,
     scope,
@@ -201,7 +206,8 @@ async function familyClinics(
       note: "“Other families” rolls up every small family — open a named family for the clinic list.",
     };
   }
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
+  const gfO = goal?.ord ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
     cfg.currentStart,
@@ -213,8 +219,8 @@ async function familyClinics(
   let expOrd = 0;
   if (fam) {
     for (const d of days) {
-      expRev += fam.rates[dow(d)] * p75f;
-      expOrd += fam.ordRates[dow(d)] * p75f;
+      expRev += fam.rates[dow(d)] * gfR;
+      expOrd += fam.ordRates[dow(d)] * gfO;
     }
   }
   const revShare = fam && fam.baseRev ? expRev / fam.baseRev : 0;
@@ -397,14 +403,15 @@ async function customers(
   args: { clinic: string; periodId: string; family?: string; scope?: string },
 ): Promise<{ rows: CustomerRow[]; total: number }> {
   const scope = args.scope ?? "all";
-  const { cfg, fam, clinics } = await ctx.runQuery(internal.families.context, {
+  const { cfg, fam, clinics, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     family: args.family,
     scope,
     periodId: args.periodId,
   });
   if (!cfg) return { rows: [], total: 0 };
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
+  const gfO = goal?.ord ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
     cfg.currentStart,
@@ -420,8 +427,8 @@ async function customers(
   let baseOrders = 0;
   if (args.family && fam) {
     for (const d of days) {
-      expRev += fam.rates[dow(d)] * p75f;
-      expOrd += fam.ordRates[dow(d)] * p75f;
+      expRev += fam.rates[dow(d)] * gfR;
+      expOrd += fam.ordRates[dow(d)] * gfO;
     }
     baseRev = fam.baseRev;
     baseOrders = fam.baseOrders;
@@ -441,8 +448,8 @@ async function customers(
           ? clinicMeta.ord[i] - (clinicMeta.bOrd?.[i] ?? 0)
           : clinicMeta.ord[i];
     for (const d of days) {
-      expRev += rev(dow(d)) * p75f;
-      expOrd += ord(dow(d)) * p75f;
+      expRev += rev(dow(d)) * gfR;
+      expOrd += ord(dow(d)) * gfO;
     }
     for (const d of eachDay(cfg.baselineStart, cfg.baselineEnd)) {
       baseRev += rev(dow(d));
@@ -580,12 +587,12 @@ async function portfolio(
   args: { clinic: string; periodId: string; scope?: string },
 ): Promise<{ rows: PortfolioRow[]; note?: string }> {
   const scope = args.scope ?? "all";
-  const { cfg, clinics } = await ctx.runQuery(internal.families.context, {
+  const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     periodId: args.periodId,
   });
   if (!cfg) return { rows: [] };
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
     cfg.currentStart,
@@ -626,7 +633,7 @@ async function portfolio(
           ? meta.rev[i] - (meta.bRev?.[i] ?? 0)
           : meta.rev[i];
     let exp = 0;
-    for (const d of days) exp += rate(dow(d)) * p75f;
+    for (const d of days) exp += rate(dow(d)) * gfR;
     let baseTot = 0;
     for (const d of baseDays) baseTot += rate(dow(d));
     share = baseTot ? exp / baseTot : 0;
@@ -759,13 +766,13 @@ async function unmappedTests(
   ctx: any,
   args: { periodId: string; limit?: number },
 ): Promise<{ rows: UnmappedTest[]; note: string }> {
-  const { cfg, fam } = await ctx.runQuery(internal.families.context, {
+  const { cfg, fam, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     family: "Unmapped",
     periodId: args.periodId,
   });
   if (!cfg) return { rows: [], note: "No configuration loaded." };
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
     cfg.currentStart,
@@ -777,7 +784,7 @@ async function unmappedTests(
   let share = 0;
   if (fam?.baseRev) {
     let exp = 0;
-    for (const d of days) exp += fam.rates[dow(d)] * p75f;
+    for (const d of days) exp += fam.rates[dow(d)] * gfR;
     share = exp / fam.baseRev;
   } else {
     const baseDays = eachDay(cfg.baselineStart, cfg.baselineEnd);
@@ -945,8 +952,10 @@ async function switchClinics(
     }),
   ]);
   const cfg = downCtx.cfg;
+  const goal = downCtx.goal;
   if (!cfg) return empty;
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
+  const gfO = goal?.ord ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
     cfg.currentStart,
@@ -967,8 +976,8 @@ async function switchClinics(
     let r = 0;
     let o = 0;
     for (const d of days) {
-      r += fam.rates[dow(d)] * p75f;
-      o += fam.ordRates[dow(d)] * p75f;
+      r += fam.rates[dow(d)] * gfR;
+      o += fam.ordRates[dow(d)] * gfO;
     }
     return {
       rev: fam.baseRev ? r / fam.baseRev : 0,
@@ -1279,12 +1288,14 @@ async function providers(
 ): Promise<{ ready: boolean; rows: ProviderRow[] }> {
   const q = term.trim();
   if (q.length < 2) return { ready: true, rows: [] };
-  const { cfg, clinics } = await ctx.runQuery(internal.families.context, {
+  const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     periodId: "all",
+    goalPeriodId: periodId,
   });
   if (!cfg) return { ready: false, rows: [] };
-  const p75f = windowP75(cfg);
+  const gfR = goal?.rev ?? windowP75(cfg);
+  const gfO = goal?.ord ?? windowP75(cfg);
   const pr = periodRange(periodId, cfg.currentStart, cfg.currentEnd);
   const days = pr.days.length ? pr.days : eachDay(cfg.currentStart, cfg.currentEnd);
   const pStart = days[0];
@@ -1304,8 +1315,8 @@ async function providers(
     let expRev = 0;
     let expOrd = 0;
     for (const d of days) {
-      expRev += c.rev[dow(d)] * p75f;
-      expOrd += c.ord[dow(d)] * p75f;
+      expRev += c.rev[dow(d)] * gfR;
+      expOrd += c.ord[dow(d)] * gfO;
     }
     share.set(c.clinic, {
       rev: c.baseRev ? expRev / c.baseRev : 0,

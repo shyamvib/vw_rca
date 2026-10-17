@@ -15,6 +15,7 @@ const CLEARABLE = [
   "clinicPeriod",
   "leadPeriodBaseline",
   "salesPeriodBaseline",
+  "periodGoal",
   "geoPeriodBaseline",
   "familyBaseline",
   "familyPeriod",
@@ -300,6 +301,24 @@ export const putLeadPeriodBaseline = internalMutation({
   },
 });
 
+export const putPeriodGoal = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        periodId: v.string(),
+        goalRevenue: v.number(),
+        goalOrders: v.number(),
+        baseRevenue: v.number(),
+        baseOrders: v.number(),
+      }),
+    ),
+    gen: v.number(),
+  },
+  handler: async (ctx, { rows, gen }) => {
+    for (const row of rows) await ctx.db.insert("periodGoal", { ...row, gen });
+  },
+});
+
 export const putSalesPeriodBaseline = internalMutation({
   args: {
     rows: v.array(
@@ -508,6 +527,7 @@ const GEN_TABLES = [
   "clinicPeriod",
   "leadPeriodBaseline",
   "salesPeriodBaseline",
+  "periodGoal",
   "geoPeriodBaseline",
   "familyBaseline",
   "familyPeriod",

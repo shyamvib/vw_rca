@@ -350,7 +350,8 @@ export const scopeTotals = scopedQuery({
       nonBundleDelta = 0,
       patients = 0,
       expectedPatients = 0;
-    const cohorts = new Map<string, { actual: number; expected: number; clinics: number }>();
+    const cohorts = new Map<string, { actual: number; expected: number; baseline: number; clinics: number }>();
+    let baselineSum = 0;
     for (const r of res.rows) {
       actual += r.actual;
       orders += r.orders;
@@ -358,9 +359,11 @@ export const scopeTotals = scopedQuery({
       nonBundleDelta += r.nonBundleDelta;
       patients += r.patients;
       expectedPatients += r.expectedPatients;
-      const c = cohorts.get(r.cohort) ?? { actual: 0, expected: 0, clinics: 0 };
+      const c = cohorts.get(r.cohort) ?? { actual: 0, expected: 0, baseline: 0, clinics: 0 };
       c.actual += r.actual;
       c.expected += r.expected;
+      c.baseline += r.baseline;
+      baselineSum += r.baseline;
       c.clinics += 1;
       cohorts.set(r.cohort, c);
     }
@@ -412,6 +415,9 @@ export const scopeTotals = scopedQuery({
       actual,
       expected,
       delta: actual - expected,
+      baseline: baselineSum,
+      realChange: actual - baselineSum,
+      ambition: expected - baselineSum,
       orders,
       expectedOrders,
       volume,
@@ -424,8 +430,17 @@ export const scopeTotals = scopedQuery({
       baseAov: scopeBaseAov,
       // Calibrated to the scope's headline baseline, so the cohort rows add up to `delta` (analytics/lifecycle.ts).
       ...(() => {
-        const cal = calibrate([...cohorts].map(([cohort, c]) => ({ cohort, ...c })), expected);
-        return { cohorts: cal.rows.map(r => ({ cohort: r.cohort, delta: r.delta, clinics: r.clinics })), cohortCalibration: cal.factor };
+        const cal = calibrate([...cohorts].map(([cohort, c]) => ({ cohort, actual: c.actual, expected: c.expected, clinics: c.clinics })), expected);
+        return {
+          cohorts: cal.rows.map(r => ({
+            cohort: r.cohort,
+            delta: r.delta,
+            clinics: r.clinics,
+            real: r.actual - (cohorts.get(r.cohort)?.baseline ?? 0),
+            ambition: r.expected * cal.factor - (cohorts.get(r.cohort)?.baseline ?? 0),
+          })),
+          cohortCalibration: cal.factor,
+        };
       })(),
     };
   },

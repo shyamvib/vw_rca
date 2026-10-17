@@ -18,6 +18,9 @@ type Row = {
   key: string;
   /** Clinic count behind a cohort row (used to total the grouped "Active" stage). */
   clinics?: number;
+  /** Real change (actual - baseline) and ambition (goal - baseline) behind `value` (= real - ambition). */
+  real?: number;
+  ambition?: number;
   /** The grouped "Active" lifecycle stage keeps its size tiers (top 20% / everyone else) here. */
   tiers?: Row[];
   /** "patients" rows carry a headcount, not dollars, and are read on their
@@ -38,6 +41,10 @@ type FamilyRow = {
 type Period = {
   /** Factor the cohort rows' expected was scaled by so they add up to the headline delta. */
   cohortCalibration?: number;
+  /** Baseline (mean run rate), real change (actual - baseline) and ambition (goal - baseline; `expected` is the goal). */
+  baseline?: number;
+  realChange?: number;
+  ambition?: number;
   id: string;
   kind: "all" | "quarter" | "month" | "week" | "day";
   label: string;
@@ -978,8 +985,11 @@ type ScopeTotals = {
   expectedPatients?: number;
   aov?: number;
   baseAov?: number;
-  cohorts?: Array<{ cohort: string; delta: number; clinics?: number }>;
+  cohorts?: Array<{ cohort: string; delta: number; clinics?: number; real?: number; ambition?: number }>;
   cohortCalibration?: number;
+  baseline?: number;
+  realChange?: number;
+  ambition?: number;
 };
 
 const COHORT_LABEL: Record<string, string> = {
@@ -1013,6 +1023,8 @@ function groupActive(rows: Row[]): Row[] {
     label: "Active clinics",
     sub: n ? `${n.toLocaleString("en-US")} clinics · ordered in the baseline and now` : "ordered in the baseline and now",
     value: top.value + rest.value,
+    real: top.real !== undefined && rest.real !== undefined ? top.real + rest.real : undefined,
+    ambition: top.ambition !== undefined && rest.ambition !== undefined ? top.ambition + rest.ambition : undefined,
     lens: "cohort",
     key: "active",
     clinics: n || undefined,
@@ -1104,8 +1116,13 @@ function scopePeriod(
       lens: "cohort",
       key: c.cohort,
       clinics: c.clinics,
+      real: c.real,
+      ambition: c.ambition,
     })),
     cohortCalibration: scoped.cohortCalibration,
+    baseline: scoped.baseline,
+    realChange: scoped.realChange,
+    ambition: scoped.ambition,
     lensD: [
       ...worst.map(g => ({
         label: g.label,
@@ -2178,13 +2195,18 @@ export function RcaDashboardPage() {
           {/* Expected / actual flank the root so the shortfall reads in context. */}
           <div className="rca-root-row">
             <div className="rca-root-side">
-              <div className="rca-eyebrow rca-dim">Expected</div>
+              <div className="rca-eyebrow rca-dim">Goal</div>
               <div className="rca-root-side-value">
                 {MONEY_PLAIN(active.expected)}
               </div>
               <div className="rca-eyebrow rca-dim">
                 {INT(active.expectedOrders)} orders · AOV ${INT(active.baseAov)}
               </div>
+              {active.baseline !== undefined ? (
+                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the rolling P75 on top of it">
+                  Baseline {MONEY_PLAIN(active.baseline)}
+                </div>
+              ) : null}
             </div>
             <button
               type="button"
@@ -2219,8 +2241,14 @@ export function RcaDashboardPage() {
               </div>
               <div className="rca-eyebrow rca-dim">
                 {Math.abs((active.delta / active.expected) * 100).toFixed(1)}%{" "}
-                {active.delta < 0 ? "below" : "above"} baseline
+                {active.delta < 0 ? "below" : "above"} goal
               </div>
+              {active.realChange !== undefined && active.ambition !== undefined ? (
+                <div className="rca-root-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
+                  <span style={{ color: active.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Real change {MONEY(active.realChange)}</span>
+                  <span style={{ color: active.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Ambition {MONEY(-active.ambition)}</span>
+                </div>
+              ) : null}
               <div className="rca-eyebrow rca-blue">
                 {drill && drill.lens === "total"
                   ? "hide clinics"
@@ -2333,6 +2361,12 @@ export function RcaDashboardPage() {
                               : MONEY(row.value)}
                           </span>
                         </div>
+                        {row.real !== undefined && row.ambition !== undefined ? (
+                          <div className="rca-lens-real">
+                            <span style={{ color: row.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>real {MONEY(row.real)}</span>
+                            <span style={{ color: row.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>ambition {MONEY(-row.ambition)}</span>
+                          </div>
+                        ) : null}
                         <div className="rca-lens-row-sub">
                           <span>{row.sub}</span>
                           <span>
@@ -2849,7 +2883,7 @@ function ProviderSearchResults({
                 <th>Clinic</th>
                 <th>State</th>
                 <th>Owner</th>
-                <th className="rca-num">Expected</th>
+                <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
                 <th className="rca-num">Actual</th>
                 <th className="rca-num">Orders</th>
                 <th className="rca-num">AOV</th>
@@ -3996,7 +4030,7 @@ function ClinicPanel({
                     {filters.th("Prior 90d orders", "stopPrior")}
                   </>
                 ) : null}
-                {filters.th("Expected", "expected")}
+                {filters.th("Goal", "expected")}
                 {filters.th("Actual", "actual")}
                 {filters.th("Orders", "orders")}
                 {filters.th("Order Δ", "orderDelta")}
@@ -4307,7 +4341,7 @@ export function FamilyPanel({
                 <th>State</th>
                 <th>Owner</th>
                 <th>Cohort</th>
-                {filters.th("Expected", "expected")}
+                {filters.th("Goal", "expected")}
                 {filters.th("Actual", "revenue")}
                 {filters.th("Orders", "orders")}
                 {filters.th("Order Δ", "orderDelta")}
@@ -4437,7 +4471,7 @@ function UnmappedTestsInner({ periodId }: { periodId: string }) {
                     <th>#</th>
                     <th>Test</th>
                     <th className="rca-num">Orders</th>
-                    <th className="rca-num">Expected</th>
+                    <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
                     <th className="rca-num">Order Δ</th>
                     <th className="rca-num">Revenue on those orders</th>
                     <th className="rca-num">Revenue Δ</th>
@@ -4899,7 +4933,7 @@ function CustomerTable({
         <tr>
           <th>Customer</th>
           <th>Type</th>
-          <th className="rca-num">Expected</th>
+          <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
           <th className="rca-num">Actual</th>
           <th className="rca-num">Orders</th>
           <th className="rca-num">Patients</th>
@@ -5509,7 +5543,7 @@ function SwitchPanel({
                 <th>State</th>
                 <th>Owner</th>
                 <th>Cohort</th>
-                {filters.th("Expected", "expected")}
+                {filters.th("Goal", "expected")}
                 {filters.th("Actual", "revenue")}
                 {filters.th("Orders", "orders")}
                 {filters.th("Order Δ", "orderDelta")}

@@ -227,6 +227,21 @@ const schema = defineSchema({
 
   // Same as leadPeriodBaseline, keyed by individual sales rep (RSM) instead
   // of team lead.
+  // One row per period (Shyam, 2026-10-16 baseline / goal redesign). Baseline = the mean run rate over the baseline
+  // window (additive across clinic, rep, lead, cohort, state, company). Goal = the company's rolling P75 for the
+  // period. goalFactor = goal / baseline: every entity's goal is its baseline x this one factor, so goals add up
+  // exactly and "ambition" (goal minus baseline) splits by baseline share.
+  periodGoal: defineTable({
+    periodId: v.string(),
+    goalRevenue: v.number(),
+    goalOrders: v.number(),
+    baseRevenue: v.number(),
+    baseOrders: v.number(),
+    gen: v.optional(v.number()),
+  })
+    .index("by_gen", ["gen"])
+    .index("by_gen_period", ["gen", "periodId"]),
+
   salesPeriodBaseline: defineTable({
     periodId: v.string(),
     sales: v.string(),

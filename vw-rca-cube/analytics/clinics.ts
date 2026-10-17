@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
 import { ACTIVE_COHORTS } from "./lifecycle";
+import { goalFactors } from "./baseline";
 import {
   addDays,
   dayType,
@@ -9,7 +10,6 @@ import {
   eachDay,
   monthKey,
   quarterKey,
-  windowP75,
 } from "./dateUtils";
 import { evaluateFlags } from "./flags";
 import { scopedQuery } from "./gated";
@@ -54,7 +54,15 @@ export type ClinicRow = {
   newGroups: string[];
   health: string[];
   pstatus: string[];
+  /** Goal: baseline x the period goal factor. `delta` is actual minus this. */
   expected: number;
+  /** Baseline: mean run rate over the baseline window (additive). */
+  baseline: number;
+  baselineOrders: number;
+  /** actual - baseline: what actually moved. */
+  realChange: number;
+  /** goal - baseline: the stretch above the baseline. delta = realChange - ambition. */
+  ambition: number;
   actual: number;
   delta: number;
   orders: number;
@@ -277,7 +285,7 @@ export async function clinicPerformanceMap(
   const cfg = await loadCfg(ctx);
   if (!cfg) return { ready: false, cutoff: "", byClinic: new Map() };
   const gen = cfg.gen ?? 0;
-  const p75f = windowP75(cfg);
+  const gf = await goalFactors(ctx, cfg, periodId);
   const days = periodDays(periodId, cfg.currentStart, cfg.currentEnd);
   if (days.length === 0)
     return { ready: false, cutoff: "", byClinic: new Map() };
@@ -317,9 +325,9 @@ export async function clinicPerformanceMap(
     for (let i = 0; i < 7; i++) {
       const c = dowCounts[i];
       if (!c) continue;
-      expected += m.rev[i] * p75f * c;
-      expectedOrders += m.ord[i] * p75f * c;
-      expBundleOrd += m.bOrd[i] * p75f * c;
+      expected += m.rev[i] * gf.rev * c;
+      expectedOrders += m.ord[i] * gf.ord * c;
+      expBundleOrd += m.bOrd[i] * gf.ord * c;
     }
     byClinic.set(m.clinic, {
       actual,
@@ -416,7 +424,7 @@ export async function drill(
   if (!cfg) return { ready: false as const, rows: [], total: 0, count: 0 };
   const gen = cfg.gen ?? 0;
 
-  const p75f = windowP75(cfg);
+  const gf = await goalFactors(ctx, cfg, args.periodId);
   const days = periodDays(args.periodId, cfg.currentStart, cfg.currentEnd);
   if (days.length === 0) {
     return { ready: false as const, rows: [], total: 0, count: 0 };
@@ -554,29 +562,23 @@ export async function drill(
     let expBundleRev = 0;
     let expBundleOrd = 0;
     let expPatients = 0;
-    // Power BI-equivalent rolling P75 baseline (trailing 13 weeks / 3
-    // months), precomputed per clinic per period at refresh time onto this
-    // same clinicPeriod row — see dateUtils.ts's trailingDayP75/
-    // trailingWeekP75/trailingMonthP75 and refresh.ts's "4d." section
-    // (2026-09-28). Falls back to the old static-rate baseline below for a
-    // clinic/period with no precomputed value (e.g. a brand-new clinic
-    // added mid-generation).
-    const hasBaseline = a?.expectedRevenue !== undefined;
+    // Baseline = the clinic's mean run rate over the baseline window; goal = baseline x the period's goal factor
+    // (analytics/baseline.ts). Computed for EVERY clinic, ordering or not, so clinic goals add up to the rep's, the
+    // rep's to the lead's and the company's exactly. (Until 2026-10-16 ordering clinics were scaled to their rep while
+    // non-ordering ones got an extra unscaled expectation on top, so clinic rows summed to more than the book.)
+    let baseline = 0;
+    let baselineOrders = 0;
     for (let i = 0; i < 7; i++) {
       const c = dowCounts[i];
       if (!c) continue;
-      expBundleRev += m.bRev[i] * p75f * c;
-      expBundleOrd += m.bOrd[i] * p75f * c;
-      expPatients += (m.pat?.[i] ?? 0) * p75f * c;
-      if (!hasBaseline) {
-        expected += m.rev[i] * p75f * c;
-        expectedOrders += m.ord[i] * p75f * c;
-      }
+      baseline += m.rev[i] * c;
+      baselineOrders += m.ord[i] * c;
+      expBundleRev += m.bRev[i] * gf.rev * c;
+      expBundleOrd += m.bOrd[i] * gf.ord * c;
+      expPatients += (m.pat?.[i] ?? 0) * gf.ord * c;
     }
-    if (hasBaseline) {
-      expected = a?.expectedRevenue ?? 0;
-      expectedOrders = a?.expectedOrdersP75 ?? 0;
-    }
+    expected = baseline * gf.rev;
+    expectedOrders = baselineOrders * gf.ord;
 
     // A brand-new clinic legitimately has expected=0 on any day it hasn't
     // ordered yet (no baseline history to project from), so this skip used
@@ -680,6 +682,10 @@ export async function drill(
       health,
       pstatus: m.pstatus ?? [],
       expected: scoped.expected,
+      baseline: scoped.expected / (gf.rev || 1),
+      baselineOrders: scoped.expectedOrders / (gf.ord || 1),
+      realChange: scoped.actual - scoped.expected / (gf.rev || 1),
+      ambition: scoped.expected - scoped.expected / (gf.rev || 1),
       actual: scoped.actual,
       delta,
       orders: scoped.orders,
@@ -706,7 +712,7 @@ export async function drill(
       lastOrderAllTime: m.lastOrderAllTime,
       lastTouchDate: m.lastTouchDate,
       firstOrder: m.firstOrder,
-      rateDow: m.rev.map(x => x * p75f),
+      rateDow: m.rev.map(x => x * gf.rev),
       baseOrdersPerDay: m.ord.reduce((a, b) => a + b, 0) / 7,
     });
   }
@@ -741,7 +747,7 @@ export async function drill(
       rows.push({
         clinic, windowOrders: 0, windowOrderDays: 0, name: s0.name, state: s0.state,
         country: "—", teamLead: s0.teamLead ?? "—", sales: s0.sales, cohort: "—",
-        newGroups: [], health: [], pstatus: [], expected: 0, actual: 0, delta: 0,
+        newGroups: [], health: [], pstatus: [], expected: 0, baseline: 0, baselineOrders: 0, realChange: 0, ambition: 0, actual: 0, delta: 0,
         orders: 0, expectedOrders: 0, volume: 0, aovEffect: 0, aov: 0, baseAov: 0,
         bundleDelta: 0, nonBundleDelta: 0, bundleOrders: 0, bundleShare: 0,
         baseBundleShare: 0, patients: 0, expectedPatients: 0, patientDelta: 0,

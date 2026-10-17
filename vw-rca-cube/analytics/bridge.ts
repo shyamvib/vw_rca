@@ -30,6 +30,9 @@ import { scopedQuery } from "./gated";
 
 type Row = {
   clinics?: number;
+  /** Real change (actual - baseline) and ambition (goal - baseline) behind `value` (= real - ambition). */
+  real?: number;
+  ambition?: number;
   label: string;
   sub: string;
   value: number;
@@ -75,8 +78,13 @@ export type Period = {
   lensA: Row[];
   lensB: Row[];
   lensC: Row[];
-  /** Factor the cohort rows' expected was scaled by so they sum to the headline delta. */
+  /** Factor the cohort rows' expected was scaled by so they sum to the headline delta (1.000 on a goal-based build). */
   cohortCalibration?: number;
+  /** Baseline (mean run rate), real change (actual - baseline) and ambition (goal - baseline = `expected` - baseline). */
+  baseline?: number;
+  realChange?: number;
+  ambition?: number;
+  baselineOrders?: number;
   lensD: Row[];
   topStates: Array<{ state: string; value: number }>;
 };
@@ -162,6 +170,11 @@ async function computeBridge(ctx: QueryCtx) {
   }
 
   const byDate = new Map(daily.map(d => [d.date, d]));
+  const goalRows = await ctx.db
+    .query("periodGoal")
+    .withIndex("by_gen", q => q.eq("gen", gen))
+    .collect();
+  const goalMap = new Map(goalRows.map(g => [g.periodId, g]));
 
   // ---------- baseline rates (per weekday, bucketed by the chosen mode) ----------
   const mode = (cfg.baselineMode ?? "prior_equal") as BaselineMode;
@@ -272,13 +285,28 @@ async function computeBridge(ctx: QueryCtx) {
     return { revenue, orders };
   }
 
+  const cohortBaseForPeriod = (days: string[]) => {
+    const m = new Map<string, number>();
+    for (const cb of cohortBaseline) {
+      let b = 0;
+      for (const d of days) b += cb.rates[dow(d)];
+      m.set(cb.cohort, b);
+    }
+    return m;
+  };
+
   function build(
     id: string,
     kind: Period["kind"],
     label: string,
     days: string[],
   ): Period {
-    const sc = (d: string): number => p75Scale(p75f, kind, d);
+    // Baseline x goal factor (analytics/baseline.ts); falls back to the old per-day P75 scale on an older snapshot.
+    const g = goalMap.get(id);
+    const fR = g && g.baseRevenue > 0 ? g.goalRevenue / g.baseRevenue : null;
+    const fO = g && g.baseOrders > 0 ? g.goalOrders / g.baseOrders : fR;
+    const sc = (d: string): number => fR ?? p75Scale(p75f, kind, d);
+    const scO = (d: string): number => fO ?? p75Scale(p75f, kind, d);
     let orders = 0;
     let revenue = 0;
     let bundleOrders = 0;
@@ -303,7 +331,7 @@ async function computeBridge(ctx: QueryCtx) {
       if (t === "wk") wk += 1;
       else we += 1;
       const i = dow(d);
-      const f = sc(d);
+      const f = scO(d);
       expB += rate.bundle[i] * f;
       expNb += rate.nonBundle[i] * f;
       expPat += rate.patients[i] * f;
@@ -318,6 +346,12 @@ async function computeBridge(ctx: QueryCtx) {
     const delta = revenue - expected;
     const aov = orders ? revenue / orders : 0;
     const rollingBaseAov = expAll ? expected / expAll : 0;
+    // Baseline (company mean run rate) and the split of the shortfall into real change vs ambition.
+    const baselineRev = g && g.baseRevenue > 0 ? g.baseRevenue : [...cohortBaseForPeriod(days).values()].reduce((t, x) => t + x, 0);
+    const baselineOrd = g?.baseOrders ?? 0;
+    const realChange = revenue - baselineRev;
+    const ambition = expected - baselineRev;
+    const fAmb = baselineRev > 0 ? expected / baselineRev - 1 : 0; // goal factor - 1
 
     const volume = (orders - expAll) * rollingBaseAov;
     const aovEffect = orders * (aov - rollingBaseAov);
@@ -333,11 +367,17 @@ async function computeBridge(ctx: QueryCtx) {
       nbOrders * ((nbOrders ? nbRevenue / nbOrders : 0) - baseAov.nonBundle);
 
     // Lens C — clinic cohorts
+    const cohortBase = new Map<string, number>();
     const cohortAgg = cohortBaseline.map(cb => {
       let actual = 0;
       for (const d of days) actual += cohortActual.get(d)?.get(cb.cohort) ?? 0;
       let exp = 0;
-      for (const d of days) exp += cb.rates[dow(d)] * sc(d);
+      let base = 0;
+      for (const d of days) {
+        exp += cb.rates[dow(d)] * sc(d);
+        base += cb.rates[dow(d)];
+      }
+      cohortBase.set(cb.cohort, base);
       return { cohort: cb.cohort, actual, expected: exp, clinics: cb.clinics };
     });
     // Calibrated to the headline baseline so the cohort rows add up to the headline delta (analytics/lifecycle.ts).
@@ -346,6 +386,8 @@ async function computeBridge(ctx: QueryCtx) {
       label: COHORT_LABEL[r.cohort] ?? r.cohort,
       sub: `${fmtInt(r.clinics)} clinics`,
       value: r.delta,
+      real: r.actual - (cohortBase.get(r.cohort) ?? 0),
+      ambition: r.expected * cal.factor - (cohortBase.get(r.cohort) ?? 0),
       lens: "cohort",
       key: r.cohort,
       clinics: r.clinics,
@@ -355,6 +397,7 @@ async function computeBridge(ctx: QueryCtx) {
 
     // Lens D — states
     const stateDelta = new Map<string, number>();
+    const stateBaseSum = new Map<string, number>(); // baseline $ per state, for real change vs ambition
     const ga = geoAllocBy.get(id);
     if (ga && ga.length) {
       // expected = top-down plan; actual = stateDaily (same source as headline)
@@ -370,8 +413,13 @@ async function computeBridge(ctx: QueryCtx) {
     } else {
       for (const sb of stateBaseline) {
         let exp = 0;
-        for (const d of days) exp += sb.rates[dow(d)] * sc(d);
+        let base = 0;
+        for (const d of days) {
+          exp += sb.rates[dow(d)] * sc(d);
+          base += sb.rates[dow(d)];
+        }
         stateDelta.set(sb.state, -exp);
+        stateBaseSum.set(sb.state, base);
       }
       for (const d of days) {
         const m = stateActual.get(d);
@@ -386,11 +434,16 @@ async function computeBridge(ctx: QueryCtx) {
     const worstSum = worst.reduce((s, [, v]) => s + v, 0);
     const othersSum = sorted.slice(4).reduce((s, [, v]) => s + v, 0);
     const worstKey = worst.map(([s]) => s).join("/");
+    const ambOf = (st: string) => (stateBaseSum.get(st) ?? 0) * fAmb;
+    const worstAmb = worst.reduce((t, [st]) => t + ambOf(st), 0);
+    const othersAmb = sorted.slice(4).reduce((t, [st]) => t + ambOf(st), 0);
     const lensD: Row[] = [
       {
         label: worst.map(([s]) => s).join(" / "),
         sub: "four worst states",
         value: worstSum,
+        real: worstSum + worstAmb,
+        ambition: worstAmb,
         lens: "state",
         key: worstKey,
       },
@@ -398,6 +451,8 @@ async function computeBridge(ctx: QueryCtx) {
         label: "All other states",
         sub: "net",
         value: othersSum,
+        real: othersSum + othersAmb,
+        ambition: othersAmb,
         lens: "state",
         key: `!${worstKey}`,
       },
@@ -416,9 +471,8 @@ async function computeBridge(ctx: QueryCtx) {
         let exp = 0;
         let expOrd = 0;
         for (const d of days) {
-          const f = sc(d);
-          exp += fb.rates[dow(d)] * f;
-          expOrd += fb.ordRates[dow(d)] * f;
+          exp += fb.rates[dow(d)] * sc(d);
+          expOrd += fb.ordRates[dow(d)] * scO(d);
         }
         const a = famActual.get(`${scope}|${fb.family}`) ?? {
           revenue: 0,
@@ -466,6 +520,10 @@ async function computeBridge(ctx: QueryCtx) {
       holiday,
       actual: revenue,
       expected,
+      baseline: baselineRev,
+      baselineOrders: baselineOrd,
+      realChange,
+      ambition,
       delta,
       orders,
       expectedOrders: expAll,
@@ -481,6 +539,8 @@ async function computeBridge(ctx: QueryCtx) {
           label: "Order volume",
           sub: `${fmtInt(orders - expAll)} orders vs expected`,
           value: volume,
+          real: baselineOrd > 0 ? (orders - baselineOrd) * (baselineRev / baselineOrd) : undefined,
+          ambition: baselineOrd > 0 ? (expAll - baselineOrd) * (baselineRev / baselineOrd) : undefined,
           lens: "volume",
           key: "",
         },
@@ -488,6 +548,8 @@ async function computeBridge(ctx: QueryCtx) {
           label: "AOV / price-mix",
           sub: `${aov - rollingBaseAov >= 0 ? "+" : "-"}$${fmtInt(Math.abs(aov - rollingBaseAov))} AOV`,
           value: aovEffect,
+          real: baselineOrd > 0 ? realChange - (orders - baselineOrd) * (baselineRev / baselineOrd) : undefined,
+          ambition: baselineOrd > 0 ? ambition - (expAll - baselineOrd) * (baselineRev / baselineOrd) : undefined,
           lens: "aov",
           key: "",
         },

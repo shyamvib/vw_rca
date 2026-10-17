@@ -1086,8 +1086,8 @@ function WindowTab({
     return sameDirection ? `${share}% of ${noun}` : `${share}% offset`;
   };
   // Lifecycle view of the cohort card: retained top 20% + the rest are one stage, Active, cut by size.
-  const lifecycleRows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; focus: string; sub: string }> }> = (() => {
-    const one = (c: Book) => ({ l: `${COHORT[c.key] ?? c.key} (${c.clinics})`, v: c.delta, focus: `cohort:${c.key}`, sub: "clinic cohort", cohortSplit: c });
+  const lifecycleRows: Array<{ l: string; v: number; real?: number; amb?: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; real?: number; amb?: number; focus: string; sub: string }> }> = (() => {
+    const one = (c: Book) => ({ l: `${COHORT[c.key] ?? c.key} (${c.clinics})`, v: c.delta, real: c.real as number | undefined, amb: c.ambition as number | undefined, focus: `cohort:${c.key}`, sub: "clinic cohort", cohortSplit: c });
     const top = cohorts.find((c: Book) => c.key === "retained_top20");
     const rest = cohorts.find((c: Book) => c.key === "retained_rest");
     if (!top || !rest) return cohorts.map(one);
@@ -1096,15 +1096,15 @@ function WindowTab({
       posSum: top.posSum + rest.posSum, posCount: top.posCount + rest.posCount, posIds: [...top.posIds, ...rest.posIds],
       negSum: top.negSum + rest.negSum, negCount: top.negCount + rest.negCount, negIds: [...top.negIds, ...rest.negIds],
     };
-    const tier = (c: Book, name: string) => ({ l: `${name} (${c.clinics})`, v: c.delta, focus: `cohort:${c.key}`, sub: "size tier of Active" });
-    const active = { l: `Active (${merged.clinics})`, v: merged.delta, focus: "cohort:active", sub: "ordered in the baseline and now", cohortSplit: merged, tiers: [tier(top, "Largest 20%"), tier(rest, "Everyone else")] };
+    const tier = (c: Book, name: string) => ({ l: `${name} (${c.clinics})`, v: c.delta, real: c.real as number | undefined, amb: c.ambition as number | undefined, focus: `cohort:${c.key}`, sub: "size tier of Active" });
+    const active = { l: `Active (${merged.clinics})`, v: merged.delta, real: top.real + rest.real, amb: top.ambition + rest.ambition, focus: "cohort:active", sub: "ordered in the baseline and now", cohortSplit: merged, tiers: [tier(top, "Largest 20%"), tier(rest, "Everyone else")] };
     return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest").map(one), active].sort((a, b) => a.v - b.v);
   })();
   const lensCards: Array<{
     k: string;
     t: string;
     q: string;
-    rows: Array<{ l: string; v: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; focus: string; sub: string }> }>;
+    rows: Array<{ l: string; v: number; real?: number; amb?: number; focus: string; sub: string; cohortSplit?: Book; tiers?: Array<{ l: string; v: number; real?: number; amb?: number; focus: string; sub: string }> }>;
     note: string;
   }> = [
     {
@@ -1237,12 +1237,19 @@ function WindowTab({
         <div className="rv-tree">
           <div className="rv-tree-root">
             <div className="rv-tree-side">
-              <div className="rv-eyebrow rv-dim">Expected</div>
+              <div className="rv-eyebrow rv-dim">Goal</div>
               <div className="rv-tree-side-v">{K(b.totals.expected)}</div>
+              {b.totals.baseline !== undefined ? <div className="rv-eyebrow rv-dim" title="Mean run rate over the baseline window; the goal is the rolling P75 on top of it">Baseline {K(b.totals.baseline)}</div> : null}
             </div>
             <button type="button" className="rv-tree-node" onClick={() => openFocus("", "Whole book")}>
               <div className="rv-eyebrow rv-dim">{periodLabel}</div>
               <div className={`rv-tree-node-v ${b.totals.delta < 0 ? "bad" : "good"}`}>{SK(b.totals.delta)}</div>
+              {b.totals.realChange !== undefined ? (
+                <div className="rv-tree-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
+                  <span className={b.totals.realChange < 0 ? "bad" : "good"}>Real change {SK(b.totals.realChange)}</span>
+                  <span className={b.totals.ambition > 0 ? "bad" : "good"}>Ambition {SK(-b.totals.ambition)}</span>
+                </div>
+              ) : null}
               <div className="rv-eyebrow rv-blue">clinic list ↓</div>
             </button>
             <div className="rv-tree-side">
@@ -1263,6 +1270,9 @@ function WindowTab({
                         <span>{r.l}</span>
                         <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
                       </div>
+                      {r.real !== undefined && r.amb !== undefined ? (
+                        <div className="rv-lens-real"><span className={r.real < 0 ? "bad" : "good"}>real {SK(r.real)}</span><span className={r.amb > 0 ? "bad" : "good"}>ambition {SK(-r.amb)}</span></div>
+                      ) : null}
                       <Bar v={r.v} max={max} />
                     </button>
                     {r.tiers?.map(t => (
@@ -1282,9 +1292,12 @@ function WindowTab({
         <div className="rca-tree rv-rca-tree">
           <div className="rca-root-row">
             <div className="rca-root-side">
-              <div className="rca-eyebrow rca-dim">Expected</div>
+              <div className="rca-eyebrow rca-dim">Goal</div>
               <div className="rca-root-side-value">{K(b.totals.expected)}</div>
               <div className="rca-eyebrow rca-dim">{b.totals.expOrders.toFixed(0)} orders</div>
+              {b.totals.baseline !== undefined ? (
+                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the rolling P75 on top of it">Baseline {K(b.totals.baseline)}</div>
+              ) : null}
             </div>
             <button type="button" className="rca-root-node" onClick={() => openFocus("", "Whole book")}>
               <div className="rca-eyebrow rca-dim">{periodLabel}</div>
@@ -1293,8 +1306,14 @@ function WindowTab({
               </div>
               <div className="rca-eyebrow rca-dim">
                 {b.totals.expected ? Math.abs((b.totals.delta / b.totals.expected) * 100).toFixed(1) : "0"}%{" "}
-                {b.totals.delta < 0 ? "below" : "above"} baseline
+                {b.totals.delta < 0 ? "below" : "above"} goal
               </div>
+              {b.totals.realChange !== undefined ? (
+                <div className="rca-root-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
+                  <span style={{ color: b.totals.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Real change {SK(b.totals.realChange)}</span>
+                  <span style={{ color: b.totals.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Ambition {SK(-b.totals.ambition)}</span>
+                </div>
+              ) : null}
               <div className="rca-eyebrow rca-blue">{focus && focus.focus === "" ? "hide clinics" : "clinic detail ↓"}</div>
             </button>
             <div className="rca-root-side">
@@ -1333,6 +1352,12 @@ function WindowTab({
                             {SK(r.v)}
                           </span>
                         </div>
+                        {r.real !== undefined && r.amb !== undefined ? (
+                          <div className="rca-lens-real">
+                            <span style={{ color: r.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>real {SK(r.real)}</span>
+                            <span style={{ color: r.amb > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>ambition {SK(-r.amb)}</span>
+                          </div>
+                        ) : null}
                         <div className="rca-lens-row-sub">
                           <span>{r.sub}</span>
                           <span>{pct(r.v)}</span>
@@ -2574,7 +2599,12 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
 
       <div className="rv-ch-hero">
         <div className={`rv-ch-hero-v ${detail.delta < 0 ? "bad" : "good"}`}>{SK(detail.delta)}</div>
-        <div className="rv-ch-hero-l">vs baseline · {winLabel ?? "this period"} · {K(detail.expected)} expected</div>
+        <div className="rv-ch-hero-l">vs goal · {winLabel ?? "this period"} · {K(detail.expected)} goal{detail.baseline !== undefined ? ` · ${K(detail.baseline)} baseline` : ""}</div>
+        {detail.realChange !== undefined ? (
+          <div className="rv-ch-hero-l">
+            real change <b className={detail.realChange < 0 ? "bad" : "good"}>{SK(detail.realChange)}</b> · ambition <b className={detail.ambition > 0 ? "bad" : "good"}>{SK(-detail.ambition)}</b>
+          </div>
+        ) : null}
       </div>
       <div className="rv-ch-timeline">
         <div className="rv-ch-tl-pt">
@@ -2800,6 +2830,9 @@ function FocusTable({
     pstatus?: string[];
     actual: number;
     expected: number;
+    baseline?: number;
+    realChange?: number;
+    ambition?: number;
     delta: number;
     orders: number;
     expectedOrders: number;
@@ -2896,7 +2929,8 @@ function FocusTable({
                     <th>Clinic</th>
                     <th>State</th>
                     <th>Cohort</th>
-                    <th className="rca-num">Expected</th>
+                    <th className="rca-num" title="Mean run rate over the baseline window">Baseline</th>
+                    <th className="rca-num" title="Baseline plus the stretch (company rolling P75)">Goal</th>
                     <th className="rca-num">Actual</th>
                     <th className="rca-num">Orders</th>
                     <th className="rca-num">Order Δ</th>
@@ -2904,7 +2938,8 @@ function FocusTable({
                     <th className="rca-num">AOV Δ</th>
                     <th className="rca-num">Bundle %</th>
                     <th className="rca-num">Bundle Δ</th>
-                    <th className="rca-num">Contribution</th>
+                    <th className="rca-num" title="Actual minus baseline">Real Δ</th>
+                    <th className="rca-num" title="Actual minus goal = real Δ minus ambition">vs Goal</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2920,6 +2955,7 @@ function FocusTable({
                         </td>
                         <td>{r.state}</td>
                         <td>{COHORT[r.cohort] ?? r.cohort}</td>
+                        <td className="rca-num">{r.baseline !== undefined ? K(r.baseline) : "—"}</td>
                         <td className="rca-num">{K(r.expected)}</td>
                         <td className="rca-num">{K(r.actual)}</td>
                         <td className="rca-num">{r.orders.toFixed(0)}</td>
@@ -2928,11 +2964,12 @@ function FocusTable({
                         <td className={`rca-num ${r.aovDelta < 0 ? "bad" : "good"}`}>{SK(r.aovDelta)}</td>
                         <td className="rca-num">{P(r.bundleShare)}</td>
                         <td className={`rca-num ${r.bundleDelta < 0 ? "bad" : "good"}`}>{r.bundleDelta > 0 ? "+" : ""}{(r.bundleDelta * 100).toFixed(1)}pp</td>
+                        <td className={`rca-num ${(r.realChange ?? 0) < 0 ? "bad" : "good"}`}>{r.realChange !== undefined ? SK(r.realChange) : "—"}</td>
                         <td className={`rca-num ${r.delta < 0 ? "bad" : "good"}`}>{SK(r.delta)}</td>
                       </tr>
                       {expanded === r.clinic ? (
                         <tr className="rca-subrow">
-                          <td colSpan={13}>
+                          <td colSpan={15}>
                             <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} />
                           </td>
                         </tr>
@@ -3015,7 +3052,7 @@ function SearchDetailPage({ sel, periodId, winLabel, sales, onBack }: { sel: Sea
                     <h2 className="rv-modal-h">{r.name}</h2>
                     <div className="rv-ch-hero">
                       <div className={`rv-ch-hero-v ${r.delta < 0 ? "bad" : "good"}`}>{SK(r.delta)}</div>
-                      <div className="rv-ch-hero-l">vs clinic baseline run rate · {winLabel} · {K(r.expected)} expected</div>
+                      <div className="rv-ch-hero-l">vs goal · {winLabel} · {K(r.expected)} goal</div>
                     </div>
                     <div className="rv-rs-grid">
                       <div><span>Actual · {winLabel}</span><b>{K(r.revenue)}</b></div>
