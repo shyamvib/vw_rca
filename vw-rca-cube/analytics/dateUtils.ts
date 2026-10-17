@@ -432,15 +432,26 @@ export function rollingBaseline(
   days: string[],
   valueOn: (d: string) => number,
   plan?: ReturnType<typeof baselinePlan>,
+  opts?: { sparseFallback?: boolean },
 ): number {
   const { terms, order } = plan ?? baselinePlan(kind, days);
-  const vals = terms.map(groups =>
-    p75Of(groups.map(g => {
+  const vals = terms.map(groups => {
+    const sums = groups.map(g => {
       let sum = 0;
       for (const d of g) sum += valueOn(d);
       return sum;
-    })),
-  );
+    });
+    const p = p75Of(sums);
+    // A clinic that orders in fewer than 4 of the 13 trailing weeks has a P75 of 0 however much it
+    // bought (Shyam, 2026-10-16), which made its whole revenue read as gain and kept it out of "existing".
+    // For clinics only (never the company / lead / rep aggregates, which stay on Thiru's exact P75),
+    // fall back to the clinic's own average over the same periods when it did order.
+    if (opts?.sparseFallback && p === 0) {
+      const total = sums.reduce((t, x) => t + x, 0);
+      return sums.length && total > 0 ? total / sums.length : 0;
+    }
+    return p;
+  });
   if (kind === "day" || kind === "week" || kind === "month") return vals[0];
   let sum = 0;
   for (const i of order) sum += vals[i];

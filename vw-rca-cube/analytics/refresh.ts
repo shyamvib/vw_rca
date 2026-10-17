@@ -1808,12 +1808,14 @@ export const refreshData = internalAction({
             def.days,
             d => rm.get(d) ?? 0,
             plan,
+            { sparseFallback: true },
           ),
           expectedOrders: rollingBaseline(
             def.kind,
             def.days,
             d => om.get(d) ?? 0,
             plan,
+            { sparseFallback: true },
           ),
         });
       }
@@ -3731,12 +3733,14 @@ export const refreshSnapshot = internalAction({
             def.days,
             d => rm.get(d) ?? 0,
             plan,
+            { sparseFallback: true },
           ),
           expectedOrders: rollingBaseline(
             def.kind,
             def.days,
             d => om.get(d) ?? 0,
             plan,
+            { sparseFallback: true },
           ),
         });
       }
