@@ -994,7 +994,7 @@ type ScopeTotals = {
 
 const COHORT_LABEL: Record<string, string> = {
   churned: "Churned clinics",
-  new: "New clinics",
+  new: "New clinics (active)",
   retained_top20: "Active — top 20%",
   retained_rest: "Active — remaining 80%",
   reactivated: "Reactivated clinics",
@@ -1013,24 +1013,31 @@ const COHORT_LABEL: Record<string, string> = {
 function groupActive(rows: Row[]): Row[] {
   const top = rows.find(r => r.key === "retained_top20");
   const rest = rows.find(r => r.key === "retained_rest");
+  const fresh = rows.find(r => r.key === "new");
   if (!top || !rest) return rows;
+  const clinicsSub = (r: Row, fallback: string) => (r.clinics !== undefined ? `${r.clinics.toLocaleString("en-US")} clinics` : fallback);
+  // Active has three tiers (2026-10-18): New (this year's clinics still ordering), the largest 20%, everyone else.
+  const parts = [fresh, top, rest].filter(Boolean) as Row[];
   const tiers: Row[] = [
-    { ...top, label: "Largest 20%", sub: top.clinics !== undefined ? `${top.clinics.toLocaleString("en-US")} clinics` : top.sub },
-    { ...rest, label: "Everyone else", sub: rest.clinics !== undefined ? `${rest.clinics.toLocaleString("en-US")} clinics` : rest.sub },
+    ...(fresh ? [{ ...fresh, label: "New", sub: clinicsSub(fresh, fresh.sub ?? "") }] : []),
+    { ...top, label: "Largest 20%", sub: clinicsSub(top, top.sub ?? "") },
+    { ...rest, label: "Everyone else", sub: clinicsSub(rest, rest.sub ?? "") },
   ];
-  const n = (top.clinics ?? 0) + (rest.clinics ?? 0);
+  const n = parts.reduce((t, r) => t + (r.clinics ?? 0), 0);
+  const allReal = parts.every(r => r.real !== undefined);
+  const allAmb = parts.every(r => r.ambition !== undefined);
   const active: Row = {
     label: "Active clinics",
-    sub: n ? `${n.toLocaleString("en-US")} clinics · ordered in the baseline and now` : "ordered in the baseline and now",
-    value: top.value + rest.value,
-    real: top.real !== undefined && rest.real !== undefined ? top.real + rest.real : undefined,
-    ambition: top.ambition !== undefined && rest.ambition !== undefined ? top.ambition + rest.ambition : undefined,
+    sub: n ? `${n.toLocaleString("en-US")} clinics · still ordering` : "still ordering",
+    value: parts.reduce((t, r) => t + r.value, 0),
+    real: allReal ? parts.reduce((t, r) => t + (r.real ?? 0), 0) : undefined,
+    ambition: allAmb ? parts.reduce((t, r) => t + (r.ambition ?? 0), 0) : undefined,
     lens: "cohort",
     key: "active",
     clinics: n || undefined,
     tiers,
   };
-  return [...rows.filter(r => r !== top && r !== rest), active].sort((a, b) => a.value - b.value);
+  return [...rows.filter(r => !parts.includes(r)), active].sort((a, b) => a.value - b.value);
 }
 
 type LeadFams = {

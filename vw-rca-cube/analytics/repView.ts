@@ -93,16 +93,17 @@ export const book = scopedQuery({
     const active = rows.filter(r => r.orders > 0);
 
     // Cohorts
-    const isNew = (r: ClinicRow) => r.newGroups.length > 0;
+    // New = a first-ever order this calendar year (analytics/lifecycleRules.ts), counted in a tab only once its first order
+    // is on or before the tab's last day (2026-10-18). The new-clinic funnel below keeps its own membership (newGroups).
+    const tabEnd = winDays.length ? winDays[winDays.length - 1] : cutoff;
+    const isNew = (r: ClinicRow) => !!r.isNew && (r.firstOrder ?? "") <= tabEnd;
     const newRows = rows.filter(isNew);
     // Retention, NRR, expansion and churn compare with what these clinics actually did before (the BASELINE, a mean
     // run rate), not with the goal (baseline plus the P75 stretch): retention is "did they keep what they had".
     // Goal-based shortfall stays on the tree; real change vs ambition is explicit there (2026-10-16).
-    // A clinic whose first order fell inside the baseline window and that has not ordered since is labelled "new" by
-    // the cohort code (first order in the baseline), but it brought baseline revenue and stopped: that is churn, so
-    // it counts as existing (2026-10-18). A "new" clinic that IS ordering now has a first order in the current
-    // window and no baseline, so the baseline > 0 test keeps it out.
-    const existing = rows.filter(r => (EXISTING.has(r.cohort) || r.cohort === "new") && (r.baselineWeekly ?? r.baseline) > 0);
+    // Existing = not new and has a baseline (baseline-period revenue, or its own 12-month history for a slow buyer).
+    // New clinics carry no baseline at all (2026-10-18).
+    const existing = rows.filter(r => !r.isNew && (r.baselineWeekly ?? r.baseline) > 0);
     const exAct = sum(existing, r => r.actual);
     const exExp = sum(existing, r => r.baseline);
     const exOrd = sum(existing, r => r.orders);
@@ -111,15 +112,15 @@ export const book = scopedQuery({
     const newOrd = sum(newRows, r => r.orders);
 
     // Retention
-    // The cohort label says "churned" once such a clinic goes silent 45+ days, so reactivated is derived: cohort
-    // reactivated, or churned with no baseline that is not a new clinic (the only other way to have window revenue and no
-    // baseline).
+    // Returning clinics: not new, no baseline (silent through the baseline period with an unusual gap, or no history to
+    // build a baseline from). They are reactivated while ordering and churned once silent past their threshold.
     const reactivated = rows.filter(
-      r => r.cohort === "reactivated" || (r.cohort === "churned" && (r.baselineWeekly ?? r.baseline) <= 0 && r.newGroups.length === 0),
+      r => !r.isNew && (r.baselineWeekly ?? r.baseline) <= 0 && (r.cohort === "reactivated" || r.cohort === "churned"),
     );
-    // Churn is by last order date (Shyam, 2026-10-18): no order for 45+ days as of the latest data. It does not depend
-    // on the tab, so a clinic is not "churned" just because it skipped a short window.
+    // Churn is by last order date and the clinic's own gap threshold (analytics/lifecycleRules.ts): 45 days for new
+    // clinics, max(45, 3 x its typical gap) for established ones. Status is as of the latest data, the same on every tab.
     const isChurned = (r: ClinicRow) => {
+      if (r.life) return r.life === "churned";
       const s = since(cutoff, r.lastOrderAllTime);
       return s === null || s >= CHURN_DAYS;
     };
@@ -189,6 +190,17 @@ export const book = scopedQuery({
     // Membership is the cohort (ordered in the analysis window after a quiet baseline), the same on every tab; the count
     // that ordered in this tab is reported separately, like the new clinics.
     const reactivatedRev = sum(reactivated, r => r.actual);
+    // New clinics by status (decided 2026-10-18): the New Revenue cell's headline is all new revenue in the tab, shown
+    // as active + reactivated + churned; churned new clinics are also counted in the Churned cell. "returning" is the older
+    // no-baseline clinics, so New + Existing still adds up to Combined.
+    const splitOf = (rs: ClinicRow[]) => ({ n: rs.length, ordering: rs.filter(r => r.orders > 0).length, rev: sum(rs, r => r.actual) });
+    const newSplit = {
+      active: splitOf(newRows.filter(r => !isChurned(r) && r.life !== "reactivated")),
+      reactivated: splitOf(newRows.filter(r => !isChurned(r) && r.life === "reactivated")),
+      churned: splitOf(newRows.filter(isChurned)),
+      returning: splitOf(reactivated),
+    };
+    const roll90 = newRows.filter(r => (r.firstOrder ?? "") >= addDays(cutoff, -89));
 
     // Tenure cut (by first-order year) of the retention / expansion numbers: all, before the data starts
     // (2025), the years in between, and this year's signups. Same formulas as the whole-book KPIs, on a subset.
@@ -562,12 +574,14 @@ export const book = scopedQuery({
         reactivatedCount: reactivated.filter(r => r.orders > 0).length,
         reactivatedTotal: reactivated.length,
         // New clinics that ordered in this tab; `newTotal` is every new clinic in the analysis window (the list behind the cell).
+        newSplit: newSplit,
         newCustomers: newRows.filter(r => r.orders > 0).length,
         newTotal: newRows.length,
         newOrders: newOrd,
         newAov: newOrd ? newRev / newOrd : null,
         newRevShare: actual ? newRev / actual : null,
-        o1to2: f.f1.length ? f.f2.length / f.f1.length : null,
+        // Order 1 to 2 conversion on a rolling 90 days: new clinics (this year) whose first order is in the last 90 days.
+        o1to2: roll90.length ? roll90.filter(r => (r.ytdOrders ?? r.windowOrders) >= 2).length / roll90.length : null,
         aov: orders ? actual / orders : null,
         baseAov,
         existingAov: exOrd ? exAct / exOrd : null,
@@ -823,6 +837,8 @@ export const rowsByFocus = scopedQuery({
         state: r.state,
         country: r.country,
         cohort: r.cohort,
+        isNew: r.isNew ?? false,
+        life: r.life ?? null,
         health: r.health,
         pstatus: r.pstatus,
         actual: r.actual,

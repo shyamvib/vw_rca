@@ -52,6 +52,10 @@ export type ClinicRow = {
   cohort: string;
   /** New-logo risk groups the clinic falls into (level 2 under new clinics). */
   newGroups: string[];
+  /** First order this calendar year (analytics/lifecycleRules.ts). */
+  isNew?: boolean;
+  /** active / reactivated / churned, as of the latest data and by the clinic's own gap threshold. */
+  life?: string;
   health: string[];
   pstatus: string[];
   /** Goal: baseline x the period goal factor. `delta` is actual minus this. */
@@ -90,6 +94,8 @@ export type ClinicRow = {
    * clinicMeta row already loaded above so callers don't need a second
    * full-table scan just to get these two numbers. */
   ytdRevenue: number;
+  /** Orders this calendar year (lifetime orders for a clinic that is new this year). */
+  ytdOrders?: number;
   fwdRevenue: number;
   /** Last-3-months order cadence, precomputed at refresh time (see refresh.ts)
    * so callers needing it (the feed's cadence cards) don't need extra
@@ -685,6 +691,8 @@ export async function drill(
       sales: m.sales,
       cohort: m.cohort,
       newGroups: m.newGroups ?? [],
+      isNew: m.isNew ?? false,
+      life: m.life,
       health,
       pstatus: m.pstatus ?? [],
       expected: scoped.expected,
@@ -713,6 +721,7 @@ export async function drill(
       patientDelta,
       metric,
       ytdRevenue: m.ytdRevenue ?? 0,
+      ytdOrders: m.ytdOrders ?? 0,
       fwdRevenue: m.fwdRevenue ?? 0,
       monthOrders: m.monthOrders ?? 0,
       monthSeries: m.monthSeries ?? [],

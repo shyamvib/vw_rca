@@ -27,6 +27,7 @@ import {
   weekStart,
 } from "./dateUtils";
 import { buyingRhythm } from "./flags";
+import { classifyClinic, type Lifecycle } from "./lifecycleRules";
 import { gatedAction } from "./gated";
 import { topDownAllocate } from "./topDown";
 import { newClinicFunnelGroups } from "./newClinicFunnel";
@@ -121,7 +122,7 @@ export async function resolveBaseline(
  * Distinct order dates per clinic up to `cutoff` (no future leak), pulled in
  * month slices from the first order date to keep each DAX payload small.
  */
-async function fetchOrderDateHistory(
+export async function fetchOrderDateHistory(
   cutoff: string,
 ): Promise<Map<string, string[]>> {
   const first = await ordersRows({ start: "2000-01-01", end: cutoff, m: { first: "first_order" } });
@@ -364,6 +365,9 @@ export const refreshData = internalAction({
       // classification; the window-scoped `lastOrder` field is not enough
       // for a clinic whose last order predates the refresh window.
       const pLastOrderAsOf = ordersRows({ by: ["clinic_id"], start: EARLIEST, end: currentEnd, m: { last: "last_order" } });
+      // Revenue and orders in the 12 months up to the end of the baseline period, per clinic: the own-history baseline of
+      // a slow buyer that skipped the baseline period (analytics/lifecycleRules.ts).
+      const pPriorRev = ordersRows({ by: ["clinic_id"], start: addDays(baselineEnd, -364), end: baselineEnd, m: { rev: "revenue", ord: "orders" } });
 
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
@@ -474,10 +478,6 @@ export const refreshData = internalAction({
         arr[dow(dateOf(r, "order_date"))] += num(r, "rev");
         stateTotals.set(st, arr);
       }
-      const stateBaseline = [...stateTotals].map(([state, totals]) => ({
-        state,
-        rates: ratesFrom(totals, baseCounts, bucket),
-      }));
 
       // 3b. Charge channel (wellProz / customerPay / ...): current actuals and
       // baseline day-type rates, so the feed can answer "is channel X down?".
@@ -661,22 +661,56 @@ export const refreshData = internalAction({
 
       // Retained ranking: clinics with revenue in both windows, ranked on
       // baseline size so the top-20% split is unchanged.
-      // Churned = ordered in the baseline and last ordered CHURN_DAYS+ days before the window end (Shyam, 2026-10-18),
-      // the same rule as the rep scorecard, so the lifecycle trees and the scorecard agree. A clinic that ordered inside
-      // the window but has since gone quiet for 45+ days is churned too, with its window revenue under that cohort.
-      const lastOrderForCohort = new Map<string, string>();
-      for (const r of await pLastOrderAsOf) {
-        const lid = String(r[`${TABLE}[clinic_id]`] ?? "");
-        const lst = String(r["[last]"] ?? "").slice(0, 10);
-        if (lid && lst) lastOrderForCohort.set(lid, lst);
+      // Lifecycle (Shyam, 2026-10-18): analytics/lifecycleRules.ts, CLINIC_LIFECYCLE.md.
+      //  New = first-ever order this calendar year (no baseline, whatever the dates); churned = silent past the clinic's
+      //  threshold (45 days, or max(45, 3 x its own typical gap) for established clinics); reactivated = no baseline and an
+      //  unusual gap ended by an order in the last 90 days; a slow buyer with no baseline revenue gets its own 12-month
+      //  history as a baseline and stays Existing.
+      const orderDatesForLife = await pOrderDateHistory;
+      const priorOf = new Map<string, { rev: number; ord: number }>();
+      for (const r of await pPriorRev) {
+        priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
-      const churned45 = (id: string) => {
-        const lst = lastOrderForCohort.get(id);
-        return !lst || diffDays(lst, currentEnd) >= 45;
-      };
+      const lifeYear = currentEnd.slice(0, 4);
+      const lifeOf = new Map<string, Lifecycle>();
+      const lifeScope = new Set<string>([...baseByClinic.keys(), ...currentByClinic.keys()]);
+      for (const [lid, fo] of firstOrderOf) if (fo.startsWith(lifeYear)) lifeScope.add(lid);
+      const newBaseRemoved = new Map<string, ClinicBase>();
+      const ownHistoryAdded = new Map<string, ClinicBase>();
+      for (const id of lifeScope) {
+        const lc = classifyClinic({
+          firstOrder: firstOrderOf.get(id) ?? "",
+          orderDates: orderDatesForLife.get(id) ?? [],
+          cutoff: currentEnd,
+          hasBaselineRevenue: (baseByClinic.get(id)?.total ?? 0) > 0,
+          hasWindowRevenue: (currentByClinic.get(id) ?? 0) > 0,
+          priorRevenue: priorOf.get(id)?.rev ?? 0,
+        });
+        lifeOf.set(id, lc);
+        if (lc.isNew) {
+          // New clinics carry no baseline: take whatever the baseline window gave them out of every baseline sum.
+          const b0 = baseByClinic.get(id);
+          if (b0) {
+            newBaseRemoved.set(id, b0);
+            baseByClinic.delete(id);
+          }
+        } else if (lc.ownHistoryBaseline) {
+          const pr = priorOf.get(id)!;
+          const rRev = pr.rev / 365, rOrd = pr.ord / 365;
+          const flat = (r: number) => baseCounts.map(c => r * c);
+          const nDays = baseDays.length;
+          const b1: ClinicBase = {
+            rev: flat(rRev), ord: flat(rOrd), bRev: zero(), bOrd: zero(), pat: zero(),
+            total: rRev * nDays, orders: rOrd * nDays, patients: 0,
+          };
+          ownHistoryAdded.set(id, b1);
+          baseByClinic.set(id, b1);
+        }
+      }
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
-        if ((currentByClinic.get(id) ?? 0) > 0 && !churned45(id)) retained.push(id);
+        const lc = lifeOf.get(id);
+        if (lc && lc.life === "active" && (currentByClinic.get(id) ?? 0) > 0) retained.push(id);
       }
       retained.sort(
         (a, b) =>
@@ -690,42 +724,17 @@ export const refreshData = internalAction({
           i < topCount ? "retained_top20" : "retained_rest",
         );
       });
-
-      const expectedCohortOf = new Map<string, Cohort>();
-      for (const [id] of baseByClinic) {
-        if (churned45(id)) {
-          expectedCohortOf.set(id, "churned");
-        } else if (firstIn(id, baselineStart, baselineEnd)) {
-          expectedCohortOf.set(id, "new");
-        } else if ((currentByClinic.get(id) ?? 0) > 0) {
-          expectedCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
-        } else {
-          expectedCohortOf.set(id, "churned");
-        }
-      }
+      // One label per clinic. Active new clinics are the "new" cohort (an Active tier in the trees); silent ones are
+      // churned and reactivated ones reactivated, whether they are new or older.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, rev] of currentByClinic) {
-        if (rev <= 0) continue;
-        if (churned45(id)) {
-          // One rule for everyone (2026-10-18): silent 45+ days = churned, whether the clinic is new, reactivated or
-          // existing. The new-clinic funnel and the scorecard keep these clinics as new / reactivated through their own
-          // membership (newGroupsOf below, repView), so their revenue still counts as new business.
-          actualCohortOf.set(id, "churned");
-        } else if (firstIn(id, currentStart, currentEnd)) {
-          actualCohortOf.set(id, "new");
-        } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
-        } else {
-          // Dormant through the baseline, ordering again now.
-          actualCohortOf.set(id, "reactivated");
-        }
+      for (const [id, lc] of lifeOf) {
+        actualCohortOf.set(
+          id,
+          lc.life === "churned" ? "churned" : lc.life === "reactivated" ? "reactivated" : lc.isNew ? "new" : (retainedLabel.get(id) ?? "retained_rest"),
+        );
       }
-      // The label carried on the clinic row (drill lists, search): where the
-      // clinic sits today, falling back to its baseline label when it has no
-      // current revenue (i.e. churned).
-      const cohortOf = new Map<string, Cohort>();
-      for (const [id, c] of expectedCohortOf) cohortOf.set(id, c);
-      for (const [id, c] of actualCohortOf) cohortOf.set(id, c);
+      const expectedCohortOf = actualCohortOf;
+      const cohortOf = actualCohortOf;
 
       // Cohort baseline rates by weekday + clinic counts.
       const agg = new Map<Cohort, { totals: number[]; clinics: number }>();
@@ -1178,6 +1187,24 @@ export const refreshData = internalAction({
         });
       }
 
+      // State baseline (order-level state pull) made consistent with the clinic baselines: new clinics carry none, and
+      // clinics on an own-history baseline add theirs, each in the clinic's dominant state.
+      for (const [cid, b0] of newBaseRemoved) {
+        const st = identity.get(cid)?.state ?? "(blank)";
+        const arr = stateTotals.get(st);
+        if (arr) for (let i = 0; i < 7; i++) arr[i] = Math.max(0, arr[i] - b0.rev[i]);
+      }
+      for (const [cid, b1] of ownHistoryAdded) {
+        const st = identity.get(cid)?.state ?? "(blank)";
+        const arr = stateTotals.get(st) ?? [0, 0, 0, 0, 0, 0, 0];
+        for (let i = 0; i < 7; i++) arr[i] += b1.rev[i];
+        stateTotals.set(st, arr);
+      }
+      const stateBaseline = [...stateTotals].map(([state, totals]) => ({
+        state,
+        rates: ratesFrom(totals, baseCounts, bucket),
+      }));
+
       // VA target list rows: join the trailing-12-month VA stats onto the
       // same clinic identity map used everywhere else.
       const vaTargetRows = await pVaTarget;
@@ -1498,6 +1525,10 @@ export const refreshData = internalAction({
           teamLead: idty?.teamLead ?? "—",
           sales: idty?.sales ?? "—",
           cohort,
+          isNew: lifeOf.get(clinic)?.isNew ?? false,
+          life: lifeOf.get(clinic)?.life ?? "active",
+          typicalGap: lifeOf.get(clinic)?.typicalGap ?? undefined,
+          ownBaseline: lifeOf.get(clinic)?.ownHistoryBaseline ?? false,
           rev: ratesFrom(b?.rev ?? zero(), baseCounts, bucket),
           ord: ratesFrom(b?.ord ?? zero(), baseCounts, bucket),
           bRev: ratesFrom(b?.bRev ?? zero(), baseCounts, bucket),
@@ -2346,6 +2377,9 @@ export const refreshSnapshot = internalAction({
       // classification; the window-scoped `lastOrder` field is not enough
       // for a clinic whose last order predates the refresh window.
       const pLastOrderAsOf = ordersRows({ by: ["clinic_id"], start: EARLIEST, end: currentEnd, m: { last: "last_order" } });
+      // Revenue and orders in the 12 months up to the end of the baseline period, per clinic: the own-history baseline of
+      // a slow buyer that skipped the baseline period (analytics/lifecycleRules.ts).
+      const pPriorRev = ordersRows({ by: ["clinic_id"], start: addDays(baselineEnd, -364), end: baselineEnd, m: { rev: "revenue", ord: "orders" } });
 
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
@@ -2455,10 +2489,6 @@ export const refreshSnapshot = internalAction({
         arr[dow(dateOf(r, "order_date"))] += num(r, "rev");
         stateTotals.set(st, arr);
       }
-      const stateBaseline = [...stateTotals].map(([state, totals]) => ({
-        state,
-        rates: ratesFrom(totals, baseCounts, bucket),
-      }));
 
       // 3b. Charge channel (wellProz / customerPay / ...): current actuals and
       // baseline day-type rates, so the feed can answer "is channel X down?".
@@ -2628,22 +2658,56 @@ export const refreshSnapshot = internalAction({
 
       // Retained ranking: clinics with revenue in both windows, ranked on
       // baseline size so the top-20% split is unchanged.
-      // Churned = ordered in the baseline and last ordered CHURN_DAYS+ days before the window end (Shyam, 2026-10-18),
-      // the same rule as the rep scorecard, so the lifecycle trees and the scorecard agree. A clinic that ordered inside
-      // the window but has since gone quiet for 45+ days is churned too, with its window revenue under that cohort.
-      const lastOrderForCohort = new Map<string, string>();
-      for (const r of await pLastOrderAsOf) {
-        const lid = String(r[`${TABLE}[clinic_id]`] ?? "");
-        const lst = String(r["[last]"] ?? "").slice(0, 10);
-        if (lid && lst) lastOrderForCohort.set(lid, lst);
+      // Lifecycle (Shyam, 2026-10-18): analytics/lifecycleRules.ts, CLINIC_LIFECYCLE.md.
+      //  New = first-ever order this calendar year (no baseline, whatever the dates); churned = silent past the clinic's
+      //  threshold (45 days, or max(45, 3 x its own typical gap) for established clinics); reactivated = no baseline and an
+      //  unusual gap ended by an order in the last 90 days; a slow buyer with no baseline revenue gets its own 12-month
+      //  history as a baseline and stays Existing.
+      const orderDatesForLife = await pOrderDateHistory;
+      const priorOf = new Map<string, { rev: number; ord: number }>();
+      for (const r of await pPriorRev) {
+        priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
-      const churned45 = (id: string) => {
-        const lst = lastOrderForCohort.get(id);
-        return !lst || diffDays(lst, currentEnd) >= 45;
-      };
+      const lifeYear = currentEnd.slice(0, 4);
+      const lifeOf = new Map<string, Lifecycle>();
+      const lifeScope = new Set<string>([...baseByClinic.keys(), ...currentByClinic.keys()]);
+      for (const [lid, fo] of firstOrderOf) if (fo.startsWith(lifeYear)) lifeScope.add(lid);
+      const newBaseRemoved = new Map<string, ClinicBase>();
+      const ownHistoryAdded = new Map<string, ClinicBase>();
+      for (const id of lifeScope) {
+        const lc = classifyClinic({
+          firstOrder: firstOrderOf.get(id) ?? "",
+          orderDates: orderDatesForLife.get(id) ?? [],
+          cutoff: currentEnd,
+          hasBaselineRevenue: (baseByClinic.get(id)?.total ?? 0) > 0,
+          hasWindowRevenue: (currentByClinic.get(id) ?? 0) > 0,
+          priorRevenue: priorOf.get(id)?.rev ?? 0,
+        });
+        lifeOf.set(id, lc);
+        if (lc.isNew) {
+          // New clinics carry no baseline: take whatever the baseline window gave them out of every baseline sum.
+          const b0 = baseByClinic.get(id);
+          if (b0) {
+            newBaseRemoved.set(id, b0);
+            baseByClinic.delete(id);
+          }
+        } else if (lc.ownHistoryBaseline) {
+          const pr = priorOf.get(id)!;
+          const rRev = pr.rev / 365, rOrd = pr.ord / 365;
+          const flat = (r: number) => baseCounts.map(c => r * c);
+          const nDays = baseDays.length;
+          const b1: ClinicBase = {
+            rev: flat(rRev), ord: flat(rOrd), bRev: zero(), bOrd: zero(), pat: zero(),
+            total: rRev * nDays, orders: rOrd * nDays, patients: 0,
+          };
+          ownHistoryAdded.set(id, b1);
+          baseByClinic.set(id, b1);
+        }
+      }
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
-        if ((currentByClinic.get(id) ?? 0) > 0 && !churned45(id)) retained.push(id);
+        const lc = lifeOf.get(id);
+        if (lc && lc.life === "active" && (currentByClinic.get(id) ?? 0) > 0) retained.push(id);
       }
       retained.sort(
         (a, b) =>
@@ -2657,42 +2721,17 @@ export const refreshSnapshot = internalAction({
           i < topCount ? "retained_top20" : "retained_rest",
         );
       });
-
-      const expectedCohortOf = new Map<string, Cohort>();
-      for (const [id] of baseByClinic) {
-        if (churned45(id)) {
-          expectedCohortOf.set(id, "churned");
-        } else if (firstIn(id, baselineStart, baselineEnd)) {
-          expectedCohortOf.set(id, "new");
-        } else if ((currentByClinic.get(id) ?? 0) > 0) {
-          expectedCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
-        } else {
-          expectedCohortOf.set(id, "churned");
-        }
-      }
+      // One label per clinic. Active new clinics are the "new" cohort (an Active tier in the trees); silent ones are
+      // churned and reactivated ones reactivated, whether they are new or older.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, rev] of currentByClinic) {
-        if (rev <= 0) continue;
-        if (churned45(id)) {
-          // One rule for everyone (2026-10-18): silent 45+ days = churned, whether the clinic is new, reactivated or
-          // existing. The new-clinic funnel and the scorecard keep these clinics as new / reactivated through their own
-          // membership (newGroupsOf below, repView), so their revenue still counts as new business.
-          actualCohortOf.set(id, "churned");
-        } else if (firstIn(id, currentStart, currentEnd)) {
-          actualCohortOf.set(id, "new");
-        } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
-        } else {
-          // Dormant through the baseline, ordering again now.
-          actualCohortOf.set(id, "reactivated");
-        }
+      for (const [id, lc] of lifeOf) {
+        actualCohortOf.set(
+          id,
+          lc.life === "churned" ? "churned" : lc.life === "reactivated" ? "reactivated" : lc.isNew ? "new" : (retainedLabel.get(id) ?? "retained_rest"),
+        );
       }
-      // The label carried on the clinic row (drill lists, search): where the
-      // clinic sits today, falling back to its baseline label when it has no
-      // current revenue (i.e. churned).
-      const cohortOf = new Map<string, Cohort>();
-      for (const [id, c] of expectedCohortOf) cohortOf.set(id, c);
-      for (const [id, c] of actualCohortOf) cohortOf.set(id, c);
+      const expectedCohortOf = actualCohortOf;
+      const cohortOf = actualCohortOf;
 
       // Cohort baseline rates by weekday + clinic counts.
       const agg = new Map<Cohort, { totals: number[]; clinics: number }>();
@@ -3127,6 +3166,24 @@ export const refreshSnapshot = internalAction({
         });
       }
 
+      // State baseline (order-level state pull) made consistent with the clinic baselines: new clinics carry none, and
+      // clinics on an own-history baseline add theirs, each in the clinic's dominant state.
+      for (const [cid, b0] of newBaseRemoved) {
+        const st = identity.get(cid)?.state ?? "(blank)";
+        const arr = stateTotals.get(st);
+        if (arr) for (let i = 0; i < 7; i++) arr[i] = Math.max(0, arr[i] - b0.rev[i]);
+      }
+      for (const [cid, b1] of ownHistoryAdded) {
+        const st = identity.get(cid)?.state ?? "(blank)";
+        const arr = stateTotals.get(st) ?? [0, 0, 0, 0, 0, 0, 0];
+        for (let i = 0; i < 7; i++) arr[i] += b1.rev[i];
+        stateTotals.set(st, arr);
+      }
+      const stateBaseline = [...stateTotals].map(([state, totals]) => ({
+        state,
+        rates: ratesFrom(totals, baseCounts, bucket),
+      }));
+
       // VA target list rows: join the trailing-12-month VA stats onto the
       // same clinic identity map used everywhere else.
       const vaTargetRows = await pVaTarget;
@@ -3447,6 +3504,10 @@ export const refreshSnapshot = internalAction({
           teamLead: idty?.teamLead ?? "—",
           sales: idty?.sales ?? "—",
           cohort,
+          isNew: lifeOf.get(clinic)?.isNew ?? false,
+          life: lifeOf.get(clinic)?.life ?? "active",
+          typicalGap: lifeOf.get(clinic)?.typicalGap ?? undefined,
+          ownBaseline: lifeOf.get(clinic)?.ownHistoryBaseline ?? false,
           rev: ratesFrom(b?.rev ?? zero(), baseCounts, bucket),
           ord: ratesFrom(b?.ord ?? zero(), baseCounts, bucket),
           bRev: ratesFrom(b?.bRev ?? zero(), baseCounts, bucket),

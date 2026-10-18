@@ -996,7 +996,7 @@ async function searchClinics(ctx: QueryCtx, term: string, sales?: string) {
     });
     const cohortLabel: Record<string, string> = {
       churned: "Churned clinics",
-      new: "New clinics",
+      new: "New clinics (still ordering)",
       retained_top20: "Active top-20% clinics",
       retained_rest: "Active — everyone else",
       reactivated: "Reactivated clinics",

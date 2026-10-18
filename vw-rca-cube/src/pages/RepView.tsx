@@ -51,7 +51,7 @@ const fmtD = (d?: string | null) =>
     : "";
 const COHORT: Record<string, string> = {
   churned: "Churned",
-  new: "New",
+  new: "Active · new",
   retained_top20: "Active · top 20%",
   retained_rest: "Active · rest",
   reactivated: "Reactivated",
@@ -1092,14 +1092,23 @@ function WindowTab({
     const top = cohorts.find((c: Book) => c.key === "retained_top20");
     const rest = cohorts.find((c: Book) => c.key === "retained_rest");
     if (!top || !rest) return cohorts.map(one);
+    // Active has three tiers (2026-10-18): New (this year's clinics still ordering), the largest 20% and everyone else.
+    const newC = cohorts.find((c: Book) => c.key === "new");
+    const parts = [newC, top, rest].filter(Boolean) as Book[];
+    const tot = (f: (c: Book) => number) => parts.reduce((t, c) => t + f(c), 0);
     const merged: Book = {
-      key: "active", clinics: top.clinics + rest.clinics, delta: top.delta + rest.delta,
-      posSum: top.posSum + rest.posSum, posCount: top.posCount + rest.posCount, posIds: [...top.posIds, ...rest.posIds],
-      negSum: top.negSum + rest.negSum, negCount: top.negCount + rest.negCount, negIds: [...top.negIds, ...rest.negIds],
+      key: "active", clinics: tot(c => c.clinics), delta: tot(c => c.delta),
+      posSum: tot(c => c.posSum), posCount: tot(c => c.posCount), posIds: parts.flatMap(c => c.posIds),
+      negSum: tot(c => c.negSum), negCount: tot(c => c.negCount), negIds: parts.flatMap(c => c.negIds),
     };
-    const tier = (c: Book, name: string) => ({ l: `${name} (${c.clinics})`, v: c.delta, real: c.real as number | undefined, amb: c.ambition as number | undefined, focus: `cohort:${c.key}`, sub: "size tier of Active" });
-    const active = { l: `Active (${merged.clinics})`, v: merged.delta, real: top.real + rest.real, amb: top.ambition + rest.ambition, focus: "cohort:active", sub: "ordered in the baseline and now", cohortSplit: merged, tiers: [tier(top, "Largest 20%"), tier(rest, "Everyone else")] };
-    return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest").map(one), active].sort((a, b) => a.v - b.v);
+    const tier = (c: Book, name: string, sub: string) => ({ l: `${name} (${c.clinics})`, v: c.delta, real: c.real as number | undefined, amb: c.ambition as number | undefined, focus: `cohort:${c.key}`, sub });
+    const tiers = [
+      ...(newC ? [tier(newC, "New", "this year's clinics still ordering")] : []),
+      tier(top, "Largest 20%", "size tier of Active"),
+      tier(rest, "Everyone else", "size tier of Active"),
+    ];
+    const active = { l: `Active (${merged.clinics})`, v: merged.delta, real: tot(c => (c.real as number) ?? 0), amb: tot(c => (c.ambition as number) ?? 0), focus: "cohort:active", sub: "still ordering: new this year, or ordered in the baseline", cohortSplit: merged, tiers };
+    return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest" && c.key !== "new").map(one), active].sort((a, b) => a.v - b.v);
   })();
   const lensCards: Array<{
     k: string;
@@ -1741,9 +1750,9 @@ const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: wh
  * live book, rounded; revisit as the book matures. higher = better except churn (lower is better).
  * Order: [good, watch]. */
 const TENURE_TARGETS: Record<"retention" | "repeat" | "churn", Record<"all" | "pre" | "mid" | "cur", [number, number]>> = {
-  retention: { all: [0.74, 0.68], pre: [0.78, 0.72], mid: [0.64, 0.54], cur: [0.49, 0.4] },
+  retention: { all: [0.76, 0.7], pre: [0.77, 0.73], mid: [0.65, 0.53], cur: [0.49, 0.4] },
   repeat: { all: [0.68, 0.62], pre: [0.76, 0.72], mid: [0.66, 0.55], cur: [0.54, 0.45] },
-  churn: { all: [0.4, 0.45], pre: [0.33, 0.37], mid: [0.47, 0.52], cur: [0.51, 0.57] },
+  churn: { all: [0.29, 0.35], pre: [0.19, 0.24], mid: [0.3, 0.35], cur: [0.52, 0.58] },
 };
 const levelTone = (v: number | null, [good, watch]: [number, number], lowerBetter = false): Tone =>
   v === null ? "na" : lowerBetter ? (v <= good ? "good" : v <= watch ? "watch" : "bad") : v >= good ? "good" : v >= watch ? "watch" : "bad";
@@ -1856,7 +1865,9 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "New Revenue",
           value: K(k.newRevenue + (k.reactivatedRevenue ?? 0)),
-          sub: `${k.newCustomers} of ${k.newTotal ?? k.newCustomers} new + ${k.reactivatedCount ?? 0} of ${(b.reactivatedIds ?? []).length} reactivated clinics ordering · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
+          sub: k.newSplit
+            ? `New ${K(k.newSplit.active.rev + k.newSplit.reactivated.rev + k.newSplit.churned.rev)}: active ${K(k.newSplit.active.rev)} · reactivated ${K(k.newSplit.reactivated.rev)} · churned ${K(k.newSplit.churned.rev)} (${k.newTotal} clinics) · returning ${K(k.newSplit.returning.rev)} (${k.newSplit.returning.n}) · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`
+            : `${k.newCustomers} of ${k.newTotal ?? k.newCustomers} new + ${k.reactivatedCount ?? 0} of ${(b.reactivatedIds ?? []).length} reactivated clinics ordering · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
           ids: [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])],
           n: k.newRevenue + (k.reactivatedRevenue ?? 0), u: "$", flow: true, better: 1,
           tone: "act",
@@ -2004,7 +2015,7 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
 /** Which clinics push a scorecard metric up or pull it down (Shyam, 2026-10-16). Each metric names the clinics it
  * is measured over, a signed per-clinic contribution, and how to say it. Metrics with no per-clinic sign yet
  * (the single-family ones: the data holds no per-clinic baseline for a family) just open the plain list. */
-type ContribRow = { daysSinceLast: number | null; clinic: string; actual: number; expected: number; baseline: number; realChange: number; delta: number; orders: number; aovEffect: number; volume: number };
+type ContribRow = { daysSinceLast: number | null; life?: string | null; clinic: string; actual: number; expected: number; baseline: number; realChange: number; delta: number; orders: number; aovEffect: number; volume: number };
 type Contribution = {
   universe: (b: Book) => string[];
   f: (r: ContribRow) => number;
@@ -2023,7 +2034,7 @@ const VS_BASELINE: Contribution = {
 };
 const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, f: r => r.realChange, up: "Above their baseline", down: "Below their baseline", universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline (real change, before the goal's stretch)." };
 const CONTRIB: Record<string, Contribution> = {
-  "New Revenue": { universe: b => [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics (first order in this window) and reactivated ones (back after nothing in the baseline) have no baseline, so each one's revenue counts in full." },
+  "New Revenue": { universe: b => [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics (first order this calendar year) and returning ones (no baseline: silent through the baseline period after an unusual gap) have no baseline, so each one's revenue counts in full. The headline is all of it, whether the clinic is still active, reactivated or now churned." },
   AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
   "Net Revenue Growth": VS_BASELINE,
   "Growth run-rate": VS_BASELINE,
@@ -2049,9 +2060,9 @@ const CONTRIB: Record<string, Contribution> = {
     note: "Expansion revenue = how far growing clinics sit above their own baseline (the up tile). Clinics below baseline are the losses it has to offset.",
   },
   "Customer churn": {
-    universe: b => b.kpi.churnBaseIds ?? b.existingIds ?? [], f: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 1 : -1), unit: "clinics", up: "Ordered in the last 45 days", down: `Churned: no order in ${CHURN_DAYS}+ days`,
-    note: `Existing, new and reactivated clinics: churned = last order ${CHURN_DAYS} or more days ago, as of the latest data (the same on every tab). The dollar figure is the baseline revenue existing clinics no longer bring, net of what they still brought in this window; new and reactivated clinics had no baseline, so their revenue stays in New Revenue.`,
-    amount: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 0 : -Math.max(0, r.baseline - r.actual)),
+    universe: b => b.kpi.churnBaseIds ?? b.existingIds ?? [], f: r => (r.life ? (r.life === "churned" ? -1 : 1) : r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned: silent past its gap threshold",
+    note: `Existing, new and reactivated clinics: churned = no order for a clinic's own threshold, as of the latest data (the same on every tab): ${CHURN_DAYS} days for new clinics, and at least ${CHURN_DAYS} days and 3 times its typical gap between orders for established ones. The dollar figure is the baseline revenue existing clinics no longer bring, net of what they still brought in this window; new and reactivated clinics had no baseline, so their revenue stays in New Revenue.`,
+    amount: r => (r.life ? r.life !== "churned" : r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS) ? 0 : -Math.max(0, r.baseline - r.actual),
   },
   "Repeat ordering": { universe: b => b.tenureActiveIds ?? b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
 };

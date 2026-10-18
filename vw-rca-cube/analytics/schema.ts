@@ -159,6 +159,13 @@ const schema = defineSchema({
     // 2026-09-28, Provider Retention Funnel): MIN(customer_signup_time)
     // across the clinic's order rows. Undefined when unreadable.
     signupDate: v.optional(v.string()),
+    // Lifecycle (2026-10-18, analytics/lifecycleRules.ts): first order this calendar year; active / reactivated / churned;
+    // the clinic's typical gap between orders (calendar days, null when too few orders); baseline taken from its own
+    // 12 months before the baseline period (slow buyer with no baseline-period revenue).
+    isNew: v.optional(v.boolean()),
+    life: v.optional(v.string()),
+    typicalGap: v.optional(v.number()),
+    ownBaseline: v.optional(v.boolean()),
     // DEPRECATED, never written or read (Power BI Note import removed
     // 2026-10-12). Kept optional so rows from older refresh generations
     // still validate until they are pruned.

@@ -94,7 +94,7 @@ export type Period = {
 
 const COHORT_LABEL: Record<string, string> = {
   churned: "Churned clinics",
-  new: "New clinics",
+  new: "New clinics (active)",
   retained_top20: "Active — top 20%",
   retained_rest: "Active — remaining 80%",
   reactivated: "Reactivated clinics",
