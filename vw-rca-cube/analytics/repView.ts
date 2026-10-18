@@ -129,6 +129,14 @@ export const book = scopedQuery({
     const gapDays = repeat.length
       ? repeat.reduce((s, r) => s + days / r.orders, 0) / repeat.length
       : null;
+    // Health flags are judged against the tab's own actual vs goal, so they swing with the tab length; at-risk uses the
+    // flags from the whole analysis window instead, so the same clinics are at risk on every tab (2026-10-18).
+    const healthAll = new Map<string, string[]>();
+    if (args.periodId === "all") for (const r of rows) healthAll.set(r.clinic, r.health);
+    else {
+      const wholeWin = await drill(ctx, { periodId: "all", lens: "total", unlimited: true, sales: args.sales });
+      if (wholeWin.ready) for (const r of wholeWin.rows) healthAll.set(r.clinic, r.health);
+    }
     // At risk (Shyam 2026-10-05): same 5–44 day last-order window as Call first.
     const atRiskRows = existing.filter(
       r => {
@@ -136,9 +144,9 @@ export const book = scopedQuery({
         return last !== null && last >= 5 && last < 45;
       },
     ).filter(
-      r =>
-        r.health.some(h => /slipping|overdue|risk|ghost|drop/i.test(h)) ||
-        (r.orders > 0 && r.actual < r.baseline * 0.5),
+      // Health flags only (slipping / overdue / at risk / ghost / dropping). The old "under half its baseline in this
+      // tab" clause made the count swing with the tab length (186 on a week, 154 on a month), so it is gone (2026-10-18).
+      r => (healthAll.get(r.clinic) ?? r.health).some(h => /slipping|overdue|risk|ghost|drop/i.test(h)),
     );
     const dormant = rows.filter(r => {
       const s = since(cutoff, r.lastOrderAllTime);
