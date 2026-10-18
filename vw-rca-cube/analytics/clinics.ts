@@ -594,7 +594,7 @@ export async function drill(
     // report). Keep the row (at $0/$0) for anything already tagged "new" so
     // funnel classification always sees it, regardless of the window.
     const baselineWeekly = m.rev.reduce((t: number, x: number) => t + x, 0);
-    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length && !(args.keepBaselined && (baselineWeekly > 0 || m.cohort === "reactivated"))) continue;
+    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length && !(args.keepBaselined && (baselineWeekly > 0 || m.cohort === "reactivated" || m.cohort === "churned"))) continue;
 
     const baseAov = m.baseOrders ? m.baseRev / m.baseOrders : 0;
 

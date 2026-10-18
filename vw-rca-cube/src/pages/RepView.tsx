@@ -1743,7 +1743,7 @@ const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: wh
 const TENURE_TARGETS: Record<"retention" | "repeat" | "churn", Record<"all" | "pre" | "mid" | "cur", [number, number]>> = {
   retention: { all: [0.74, 0.68], pre: [0.78, 0.72], mid: [0.64, 0.54], cur: [0.49, 0.4] },
   repeat: { all: [0.68, 0.62], pre: [0.76, 0.72], mid: [0.66, 0.55], cur: [0.54, 0.45] },
-  churn: { all: [0.43, 0.48], pre: [0.32, 0.37], mid: [0.49, 0.55], cur: [0.69, 0.76] },
+  churn: { all: [0.4, 0.45], pre: [0.33, 0.37], mid: [0.47, 0.52], cur: [0.51, 0.57] },
 };
 const levelTone = (v: number | null, [good, watch]: [number, number], lowerBetter = false): Tone =>
   v === null ? "na" : lowerBetter ? (v <= good ? "good" : v <= watch ? "watch" : "bad") : v >= good ? "good" : v >= watch ? "watch" : "bad";
@@ -1943,7 +1943,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "Customer churn",
           value: P(k.churnRate, 1),
-          sub: `${k.churned} of ${k.existingCount} clinics · no order in ${CHURN_DAYS}+ days`,
+          sub: `${k.churned} of ${k.churnBase ?? k.existingCount} clinics · no order in ${CHURN_DAYS}+ days`,
           ids: k.churnedIds, n: k.churnRate, u: "%", better: -1,
           tone: levelTone(k.churnRate, TENURE_TARGETS.churn[tenure], true),
         },
@@ -2049,8 +2049,8 @@ const CONTRIB: Record<string, Contribution> = {
     note: "Expansion revenue = how far growing clinics sit above their own baseline (the up tile). Clinics below baseline are the losses it has to offset.",
   },
   "Customer churn": {
-    universe: b => b.existingIds ?? [], f: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 1 : -1), unit: "clinics", up: "Ordered in the last 45 days", down: `Churned: no order in ${CHURN_DAYS}+ days`,
-    note: `Clinics that ordered in the baseline: churned = last order ${CHURN_DAYS} or more days ago, as of the latest data (the same on every tab). The dollar figure is the baseline revenue those clinics no longer bring, net of what they still brought in this window.`,
+    universe: b => b.kpi.churnBaseIds ?? b.existingIds ?? [], f: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 1 : -1), unit: "clinics", up: "Ordered in the last 45 days", down: `Churned: no order in ${CHURN_DAYS}+ days`,
+    note: `Existing, new and reactivated clinics: churned = last order ${CHURN_DAYS} or more days ago, as of the latest data (the same on every tab). The dollar figure is the baseline revenue existing clinics no longer bring, net of what they still brought in this window; new and reactivated clinics had no baseline, so their revenue stays in New Revenue.`,
     amount: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 0 : -Math.max(0, r.baseline - r.actual)),
   },
   "Repeat ordering": { universe: b => b.tenureActiveIds ?? b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
@@ -2125,7 +2125,7 @@ function applyTenure(b: Book, sel: TenureKey): Book {
       ...b.kpi,
       existingRevenue: t.existingRevenue, existingBaseline: t.existingBaseline, existingCount: t.existingCount,
       revenueRetention: t.revenueRetention, nrr: t.nrr, expansionRev: t.expansionRev, growing: t.growing,
-      churned: t.churned, churnedIds: t.churnedIds, churnRate: t.churnRate,
+      churned: t.churned, churnedIds: t.churnedIds, churnRate: t.churnRate, churnBase: t.churnBase, churnBaseIds: t.churnBaseIds,
       repeatRate: t.repeatRate, repeatCount: t.repeatCount, activeCount: t.activeCount, repeatIds: t.repeatIds,
       atRisk: t.atRisk, atRiskRev: t.atRiskRev,
     },

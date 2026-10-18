@@ -706,10 +706,15 @@ export const refreshData = internalAction({
       const actualCohortOf = new Map<string, Cohort>();
       for (const [id, rev] of currentByClinic) {
         if (rev <= 0) continue;
-        if (firstIn(id, currentStart, currentEnd)) {
+        if (churned45(id)) {
+          // One rule for everyone (2026-10-18): silent 45+ days = churned, whether the clinic is new, reactivated or
+          // existing. The new-clinic funnel and the scorecard keep these clinics as new / reactivated through their own
+          // membership (newGroupsOf below, repView), so their revenue still counts as new business.
+          actualCohortOf.set(id, "churned");
+        } else if (firstIn(id, currentStart, currentEnd)) {
           actualCohortOf.set(id, "new");
         } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, churned45(id) ? "churned" : (retainedLabel.get(id) ?? "retained_rest"));
+          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
         } else {
           // Dormant through the baseline, ordering again now.
           actualCohortOf.set(id, "reactivated");
@@ -1335,8 +1340,9 @@ export const refreshData = internalAction({
       // Each stage is compared with the baseline window's own new clients on
       // the same daily pace.
       const newGroupsOf = new Map<string, string[]>();
-      for (const [id, c] of actualCohortOf) {
-        if (c !== "new") continue;
+      for (const [id, rev] of currentByClinic) {
+        // New in the analysis window, silent or not: the funnel shows drop-offs.
+        if (rev <= 0 || !firstIn(id, currentStart, currentEnd)) continue;
         const st = curStat.get(id);
         if (!st) continue;
         newGroupsOf.set(
@@ -2667,10 +2673,15 @@ export const refreshSnapshot = internalAction({
       const actualCohortOf = new Map<string, Cohort>();
       for (const [id, rev] of currentByClinic) {
         if (rev <= 0) continue;
-        if (firstIn(id, currentStart, currentEnd)) {
+        if (churned45(id)) {
+          // One rule for everyone (2026-10-18): silent 45+ days = churned, whether the clinic is new, reactivated or
+          // existing. The new-clinic funnel and the scorecard keep these clinics as new / reactivated through their own
+          // membership (newGroupsOf below, repView), so their revenue still counts as new business.
+          actualCohortOf.set(id, "churned");
+        } else if (firstIn(id, currentStart, currentEnd)) {
           actualCohortOf.set(id, "new");
         } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, churned45(id) ? "churned" : (retainedLabel.get(id) ?? "retained_rest"));
+          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
         } else {
           // Dormant through the baseline, ordering again now.
           actualCohortOf.set(id, "reactivated");
@@ -3278,8 +3289,9 @@ export const refreshSnapshot = internalAction({
       // Each stage is compared with the baseline window's own new clients on
       // the same daily pace.
       const newGroupsOf = new Map<string, string[]>();
-      for (const [id, c] of actualCohortOf) {
-        if (c !== "new") continue;
+      for (const [id, rev] of currentByClinic) {
+        // New in the analysis window, silent or not: the funnel shows drop-offs.
+        if (rev <= 0 || !firstIn(id, currentStart, currentEnd)) continue;
         const st = curStat.get(id);
         if (!st) continue;
         newGroupsOf.set(

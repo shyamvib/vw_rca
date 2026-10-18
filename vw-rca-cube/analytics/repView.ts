@@ -111,13 +111,24 @@ export const book = scopedQuery({
     const newOrd = sum(newRows, r => r.orders);
 
     // Retention
+    // The cohort label says "churned" once such a clinic goes silent 45+ days, so reactivated is derived: cohort
+    // reactivated, or churned with no baseline that is not a new clinic (the only other way to have window revenue and no
+    // baseline).
+    const reactivated = rows.filter(
+      r => r.cohort === "reactivated" || (r.cohort === "churned" && (r.baselineWeekly ?? r.baseline) <= 0 && r.newGroups.length === 0),
+    );
     // Churn is by last order date (Shyam, 2026-10-18): no order for 45+ days as of the latest data. It does not depend
     // on the tab, so a clinic is not "churned" just because it skipped a short window.
     const isChurned = (r: ClinicRow) => {
       const s = since(cutoff, r.lastOrderAllTime);
       return s === null || s >= CHURN_DAYS;
     };
-    const churned = existing.filter(isChurned);
+    // Everyone who brought revenue is in the churn base: existing clinics, new clinics and reactivated ones. A new or
+    // reactivated clinic silent 45+ days counts as churned too; its revenue stays in the New Revenue dial.
+    const reactivatedSet = new Set(reactivated.map(r => r.clinic));
+    const existingSet = new Set(existing.map(r => r.clinic));
+    const churnBase = rows.filter(r => existingSet.has(r.clinic) || isNew(r) || reactivatedSet.has(r.clinic));
+    const churned = churnBase.filter(isChurned);
     const retainedCap = sum(existing, r => Math.min(r.actual, r.baseline));
     const contraction = sum(
       existing.filter(r => r.orders > 0 && r.realChange < 0),
@@ -177,7 +188,6 @@ export const book = scopedQuery({
     // No baseline, so their revenue counts as gain, like new business; the scorecard's New Revenue combines the two.
     // Membership is the cohort (ordered in the analysis window after a quiet baseline), the same on every tab; the count
     // that ordered in this tab is reported separately, like the new clinics.
-    const reactivated = rows.filter(r => r.cohort === "reactivated");
     const reactivatedRev = sum(reactivated, r => r.actual);
 
     // Tenure cut (by first-order year) of the retention / expansion numbers: all, before the data starts
@@ -194,7 +204,8 @@ export const book = scopedQuery({
       const act = active.filter(pick);
       const exA = sum(ex, r => r.actual);
       const exE = sum(ex, r => r.baseline);
-      const ch = ex.filter(isChurned);
+      const cb = churnBase.filter(pick);
+      const ch = cb.filter(isChurned);
       const gr = ex.filter(r => r.realChange > 0);
       const rp = act.filter(r => r.orders >= 2);
       const risk = atRiskRows.filter(pick);
@@ -203,7 +214,7 @@ export const book = scopedQuery({
         revenueRetention: exE ? sum(ex, r => Math.min(r.actual, r.baseline)) / exE : null,
         nrr: exE ? exA / exE : null,
         expansionRev: sum(gr, r => r.realChange), growing: gr.length, growingIds: ids(gr),
-        churned: ch.length, churnedIds: ids(ch), churnRate: ex.length ? ch.length / ex.length : null,
+        churned: ch.length, churnedIds: ids(ch), churnBase: cb.length, churnBaseIds: ids(cb), churnRate: cb.length ? ch.length / cb.length : null,
         repeatRate: act.length ? rp.length / act.length : null, repeatCount: rp.length, activeCount: act.length, repeatIds: ids(rp), activeIds: ids(act),
         atRisk: risk.length, atRiskRev: sum(risk, r => Math.max(0, -r.realChange)), atRiskIds: ids(risk),
       };
@@ -414,7 +425,9 @@ export const book = scopedQuery({
     // a delta against a baseline that doesn't exist yet.
     const newCohort = byCohort.get("new");
     if (newCohort) {
-      const { onPace } = newClinicPace(newRows, cutoff);
+      // Only the new clinics still in the New cohort (the silent ones moved to Churned), so the split adds up to the row.
+      const newInCohort = newRows.filter(r => r.cohort === "new");
+      const { onPace } = newClinicPace(newInCohort, cutoff);
       const reset = {
         n: newCohort.n,
         d: newCohort.d,
@@ -428,7 +441,7 @@ export const book = scopedQuery({
         negCount: 0,
         negIds: [] as string[],
       };
-      for (const r of newRows) {
+      for (const r of newInCohort) {
         if (onPace.has(r.clinic)) {
           reset.posSum += r.actual;
           reset.posCount++;
@@ -564,10 +577,12 @@ export const book = scopedQuery({
         aovOpp,
         ordersPerCustomer: active.length ? orders / active.length : null,
         revenueRetention: exExp ? retainedCap / exExp : null,
-        customerRetention: existing.length ? (existing.length - churned.length) / existing.length : null,
-        churnRate: existing.length ? churned.length / existing.length : null,
+        customerRetention: churnBase.length ? (churnBase.length - churned.length) / churnBase.length : null,
+        churnRate: churnBase.length ? churned.length / churnBase.length : null,
+        churnBase: churnBase.length,
         churned: churned.length,
         churnedIds: churned.map(r => r.clinic),
+        churnBaseIds: churnBase.map(r => r.clinic),
         existingCount: existing.length,
         revenueChurn,
         contraction,
