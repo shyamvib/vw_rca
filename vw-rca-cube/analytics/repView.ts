@@ -175,7 +175,9 @@ export const book = scopedQuery({
 
     // Reactivated (lifecycle, 2026-10-16): first order before the window, nothing in the baseline, ordering again now.
     // No baseline, so their revenue counts as gain, like new business; the scorecard's New Revenue combines the two.
-    const reactivated = rows.filter(r => r.cohort === "reactivated" && r.orders > 0);
+    // Membership is the cohort (ordered in the analysis window after a quiet baseline), the same on every tab; the count
+    // that ordered in this tab is reported separately, like the new clinics.
+    const reactivated = rows.filter(r => r.cohort === "reactivated");
     const reactivatedRev = sum(reactivated, r => r.actual);
 
     // Tenure cut (by first-order year) of the retention / expansion numbers: all, before the data starts
@@ -544,7 +546,8 @@ export const book = scopedQuery({
       kpi: {
         newRevenue: newRev,
         reactivatedRevenue: reactivatedRev,
-        reactivatedCount: reactivated.length,
+        reactivatedCount: reactivated.filter(r => r.orders > 0).length,
+        reactivatedTotal: reactivated.length,
         // New clinics that ordered in this tab; `newTotal` is every new clinic in the analysis window (the list behind the cell).
         newCustomers: newRows.filter(r => r.orders > 0).length,
         newTotal: newRows.length,
