@@ -1,4 +1,4 @@
-import { targetScale } from "./baseline";
+import { newGoalFor, targetScale } from "./baseline";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
 import { v } from "convex/values";
@@ -410,14 +410,20 @@ export const scopeTotals = scopedQuery({
         expectedOrders += r.expectedOrders;
       }
     }
-    const scopeBaseAov = expectedOrders ? expected / expectedOrders : 0;
+    // `expected` so far is the existing-business goal; the scope's share of the new-business goal (a slice of the target,
+    // by baseline share) is added to the headline, and the lenses keep splitting the existing part.
+    const expectedEx = expected;
+    const newGoal = await newGoalFor(ctx, cfg, args.periodId, baselineSum);
+    const scopeBaseAov = expectedOrders ? expectedEx / expectedOrders : 0;
     volume = (orders - expectedOrders) * scopeBaseAov;
-    aovEffect = actual - expected - volume;
+    aovEffect = actual - expectedEx - volume;
+    expected = expectedEx + newGoal;
     return {
       ready: true as const,
       clinics: res.rows.length,
       actual,
       expected,
+      newGoal,
       delta: actual - expected,
       baseline: baselineSum,
       realChange: actual - baselineSum,
@@ -434,7 +440,7 @@ export const scopeTotals = scopedQuery({
       baseAov: scopeBaseAov,
       // Calibrated to the scope's headline baseline, so the cohort rows add up to `delta` (analytics/lifecycle.ts).
       ...(() => {
-        const cal = calibrate([...cohorts].map(([cohort, c]) => ({ cohort, actual: c.actual, expected: c.expected, clinics: c.clinics })), expected);
+        const cal = calibrate([...cohorts].map(([cohort, c]) => ({ cohort, actual: c.actual, expected: c.expected, clinics: c.clinics })), expectedEx);
         return {
           cohorts: cal.rows.map(r => ({
             cohort: r.cohort,

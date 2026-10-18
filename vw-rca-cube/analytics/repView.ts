@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { targetScale } from "./baseline";
+import { newGoalFor, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
 import { loadCfg } from "./config";
@@ -87,7 +87,11 @@ export const book = scopedQuery({
 
     const actual = sum(rows, r => r.actual);
     const rb = await repBaseline(ctx, args.periodId, args.sales, cfg.gen ?? 0);
-    const expected = rb ? rb.rev : sum(rows, r => r.expected);
+    // Existing-business goal (the rep's slice) plus the rep's share of the new-business goal (a slice of the target, split
+    // by baseline share); the headline goal is both, the lenses below split the existing part.
+    const exGoal = rb ? rb.rev : sum(rows, r => r.expected);
+    const newGoal = await newGoalFor(ctx, cfg, args.periodId, sum(rows, r => r.baseline));
+    const expected = exGoal + newGoal;
     const orders = sum(rows, r => r.orders);
     const expOrders = rb ? rb.ord : sum(rows, r => r.expectedOrders);
     const active = rows.filter(r => r.orders > 0);
@@ -177,12 +181,12 @@ export const book = scopedQuery({
     const lowAov = active.filter(r => r.aov < LOW_AOV);
     const aovGap = active.filter(r => r.baseAov > 0 && r.aov < r.baseAov);
     const aovOpp = sum(aovGap, r => (r.baseAov - r.aov) * r.orders);
-    const baseAov = expOrders ? expected / expOrders : 0;
+    const baseAov = expOrders ? exGoal / expOrders : 0;
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
     const volume = (orders - expOrders) * baseAov;
-    const aovEffect = actual - expected - volume;
+    const aovEffect = actual - exGoal - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.realChange));
 
     // Reactivated (lifecycle, 2026-10-16): first order before the window, nothing in the baseline, ordering again now.
@@ -222,7 +226,7 @@ export const book = scopedQuery({
       const rp = act.filter(r => r.orders >= 2);
       const risk = atRiskRows.filter(pick);
       return {
-        existingCount: ex.length, existingIds: ids(ex), existingRevenue: exA, existingBaseline: exE,
+        existingCount: ex.length, existingIds: ids(ex), existingRevenue: exA, existingBaseline: exE, existingGoal: sum(ex, r => r.expected),
         revenueRetention: exE ? sum(ex, r => Math.min(r.actual, r.baseline)) / exE : null,
         nrr: exE ? exA / exE : null,
         expansionRev: sum(gr, r => r.realChange), growing: gr.length, growingIds: ids(gr),
@@ -467,7 +471,7 @@ export const book = scopedQuery({
       byCohort.set("new", reset);
     }
     const cohortRows = [...byCohort];
-    const cohortCal = calibrate(cohortRows.map(([k, c]) => ({ cohort: k, actual: c.a, expected: c.e, clinics: c.n })), expected);
+    const cohortCal = calibrate(cohortRows.map(([k, c]) => ({ cohort: k, actual: c.a, expected: c.e, clinics: c.n })), exGoal);
     const states = [...byState].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 
     // Top clinics by baseline for the weekly-target editor
@@ -506,6 +510,7 @@ export const book = scopedQuery({
       totals: {
         actual,
         expected,
+        newGoal,
         delta: actual - expected,
         // Baseline = the book's mean run rate; real change = actual - baseline; ambition = goal (expected) - baseline.
         baseline: sum(rows, r => r.baseline),
@@ -616,6 +621,8 @@ export const book = scopedQuery({
         existingBaseline: exExp,
         nrr: exExp ? exAct / exExp : null,
         existingGrowth: exExp ? exAct / exExp - 1 : null,
+        existingGoal: sum(existing, r => r.expected),
+        newGoal,
         netGrowth: expected ? actual / expected - 1 : null,
         runRate: weekFraction ? actual / weekFraction : null,
         runRatePlan: weekFraction ? expected / weekFraction : null,
@@ -709,6 +716,12 @@ export const pace = scopedQuery({
     // Full-period goal over goal-so-far, by weekday shape: every dial projects with this one factor (heading = so far x
     // ratio, plan = goal x ratio), so New + Existing add up to the Combined dial (2026-10-18).
     const ratio = expSoFar > 0 ? (expSoFar + expRest) / expSoFar : 1;
+    // The new-business goal (the rep's share of a slice of the target) is spread over the year by the same weekday weights,
+    // so it projects with the same factor; the dial's goal is the existing part plus this.
+    const newSoFar = await newGoalFor(ctx, cfg, args.periodId, sum(res.rows, r => r.baseline));
+    const newPlan = newSoFar * ratio;
+    const existingPlan = plan;
+    plan += newPlan;
     return {
       ready: true as const,
       periodId: args.periodId,
@@ -721,6 +734,9 @@ export const pace = scopedQuery({
       heading,
       ratio,
       plan,
+      existingPlan,
+      newPlan,
+      newGoal: newSoFar,
       needPerDay: remaining.length ? Math.max(0, plan - soFar) / remaining.length : 0,
     };
   },

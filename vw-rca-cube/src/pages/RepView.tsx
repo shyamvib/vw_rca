@@ -612,6 +612,9 @@ type Pace = {
   heading: number;
   /** Full-period goal over goal so far (weekday-shaped): the one projection factor for every dial. */
   ratio?: number;
+  /** Goal for the whole window for the New Business dial (the rep's share of the new-business goal). */
+  newPlan?: number;
+  existingPlan?: number;
   plan: number;
   needPerDay: number;
   remainingDays: number;
@@ -1110,7 +1113,7 @@ function WindowTab({
     const active = { l: `Active (${merged.clinics})`, v: merged.delta, real: tot(c => (c.real as number) ?? 0), amb: tot(c => (c.ambition as number) ?? 0), focus: "cohort:active", sub: "still ordering: new this year, or ordered in the baseline", cohortSplit: merged, tiers };
     return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest" && c.key !== "new").map(one), active].sort((a, b) => a.v - b.v);
   })();
-  const lensCards: Array<{
+  const lensCardsBase: Array<{
     k: string;
     t: string;
     q: string;
@@ -1162,6 +1165,11 @@ function WindowTab({
       note: "Allocated by each clinic's main state.",
     },
   ];
+  // The rows split the existing-business goal; the new-business goal (a slice of the target for this year's new clinics) is
+  // one more line in every card, so each card adds up to the shortfall against the whole goal (2026-10-18).
+  const newGoalLine = b.totals.newGoal ?? 0;
+  const goalRow: (typeof lensCardsBase)[number]["rows"][number] = { l: "New business goal", v: -newGoalLine, real: 0, amb: newGoalLine, focus: "newgoal", sub: "slice of the target for this year's new clinics" };
+  const lensCards = newGoalLine ? lensCardsBase.map(c => ({ ...c, rows: [...c.rows, goalRow] })) : lensCardsBase;
   const max = Math.max(1, ...lensCards.flatMap(c => c.rows.map(r => Math.abs(r.v))));
   const e = b.effort;
   const touchedPct = e.touched ? e.touchedRe / e.touched : 0;
@@ -1275,7 +1283,7 @@ function WindowTab({
                 </div>
                 {c.rows.map(r => (
                   <Fragment key={r.l}>
-                    <button type="button" className="rv-lens-row rv-lens-row-click" onClick={() => openFocus(r.focus, r.l)}>
+                    <button type="button" className="rv-lens-row rv-lens-row-click" onClick={() => (r.focus === "newgoal" ? undefined : openFocus(r.focus, r.l))}>
                       <div>
                         <span>{r.l}</span>
                         <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
@@ -1354,7 +1362,7 @@ function WindowTab({
                       <button
                         type="button"
                         className={`rca-lens-row${focus && focus.focus === r.focus ? " is-open" : ""}`}
-                        onClick={() => openFocus(r.focus, r.l)}
+                        onClick={() => (r.focus === "newgoal" ? undefined : openFocus(r.focus, r.l))}
                       >
                         <div className="rca-lens-row-top">
                           <span>{r.l}</span>
@@ -2134,7 +2142,7 @@ function applyTenure(b: Book, sel: TenureKey): Book {
     },
     kpi: {
       ...b.kpi,
-      existingRevenue: t.existingRevenue, existingBaseline: t.existingBaseline, existingCount: t.existingCount,
+      existingRevenue: t.existingRevenue, existingBaseline: t.existingBaseline, existingGoal: t.existingGoal, existingCount: t.existingCount,
       revenueRetention: t.revenueRetention, nrr: t.nrr, expansionRev: t.expansionRev, growing: t.growing,
       churned: t.churned, churnedIds: t.churnedIds, churnRate: t.churnRate, churnBase: t.churnBase, churnBaseIds: t.churnBaseIds,
       repeatRate: t.repeatRate, repeatCount: t.repeatCount, activeCount: t.activeCount, repeatIds: t.repeatIds,
@@ -2202,13 +2210,13 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const scale = scPace?.ratio ?? (scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1);
   const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
     // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
-    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: 0, fmt: K, planLbl: "no baseline", allProducts: scoped },
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
-    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
+    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
     ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "goal" }] : []),
   ];
   // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).

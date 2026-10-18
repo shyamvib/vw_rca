@@ -315,6 +315,7 @@ export const putPeriodGoal = internalMutation({
         baseRevenue: v.number(),
         baseOrders: v.number(),
         target: v.optional(v.number()),
+        newSlice: v.optional(v.number()),
         yearBaseRevenue: v.optional(v.number()),
         tShare: v.optional(v.number()),
         p75Revenue: v.optional(v.number()),

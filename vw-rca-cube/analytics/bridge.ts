@@ -1,4 +1,4 @@
-import { mainTarget, targetScaleOf } from "./baseline";
+import { mainSettings, newGoalOf, targetScaleOf } from "./baseline";
 import { geoKeyOf } from "./geoKey";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
@@ -87,6 +87,8 @@ export type Period = {
   ambition?: number;
   /** The company rolling P75 for the period: the old goal, kept as a benchmark. */
   p75Goal?: number;
+  /** New-business goal inside `expected` (group level, a slice of the target). */
+  newGoal?: number;
   baselineOrders?: number;
   lensD: Row[];
   topStates: Array<{ state: string; value: number }>;
@@ -177,7 +179,7 @@ async function computeBridge(ctx: QueryCtx) {
     .query("periodGoal")
     .withIndex("by_gen", q => q.eq("gen", gen))
     .collect();
-  const mainTargetNow = await mainTarget(ctx);
+  const settingsNow = await mainSettings(ctx);
   const goalMap = new Map(goalRows.map(g => [g.periodId, g]));
 
   // ---------- baseline rates (per weekday, bucketed by the chosen mode) ----------
@@ -307,7 +309,7 @@ async function computeBridge(ctx: QueryCtx) {
   ): Period {
     // Baseline x goal factor (analytics/baseline.ts); falls back to the old per-day P75 scale on an older snapshot.
     const g = goalMap.get(id);
-    const k = targetScaleOf(g, mainTargetNow);
+    const k = targetScaleOf(g, settingsNow);
     const fR = g && g.baseRevenue > 0 ? (g.goalRevenue * k) / g.baseRevenue : null;
     const fO = g && g.baseOrders > 0 ? (g.goalOrders * k) / g.baseOrders : fR;
     const sc = (d: string): number => fR ?? p75Scale(p75f, kind, d);
@@ -348,17 +350,22 @@ async function computeBridge(ctx: QueryCtx) {
     const rolling = rollingExpected(kind, days);
     // Goal = the Settings target spread by baseline weekday weights (periodGoal, rebased to the current target at read
     // time); the P75 above is kept as a benchmark. Older snapshots without a goal row keep the P75.
-    const expected = g && g.baseRevenue > 0 ? g.goalRevenue * k : rolling.revenue;
+    // The company goal is the existing-business goal plus the new-business goal (a slice of the target, group level); the
+    // lenses below split the existing-business part, and the dashboard adds one "New business goal" line to each lens.
+    const expectedEx = g && g.baseRevenue > 0 ? g.goalRevenue * k : rolling.revenue;
+    const newGoal = g && g.baseRevenue > 0 ? newGoalOf(g, settingsNow, g.baseRevenue) : 0;
+    const expected = expectedEx + newGoal;
     const expAll = g && g.baseOrders > 0 ? g.goalOrders * k : rolling.orders;
     const delta = revenue - expected;
     const aov = orders ? revenue / orders : 0;
-    const rollingBaseAov = expAll ? expected / expAll : 0;
+    const rollingBaseAov = expAll ? expectedEx / expAll : 0;
     // Baseline (company mean run rate) and the split of the shortfall into real change vs ambition.
     const baselineRev = g && g.baseRevenue > 0 ? g.baseRevenue : [...cohortBaseForPeriod(days).values()].reduce((t, x) => t + x, 0);
     const baselineOrd = g?.baseOrders ?? 0;
     const realChange = revenue - baselineRev;
     const ambition = expected - baselineRev;
-    const fAmb = baselineRev > 0 ? expected / baselineRev - 1 : 0; // goal factor - 1
+    const ambitionEx = expectedEx - baselineRev;
+    const fAmb = baselineRev > 0 ? expectedEx / baselineRev - 1 : 0; // existing-business goal factor - 1
 
     const volume = (orders - expAll) * rollingBaseAov;
     const aovEffect = orders * (aov - rollingBaseAov);
@@ -388,7 +395,7 @@ async function computeBridge(ctx: QueryCtx) {
       return { cohort: cb.cohort, actual, expected: exp, clinics: cb.clinics };
     });
     // Calibrated to the headline baseline so the cohort rows add up to the headline delta (analytics/lifecycle.ts).
-    const cal = calibrate(cohortAgg, expected);
+    const cal = calibrate(cohortAgg, expectedEx);
     const lensC: Row[] = cal.rows.map(r => ({
       label: COHORT_LABEL[r.cohort] ?? r.cohort,
       sub: `${fmtInt(r.clinics)} clinics`,
@@ -532,6 +539,7 @@ async function computeBridge(ctx: QueryCtx) {
       realChange,
       ambition,
       p75Goal: rolling.revenue,
+      newGoal,
       delta,
       orders,
       expectedOrders: expAll,
@@ -557,7 +565,7 @@ async function computeBridge(ctx: QueryCtx) {
           sub: `${aov - rollingBaseAov >= 0 ? "+" : "-"}$${fmtInt(Math.abs(aov - rollingBaseAov))} AOV`,
           value: aovEffect,
           real: baselineOrd > 0 ? realChange - (orders - baselineOrd) * (baselineRev / baselineOrd) : undefined,
-          ambition: baselineOrd > 0 ? ambition - (expAll - baselineOrd) * (baselineRev / baselineOrd) : undefined,
+          ambition: baselineOrd > 0 ? ambitionEx - (expAll - baselineOrd) * (baselineRev / baselineOrd) : undefined,
           lens: "aov",
           key: "",
         },

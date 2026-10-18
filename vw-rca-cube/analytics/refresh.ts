@@ -1918,7 +1918,7 @@ export const refreshData = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * (cfg.annualTarget ?? 130_000_000) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
@@ -3889,7 +3889,7 @@ export const refreshSnapshot = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * (cfg.annualTarget ?? 130_000_000) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).

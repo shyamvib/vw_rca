@@ -247,6 +247,8 @@ const schema = defineSchema({
     // Goal is the Settings annual target spread by baseline weekday weights (2026-10-16). These let the read side
     // re-base the goal when the target changes without a rebuild: m = tShare x target / yearBaseRevenue + (1 - tShare).
     target: v.optional(v.number()),
+    /** the new-business goal carved out of the target when this row was built (Settings number) */
+    newSlice: v.optional(v.number()),
     yearBaseRevenue: v.optional(v.number()),
     tShare: v.optional(v.number()),
     /** The company rolling P75 for the period (the old goal), kept as a benchmark. */
@@ -524,6 +526,8 @@ const schema = defineSchema({
     /** Where the baseline window sits: "trailing" (91 days before the window, default), "best" (the best 91 days of data before the window) or "custom" (baselineStart..baselineEnd). */
     baselineSource: v.optional(v.string()),
     annualTarget: v.optional(v.number()),
+    /** New-business goal: the slice of the annual target given to new clinics (dollars); default 5% of the target. */
+    newBusinessGoal: v.optional(v.number()),
     p75: v.optional(
       v.object({
         day: v.array(v.number()),

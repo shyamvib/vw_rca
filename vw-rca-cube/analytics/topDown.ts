@@ -36,7 +36,7 @@ export function topDownAllocate(args: {
   /** Settings annual target and the calendar year it belongs to. When given, goal = the target spread by baseline
    * weekday weights (additive over time and entities, identical for the same days in any period kind); otherwise
    * the goal is the company rolling P75. */
-  target?: { annual: number; year: number };
+  target?: { annual: number; year: number; /** new-business goal carved out of the target (Settings number) */ newSlice?: number };
 }) {
   const { defs, planOf, days, identity, rates, companyDaily, target } = args;
   // Baseline (mean) run rate by weekday, summed per rep: additive by construction.
@@ -49,7 +49,7 @@ export function topDownAllocate(args: {
   }
   const periodGoal: Array<{
     periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number;
-    target?: number; yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
+    target?: number; newSlice?: number; yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
   }> = [];
   // Company mean revenue per weekday, and the baseline of the whole target year (every day, Jan 1 to Dec 31).
   const coRate = [0, 0, 0, 0, 0, 0, 0];
@@ -113,12 +113,13 @@ export function topDownAllocate(args: {
       for (const d of pd) if (Number(d.slice(0, 4)) === target.year) inYear += coRate[dow(d)];
       const allBase = pd.reduce((t, d) => t + coRate[dow(d)], 0);
       tShare = allBase > 0 ? inYear / allBase : 0;
-      const m = tShare * (target.annual / yearBase) + (1 - tShare);
+      const slice = target.newSlice ?? 0;
+      const m = tShare * ((target.annual - slice) / yearBase) + (1 - tShare);
       totR = sumR * m; totO = sumO * m;
     }
     periodGoal.push({
       periodId: id, goalRevenue: totR, goalOrders: totO, baseRevenue: sumR, baseOrders: sumO,
-      ...(tShare === undefined ? {} : { target: target!.annual, yearBaseRevenue: yearBase, tShare }),
+      ...(tShare === undefined ? {} : { target: target!.annual, newSlice: target!.newSlice ?? 0, yearBaseRevenue: yearBase, tShare }),
       p75Revenue: p75R, p75Orders: p75O,
     });
     const repR = new Map<string, number>(), repO = new Map<string, number>();

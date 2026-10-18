@@ -37,6 +37,8 @@ const schema = defineSchema({
     /** Where the baseline window sits: "trailing" (91 days before the window, default), "best" (the best 91 days of data before the window) or "custom" (baselineStart..baselineEnd). */
     baselineSource: v.optional(v.string()),
     annualTarget: v.optional(v.number()),
+    /** New-business goal: the slice of the annual target given to new clinics (dollars); default 5% of the target. */
+    newBusinessGoal: v.optional(v.number()),
     p75: v.optional(
       v.object({
         day: v.array(v.number()),

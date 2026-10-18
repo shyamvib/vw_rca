@@ -76,12 +76,15 @@ async function syncAppState() {
     const seed = (await convex.query("appState:snapshotSeed" as any, {})) as Record<string, any[]>;
     const db = current.host.db;
     // The config row mixes user-edited settings with pointers the build derives
-    // (gen, p75, rolling window ends), so only the setting that is read at query
-    // time (annualTarget) is overlaid. Window changes take effect on the next rebuild.
+    // (gen, p75, rolling window ends), so only the settings that are read at query
+    // time (annualTarget, newBusinessGoal) are overlaid. Window changes take effect on the next rebuild.
     const mine = await db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
     const theirs = seed.config.find(r => r.key === "main");
     if (mine && theirs?.annualTarget !== undefined && mine.annualTarget !== theirs.annualTarget) {
       await db.patch(mine._id, { annualTarget: theirs.annualTarget });
+    }
+    if (mine && theirs && mine.newBusinessGoal !== theirs.newBusinessGoal) {
+      await db.patch(mine._id, { newBusinessGoal: theirs.newBusinessGoal });
     }
     db.load("productEligible", seed.productEligible);
     db.load("clinicPlan", seed.clinicPlan);

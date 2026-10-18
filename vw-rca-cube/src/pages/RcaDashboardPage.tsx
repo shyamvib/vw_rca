@@ -39,6 +39,8 @@ type FamilyRow = {
   orderDelta: number;
 };
 type Period = {
+  /** New-business goal inside `expected`: a slice of the target for this year's new clinics (group level). */
+  newGoal?: number;
   /** Factor the cohort rows' expected was scaled by so they add up to the headline delta. */
   cohortCalibration?: number;
   /** Baseline (mean run rate), real change (actual - baseline) and ambition (goal - baseline; `expected` is the goal). */
@@ -971,6 +973,7 @@ function refreshErrorText(e: unknown): string {
 
 type ScopeTotals = {
   ready: boolean;
+  newGoal?: number;
   clinics?: number;
   actual?: number;
   expected?: number;
@@ -1010,6 +1013,12 @@ const COHORT_LABEL: Record<string, string> = {
  */
 /** Lifecycle view of the cohort branch: retained top 20% + the rest are one stage, Active, cut by size.
  * The cohort rows themselves (and the narrative that reads them) stay as they are; only the tree groups them. */
+/** The lenses split the existing-business goal; the new-business goal is one more line so each lens adds up to the shortfall against the whole goal. */
+function withNewGoal(rows: Row[], newGoal?: number): Row[] {
+  if (!newGoal) return rows;
+  return [...rows, { label: "New business goal", sub: "slice of the target for this year's new clinics (group goal)", value: -newGoal, real: 0, ambition: newGoal, lens: "newgoal", key: "" }];
+}
+
 function groupActive(rows: Row[]): Row[] {
   const top = rows.find(r => r.key === "retained_top20");
   const rest = rows.find(r => r.key === "retained_rest");
@@ -1065,6 +1074,7 @@ function scopePeriod(
     ...base,
     actual: scoped.actual ?? 0,
     expected: scoped.expected ?? 0,
+    newGoal: scoped.newGoal ?? 0,
     delta: scoped.delta ?? 0,
     orders: scoped.orders ?? 0,
     expectedOrders: scoped.expectedOrders ?? 0,
@@ -1165,6 +1175,7 @@ export function RcaDashboardPage() {
   const repWin = useQuery(api.config.repWindow, { password: pw() });
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
   const [targetSaved, setTargetSaved] = useState(false);
+  const [newGoalDraft, setNewGoalDraft] = useState<string | null>(null);
   const [scope, setScope] = useState<"month" | "week" | "day">("week");
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
@@ -1430,7 +1441,7 @@ export function RcaDashboardPage() {
   const visible = zoomable ? strip.slice(panAt, panAt + zoom) : strip;
   const maxAbs = Math.max(...visible.map(p => Math.abs(p.delta)), 1);
   const lensMax = Math.max(
-    ...LENS_META.flatMap(l => active[l.key].map(r => Math.abs(r.value))),
+    ...LENS_META.flatMap(l => withNewGoal(active[l.key], active.newGoal).map(r => Math.abs(r.value))),
     1,
   );
 
@@ -1656,15 +1667,37 @@ export function RcaDashboardPage() {
                       }}
                     />
                   </label>
+                  <label>
+                    New-business goal ($)
+                    <input
+                      type="number"
+                      step={500000}
+                      min={0}
+                      value={
+                        newGoalDraft ??
+                        String(
+                          (cfg as { newBusinessGoal?: number }).newBusinessGoal ??
+                            Math.round(0.05 * ((cfg as { annualTarget?: number }).annualTarget ?? 130000000)),
+                        )
+                      }
+                      onChange={e => {
+                        setNewGoalDraft(e.target.value);
+                        setTargetSaved(false);
+                      }}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="rca-btn"
-                    disabled={targetDraft === null}
+                    disabled={targetDraft === null && newGoalDraft === null}
                     onClick={async () => {
-                      const n = Number(targetDraft);
+                      const n = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
                       if (!Number.isFinite(n) || n <= 0) return;
-                      await setTarget({ password: pw(), annualTarget: n });
+                      const g = newGoalDraft === null ? undefined : Number(newGoalDraft);
+                      if (g !== undefined && (!Number.isFinite(g) || g < 0 || g > n)) return;
+                      await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }) });
                       setTargetDraft(null);
+                      setNewGoalDraft(null);
                       setTargetSaved(true);
                     }}
                   >
@@ -1674,13 +1707,25 @@ export function RcaDashboardPage() {
                 <div className="rca-control-note">
                   The target drives the year-end projection card and the Goal:
                   it is spread over the year by baseline weekday weights, so
-                  every goal (period, rep, clinic) adds up to it. It applies
+                  every goal (period, rep, clinic) adds up to it. The
+                  new-business goal is the slice of it given to this year's new
+                  clinics as a group (default 5%, split over reps by their
+                  baseline share); existing clinics carry the rest. It applies
                   instantly — no Power BI refresh needed.
                   {targetSaved ? " Saved." : ""}
                 </div>
                 {(() => {
                   const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
                   const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
+                  const ng = Number(newGoalDraft ?? (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * t);
+                  if (base && t - ng < base)
+                    return (
+                      <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
+                        With a new-business goal of {"$"}{(ng / 1e6).toFixed(1)}M, existing clinics carry {"$"}{((t - ng) / 1e6).toFixed(1)}M against
+                        their {"$"}{(base / 1e6).toFixed(1)}M a year baseline: their goals sit under baseline, so their
+                        ambition shows negative. The most the new-business goal can be is {"$"}{(Math.max(0, t - base) / 1e6).toFixed(1)}M.
+                      </div>
+                    );
                   return base && t < base ? (
                     <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
                       Target is below the current run rate ({"$"}{(base / 1e6).toFixed(1)}M a year): goals sit
@@ -2353,7 +2398,7 @@ export function RcaDashboardPage() {
                       </div>
                     </div>
                   )}
-                  {(lens.key === "lensC" ? groupActive(active.lensC) : active[lens.key]).map(row => {
+                  {withNewGoal(lens.key === "lensC" ? groupActive(active.lensC) : active[lens.key], active.newGoal).map(row => {
                     // A patient-count row is not a slice of the revenue gap,
                     // so it is scaled against its own expected headcount.
                     const w =
@@ -2376,6 +2421,7 @@ export function RcaDashboardPage() {
                             : ""
                         }`}
                         onClick={() => {
+                          if (row.lens === "newgoal") return;
                           setDrillLimit(25);
                           setDrill(
                             drill &&

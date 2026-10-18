@@ -78,16 +78,19 @@ export const setWindow = gatedMutation({
 
 /** Year-end revenue target (dollars). Cheap: no rebuild needed, applied at read time. */
 export const setTarget = gatedMutation({
-  args: { annualTarget: v.number() },
+  args: { annualTarget: v.number(), newBusinessGoal: v.optional(v.number()) },
   handler: async (ctx, args) => {
     if (!Number.isFinite(args.annualTarget) || args.annualTarget <= 0) {
       throw new Error("Target must be a positive number.");
+    }
+    if (args.newBusinessGoal !== undefined && (!Number.isFinite(args.newBusinessGoal) || args.newBusinessGoal < 0 || args.newBusinessGoal > args.annualTarget)) {
+      throw new Error("The new-business goal must be between 0 and the target.");
     }
     const row = await ctx.db
       .query("config")
       .withIndex("by_key", q => q.eq("key", "main"))
       .unique();
-    if (row) await ctx.db.patch(row._id, { annualTarget: args.annualTarget });
+    if (row) await ctx.db.patch(row._id, { annualTarget: args.annualTarget, ...(args.newBusinessGoal === undefined ? {} : { newBusinessGoal: args.newBusinessGoal }) });
     else await ctx.db.insert("config", { ...DEFAULTS, annualTarget: args.annualTarget });
   },
 });

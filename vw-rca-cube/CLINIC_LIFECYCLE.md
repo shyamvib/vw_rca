@@ -57,7 +57,7 @@ A 3-order baseline (first 3 orders' revenue over the days between the first and 
 - Baseline period: the best 91 days of data before the analysis window (currently Feb 20 to May 21 2026), selectable in Settings (trailing 13 weeks, best 13 weeks, custom dates).
 - Retention and repeat target levels scale with the length of the tab, and differ by tenure cut (all / before 2025 / 2025 / this year's signups).
 
-## 2. Live today
+## 2. Live today (before this build is deployed)
 
 | Item | State |
 |---|---|
@@ -69,13 +69,18 @@ A 3-order baseline (first 3 orders' revenue over the days between the first and 
 | Dials use one projection factor; plan = goal; "goal" wording | live |
 | At-risk, existing, churned, new and reactivated counts do not change with the tab | live |
 
-## 3. Not built yet
+## 3. Built (2026-10-18, committed on main, not deployed yet)
 
-1. New = first order in the current year (no baseline), with the active / reactivated / churned split under New and an Active "New" tier in the tree.
-2. The new-business goal: a Settings number (with the warning), the existing factor from the remainder, the New dial's goal, rep shares and phasing.
-3. Reactivated only for clinics with no baseline revenue and only after an unusual gap (45+ days and 3x the clinic's typical gap).
-4. Own-pattern churn threshold for established clinics (flat 45 days for new signups).
-5. New clinics on the scorecard: the New Revenue cell and dial, new clinics counted in the Churned cell, Existing reduced, adoption and conversion on the year-based New group.
+Everything in section 1 is built. The rebuild side (`analytics/refresh.ts`, `analytics/lifecycleRules.ts`) has not run against Cube yet because Cube is blocked from the dev machine; the rules and everything downstream were checked offline on a copy of the live snapshot with the real order dates (all tie-outs pass, see below). Verify on the first server rebuild.
+
+1. New = first order in the current year, no baseline; active / reactivated / churned split; Active has a "New" tier in the trees.
+2. Churn by the clinic's own threshold (45 days for new clinics, max(45, 3x typical gap) for established ones); reactivated only for no-baseline clinics after an unusual gap; slow buyers with no baseline get their own 12-month history as a baseline.
+3. The new-business goal: a Settings number (default 5% of the target), the existing factor from the remainder, rep shares by baseline share, a "New business goal" line in every lens so each lens adds up to the shortfall, and the New and Existing dial plans adding up to the Combined plan.
+4. Scorecard: New Revenue cell headline = all new revenue with active / reactivated / churned lines, Existing excludes new clinics, churn base = existing + new + returning, new in a tab = first order on or before the tab's last day, order 1 to 2 conversion on a rolling 90 days.
+
+Offline checks on the live data (15 reps, this week / month / quarter): company, clinics, reps, rep books and cohorts tie to the headline; New + Existing + returning revenue equals the book; (existing goal + new goal) x projection ratio equals the Combined plan; no invariant violations.
+
+Expected live numbers (from the offline run, before the rebuild): this year's signups 1,597 (445 active, 251 reactivated, 901 churned); existing clinics 4,306 (273 of them on their own 12-month baseline); returning no-baseline clinics 378. Company baseline falls from $26.9M to $25.8M over the window, ambition rises, company goal is still the target.
 
 ## 4. Consequences to expect
 
