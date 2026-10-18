@@ -1735,6 +1735,18 @@ function Targets({ b }: { b: Book }) {
 
 type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; famScoped?: boolean; tenureTag?: string; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
 const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
+/** Target levels by tenure cut (Shyam, 2026-10-18): older signups keep and reorder far more than this year's, so one bar
+ * for everyone made the cells always red. Levels sit at today's top-quartile rep (good) and median rep (watch) on the
+ * live book, rounded; revisit as the book matures. higher = better except churn (lower is better).
+ * Order: [good, watch]. */
+const TENURE_TARGETS: Record<"retention" | "repeat" | "churn", Record<"all" | "pre" | "mid" | "cur", [number, number]>> = {
+  retention: { all: [0.74, 0.68], pre: [0.78, 0.72], mid: [0.64, 0.54], cur: [0.49, 0.4] },
+  repeat: { all: [0.68, 0.62], pre: [0.76, 0.72], mid: [0.66, 0.55], cur: [0.54, 0.45] },
+  churn: { all: [0.43, 0.48], pre: [0.32, 0.37], mid: [0.49, 0.55], cur: [0.69, 0.76] },
+};
+const levelTone = (v: number | null, [good, watch]: [number, number], lowerBetter = false): Tone =>
+  v === null ? "na" : lowerBetter ? (v <= good ? "good" : v <= watch ? "watch" : "bad") : v >= good ? "good" : v >= watch ? "watch" : "bad";
+const CHURN_DAYS = 45;
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
 
@@ -1807,7 +1819,7 @@ function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: 
   }));
 }
 
-function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: string; clinics: PGClinic[] | null; launch?: Launch }): Array<{ pillar: string; cells: Cell[] }> {
+function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: string; clinics: PGClinic[] | null; launch?: Launch }, tenure: TenureKey = "all"): Array<{ pillar: string; cells: Cell[] }> {
   const k = b.kpi;
   const hz: Fam | undefined = pg
     ? (fams?.all ?? []).find((f: Fam) => f.family === pg.family)
@@ -1893,22 +1905,22 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           value: P(k.revenueRetention),
           sub: "existing clinics' baseline $ kept",
           ids: b.existingIds, n: k.revenueRetention, u: "%", better: 1,
-          tone: vsTone(k.revenueRetention, 0.9),
+          tone: levelTone(k.revenueRetention, TENURE_TARGETS.retention[tenure]),
         },
         {
           label: "Repeat ordering",
           value: P(k.repeatRate),
           sub: `${k.repeatCount} of ${k.activeCount} ordered 2+ times`,
           ids: k.repeatIds, n: k.repeatRate, u: "%", better: 1,
-          tone: k.repeatRate === null ? "na" : k.repeatRate >= 0.7 ? "good" : k.repeatRate >= 0.55 ? "watch" : "bad",
+          tone: levelTone(k.repeatRate, TENURE_TARGETS.repeat[tenure]),
         },
         { label: "At-risk customers", value: String(k.atRisk), sub: `${K(k.atRiskRev)} below baseline`, tone: "act", ids: b.opp?.atRisk?.ids, n: k.atRisk, u: "n", better: -1 },
         {
           label: "Customer churn",
           value: P(k.churnRate, 1),
-          sub: `${k.churned} of ${k.existingCount} clinics`,
+          sub: `${k.churned} of ${k.existingCount} clinics · no order in ${CHURN_DAYS}+ days`,
           ids: k.churnedIds, n: k.churnRate, u: "%", better: -1,
-          tone: k.churnRate === null ? "na" : k.churnRate <= 0.05 ? "good" : k.churnRate <= 0.1 ? "watch" : "bad",
+          tone: levelTone(k.churnRate, TENURE_TARGETS.churn[tenure], true),
         },
       ],
     },
@@ -1967,7 +1979,7 @@ function pillarStatus(b: Book, fams: Wins): Record<string, "behind" | "watch" | 
 /** Which clinics push a scorecard metric up or pull it down (Shyam, 2026-10-16). Each metric names the clinics it
  * is measured over, a signed per-clinic contribution, and how to say it. Metrics with no per-clinic sign yet
  * (the single-family ones: the data holds no per-clinic baseline for a family) just open the plain list. */
-type ContribRow = { clinic: string; actual: number; expected: number; baseline: number; realChange: number; delta: number; orders: number; aovEffect: number; volume: number };
+type ContribRow = { daysSinceLast: number | null; clinic: string; actual: number; expected: number; baseline: number; realChange: number; delta: number; orders: number; aovEffect: number; volume: number };
 type Contribution = {
   universe: (b: Book) => string[];
   f: (r: ContribRow) => number;
@@ -2012,9 +2024,9 @@ const CONTRIB: Record<string, Contribution> = {
     note: "Expansion revenue = how far growing clinics sit above their own baseline (the up tile). Clinics below baseline are the losses it has to offset.",
   },
   "Customer churn": {
-    universe: b => b.existingIds ?? [], f: r => (r.orders > 0 ? 1 : -1), unit: "clinics", up: "Still ordering", down: "Churned (no orders)",
-    note: "Clinics that ordered in the baseline: churned = no order in this window. The dollar figure is the baseline revenue those clinics stopped bringing.",
-    amount: r => (r.orders > 0 ? 0 : -r.baseline),
+    universe: b => b.existingIds ?? [], f: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 1 : -1), unit: "clinics", up: "Ordered in the last 45 days", down: `Churned: no order in ${CHURN_DAYS}+ days`,
+    note: `Clinics that ordered in the baseline: churned = last order ${CHURN_DAYS} or more days ago, as of the latest data (the same on every tab). The dollar figure is the baseline revenue those clinics no longer bring, net of what they still brought in this window.`,
+    amount: r => (r.daysSinceLast !== null && r.daysSinceLast < CHURN_DAYS ? 0 : -Math.max(0, r.baseline - r.actual)),
   },
   "Repeat ordering": { universe: b => b.tenureActiveIds ?? b.activeIds ?? [], f: r => (r.orders >= 2 ? 1 : -1), unit: "clinics", up: "Ordered 2+ times", down: "Ordered once", note: "Active clinics split by whether they reordered inside this window." },
 };
@@ -2129,7 +2141,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
   const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
   const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
-  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined);
+  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel);
   const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...c, tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
   const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
   const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
@@ -2166,7 +2178,14 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
   const bookClinics = (b.allIds ?? []).length;
   const famBuyers = pg ? pg.buyerIds.length : null;
+  const dialCell = (p: string) => rows.find(r => r.pillar === (p === EXISTING ? "Retention" : p))?.cells[0];
   const clinicCount = (p: string): { n: number | null; why: string } => {
+    // The dial and the matrix cell it stands for must count the same clinics, so read it off the cell's own list.
+    const own = dialCell(p)?.ids;
+    if (own) return { n: own.length, why: clinicCount0(p).why };
+    return clinicCount0(p);
+  };
+  const clinicCount0 = (p: string): { n: number | null; why: string } => {
     switch (p) {
       case "New Business": return { n: (b.newIds ?? []).length + (b.reactivatedIds ?? []).length, why: "new + reactivated" };
       case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
@@ -2501,8 +2520,8 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Product Growth", "Portfolio changes", "Clinics by Portfolio Changes status (NEW / DECLINING / STOPPED).", pstat(b), "no portfolio status"),
     n("Retention", "Revenue Retention", "Existing clinics' baseline revenue kept (growth capped).", P(k.revenueRetention)),
     n("Retention", "Customer Retention", "Existing clinics still ordering.", P(k.customerRetention)),
-    n("Retention", "Customer Churn", "Existing clinics with no order in the window.", `${P(k.churnRate, 1)} (${k.churned})`),
-    n("Retention", "Revenue Churn", "Baseline revenue of clinics that stopped ordering.", K(k.revenueChurn)),
+    n("Retention", "Customer Churn", `Existing clinics with no order in the last ${CHURN_DAYS} days.`, `${P(k.churnRate, 1)} (${k.churned})`),
+    n("Retention", "Revenue Churn", "Baseline revenue of churned clinics, net of what they still brought in this window.", K(k.revenueChurn)),
     n("Retention", "Contraction Revenue", "Revenue lost from clinics still ordering but below baseline.", K(k.contraction)),
     n("Retention", "Repeat Purchase Rate", "Active clinics with 2+ orders.", P(k.repeatRate)),
     n("Retention", "Time to Next Order", "Approx. days between orders for repeat clinics (window ÷ orders).", k.daysBetweenOrders ? `${k.daysBetweenOrders.toFixed(0)}d` : null),

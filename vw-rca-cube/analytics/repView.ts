@@ -22,6 +22,8 @@ const LOW_AOV = 400;
 
 const sum = (rows: ClinicRow[], f: (r: ClinicRow) => number) =>
   rows.reduce((s, r) => s + f(r), 0);
+/** A clinic is churned once it has gone this many days without an order (status as of the latest data, same on every tab). */
+export const CHURN_DAYS = 45;
 const since = (cutoff: string, d?: string) =>
   d ? Math.max(0, diffDays(d, cutoff)) : null;
 
@@ -62,6 +64,7 @@ export const book = scopedQuery({
       lens: "total",
       unlimited: true,
       sales: args.sales,
+      keepBaselined: true,
       // Bug fix (Shyam, 2026-09-28): without this, windowOrders defaulted to
       // this-period's order count instead of the clinic's lifetime order
       // count, so the f1..f4 new-clinic funnel (and "stuck" drop-off list)
@@ -91,7 +94,7 @@ export const book = scopedQuery({
     // the cohort code (first order in the baseline), but it brought baseline revenue and stopped: that is churn, so
     // it counts as existing (2026-10-18). A "new" clinic that IS ordering now has a first order in the current
     // window and no baseline, so the baseline > 0 test keeps it out.
-    const existing = rows.filter(r => (EXISTING.has(r.cohort) || r.cohort === "new") && r.baseline > 0);
+    const existing = rows.filter(r => (EXISTING.has(r.cohort) || r.cohort === "new") && (r.baselineWeekly ?? r.baseline) > 0);
     const exAct = sum(existing, r => r.actual);
     const exExp = sum(existing, r => r.baseline);
     const exOrd = sum(existing, r => r.orders);
@@ -100,13 +103,20 @@ export const book = scopedQuery({
     const newOrd = sum(newRows, r => r.orders);
 
     // Retention
-    const churned = existing.filter(r => r.orders === 0);
+    // Churn is by last order date (Shyam, 2026-10-18): no order for 45+ days as of the latest data. It does not depend
+    // on the tab, so a clinic is not "churned" just because it skipped a short window.
+    const isChurned = (r: ClinicRow) => {
+      const s = since(cutoff, r.lastOrderAllTime);
+      return s === null || s >= CHURN_DAYS;
+    };
+    const churned = existing.filter(isChurned);
     const retainedCap = sum(existing, r => Math.min(r.actual, r.baseline));
     const contraction = sum(
       existing.filter(r => r.orders > 0 && r.realChange < 0),
       r => -r.realChange,
     );
-    const revenueChurn = sum(churned, r => r.baseline);
+    // Revenue gone: what these clinics used to bring (baseline) minus what they still brought in this window.
+    const revenueChurn = sum(churned, r => Math.max(0, r.baseline - r.actual));
     const repeat = active.filter(r => r.orders >= 2);
     const gapDays = repeat.length
       ? repeat.reduce((s, r) => s + days / r.orders, 0) / repeat.length
@@ -166,7 +176,7 @@ export const book = scopedQuery({
       const act = active.filter(pick);
       const exA = sum(ex, r => r.actual);
       const exE = sum(ex, r => r.baseline);
-      const ch = ex.filter(r => r.orders === 0);
+      const ch = ex.filter(isChurned);
       const gr = ex.filter(r => r.realChange > 0);
       const rp = act.filter(r => r.orders >= 2);
       const risk = atRiskRows.filter(pick);
@@ -612,6 +622,7 @@ export const pace = scopedQuery({
       lens: "total",
       unlimited: true,
       sales: args.sales,
+      keepBaselined: true,
     });
     if (!cfg || !res.ready) return { ready: false as const };
     const span = fullPeriodSpan(args.periodId) ?? eachDay(cfg.currentStart, cfg.currentEnd);
@@ -691,6 +702,7 @@ export const clinicDetail = scopedQuery({
       lens: "total",
       unlimited: true,
       sales: args.sales,
+      keepBaselined: true,
     });
     if (!cfg || !res.ready) return { ready: false as const };
     const r = res.rows.find(row => row.clinic === args.clinic);
@@ -757,6 +769,7 @@ export const rowsByFocus = scopedQuery({
       lens: "total",
       unlimited: true,
       sales: args.sales,
+      keepBaselined: true,
     });
     if (!cfg || !res.ready) return { ready: false as const, rows: [] };
     const focus = args.focus;

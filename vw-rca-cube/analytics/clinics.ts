@@ -58,6 +58,8 @@ export type ClinicRow = {
   expected: number;
   /** Baseline: mean run rate over the baseline window (additive). */
   baseline: number;
+  /** The clinic's baseline over a full week (any weekday): > 0 means it ordered in the baseline window. Tab-independent. */
+  baselineWeekly?: number;
   baselineOrders: number;
   /** actual - baseline: what actually moved. */
   realChange: number;
@@ -418,6 +420,9 @@ export async function drill(
      * asking drill() to also filter the row set down to one funnel stage —
      * that's what a plain `focus: "newgrp:…"` would do instead. */
     wantWindowOrders?: boolean;
+    /** Keep clinics that have a baseline (ordered in the baseline window) even when this period's weekdays give them
+     * zero expected and zero actual, so lifecycle membership and counts do not change with the tab (2026-10-18). */
+    keepBaselined?: boolean;
   },
 ) {
   const cfg = await loadCfg(ctx, args.configKey);
@@ -588,7 +593,8 @@ export async function drill(
     // happened to contain every one of their orders (Shyam, 2026-09-28 bug
     // report). Keep the row (at $0/$0) for anything already tagged "new" so
     // funnel classification always sees it, regardless of the window.
-    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length) continue;
+    const baselineWeekly = m.rev.reduce((t: number, x: number) => t + x, 0);
+    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length && !(args.keepBaselined && baselineWeekly > 0)) continue;
 
     const baseAov = m.baseOrders ? m.baseRev / m.baseOrders : 0;
 
@@ -683,6 +689,7 @@ export async function drill(
       pstatus: m.pstatus ?? [],
       expected: scoped.expected,
       baseline: scoped.expected / (gf.rev || 1),
+      baselineWeekly,
       baselineOrders: scoped.expectedOrders / (gf.ord || 1),
       realChange: scoped.actual - scoped.expected / (gf.rev || 1),
       ambition: scoped.expected - scoped.expected / (gf.rev || 1),
