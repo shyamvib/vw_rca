@@ -661,9 +661,22 @@ export const refreshData = internalAction({
 
       // Retained ranking: clinics with revenue in both windows, ranked on
       // baseline size so the top-20% split is unchanged.
+      // Churned = ordered in the baseline and last ordered CHURN_DAYS+ days before the window end (Shyam, 2026-10-18),
+      // the same rule as the rep scorecard, so the lifecycle trees and the scorecard agree. A clinic that ordered inside
+      // the window but has since gone quiet for 45+ days is churned too, with its window revenue under that cohort.
+      const lastOrderForCohort = new Map<string, string>();
+      for (const r of await pLastOrderAsOf) {
+        const lid = String(r[`${TABLE}[clinic_id]`] ?? "");
+        const lst = String(r["[last]"] ?? "").slice(0, 10);
+        if (lid && lst) lastOrderForCohort.set(lid, lst);
+      }
+      const churned45 = (id: string) => {
+        const lst = lastOrderForCohort.get(id);
+        return !lst || diffDays(lst, currentEnd) >= 45;
+      };
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
-        if ((currentByClinic.get(id) ?? 0) > 0) retained.push(id);
+        if ((currentByClinic.get(id) ?? 0) > 0 && !churned45(id)) retained.push(id);
       }
       retained.sort(
         (a, b) =>
@@ -680,7 +693,9 @@ export const refreshData = internalAction({
 
       const expectedCohortOf = new Map<string, Cohort>();
       for (const [id] of baseByClinic) {
-        if (firstIn(id, baselineStart, baselineEnd)) {
+        if (churned45(id)) {
+          expectedCohortOf.set(id, "churned");
+        } else if (firstIn(id, baselineStart, baselineEnd)) {
           expectedCohortOf.set(id, "new");
         } else if ((currentByClinic.get(id) ?? 0) > 0) {
           expectedCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
@@ -694,7 +709,7 @@ export const refreshData = internalAction({
         if (firstIn(id, currentStart, currentEnd)) {
           actualCohortOf.set(id, "new");
         } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
+          actualCohortOf.set(id, churned45(id) ? "churned" : (retainedLabel.get(id) ?? "retained_rest"));
         } else {
           // Dormant through the baseline, ordering again now.
           actualCohortOf.set(id, "reactivated");
@@ -2607,9 +2622,22 @@ export const refreshSnapshot = internalAction({
 
       // Retained ranking: clinics with revenue in both windows, ranked on
       // baseline size so the top-20% split is unchanged.
+      // Churned = ordered in the baseline and last ordered CHURN_DAYS+ days before the window end (Shyam, 2026-10-18),
+      // the same rule as the rep scorecard, so the lifecycle trees and the scorecard agree. A clinic that ordered inside
+      // the window but has since gone quiet for 45+ days is churned too, with its window revenue under that cohort.
+      const lastOrderForCohort = new Map<string, string>();
+      for (const r of await pLastOrderAsOf) {
+        const lid = String(r[`${TABLE}[clinic_id]`] ?? "");
+        const lst = String(r["[last]"] ?? "").slice(0, 10);
+        if (lid && lst) lastOrderForCohort.set(lid, lst);
+      }
+      const churned45 = (id: string) => {
+        const lst = lastOrderForCohort.get(id);
+        return !lst || diffDays(lst, currentEnd) >= 45;
+      };
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
-        if ((currentByClinic.get(id) ?? 0) > 0) retained.push(id);
+        if ((currentByClinic.get(id) ?? 0) > 0 && !churned45(id)) retained.push(id);
       }
       retained.sort(
         (a, b) =>
@@ -2626,7 +2654,9 @@ export const refreshSnapshot = internalAction({
 
       const expectedCohortOf = new Map<string, Cohort>();
       for (const [id] of baseByClinic) {
-        if (firstIn(id, baselineStart, baselineEnd)) {
+        if (churned45(id)) {
+          expectedCohortOf.set(id, "churned");
+        } else if (firstIn(id, baselineStart, baselineEnd)) {
           expectedCohortOf.set(id, "new");
         } else if ((currentByClinic.get(id) ?? 0) > 0) {
           expectedCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
@@ -2640,7 +2670,7 @@ export const refreshSnapshot = internalAction({
         if (firstIn(id, currentStart, currentEnd)) {
           actualCohortOf.set(id, "new");
         } else if (baseByClinic.has(id)) {
-          actualCohortOf.set(id, retainedLabel.get(id) ?? "retained_rest");
+          actualCohortOf.set(id, churned45(id) ? "churned" : (retainedLabel.get(id) ?? "retained_rest"));
         } else {
           // Dormant through the baseline, ordering again now.
           actualCohortOf.set(id, "reactivated");

@@ -77,6 +77,14 @@ export const book = scopedQuery({
     const rows = res.rows;
     const days = res.days;
 
+    // Fraction of a normal week this window covers, by the book's own weekday shape (a Monday-Friday stretch is about
+    // 0.9 of a week, not 5/7), so a weekly run-rate does not assume weekends sell like weekdays (2026-10-18).
+    const shape = [0, 0, 0, 0, 0, 0, 0];
+    for (const r of rows) (r.rateDow ?? []).forEach((x, w) => (shape[w] += x));
+    const shapeWeek = shape.reduce((t, x) => t + x, 0);
+    const winDays = periodDefs(cfg.currentStart, cfg.currentEnd).find(d => d.id === args.periodId)?.days ?? [];
+    const weekFraction = shapeWeek > 0 && winDays.length ? winDays.reduce((t, d) => t + shape[dow(d)], 0) / shapeWeek : days ? days / 7 : 0;
+
     const actual = sum(rows, r => r.actual);
     const rb = await repBaseline(ctx, args.periodId, args.sales, cfg.gen ?? 0);
     const expected = rb ? rb.rev : sum(rows, r => r.expected);
@@ -529,7 +537,9 @@ export const book = scopedQuery({
         newRevenue: newRev,
         reactivatedRevenue: reactivatedRev,
         reactivatedCount: reactivated.length,
-        newCustomers: newRows.length,
+        // New clinics that ordered in this tab; `newTotal` is every new clinic in the analysis window (the list behind the cell).
+        newCustomers: newRows.filter(r => r.orders > 0).length,
+        newTotal: newRows.length,
         newOrders: newOrd,
         newAov: newOrd ? newRev / newOrd : null,
         newRevShare: actual ? newRev / actual : null,
@@ -567,8 +577,8 @@ export const book = scopedQuery({
         nrr: exExp ? exAct / exExp : null,
         existingGrowth: exExp ? exAct / exExp - 1 : null,
         netGrowth: expected ? actual / expected - 1 : null,
-        runRate: days ? (actual / days) * 7 : null,
-        runRatePlan: days ? (expected / days) * 7 : null,
+        runRate: weekFraction ? actual / weekFraction : null,
+        runRatePlan: weekFraction ? expected / weekFraction : null,
         opportunity: atRiskRev + aovOpp,
         volume,
         aovEffect,
@@ -672,6 +682,9 @@ export const pace = scopedQuery({
     }
     const paceRatio = expSoFar ? soFar / expSoFar : 1;
     const heading = Math.max(soFar, soFar + expRest * paceRatio);
+    // Full-period goal over goal-so-far, by weekday shape: every dial projects with this one factor (heading = so far x
+    // ratio, plan = goal x ratio), so New + Existing add up to the Combined dial (2026-10-18).
+    const ratio = expSoFar > 0 ? (expSoFar + expRest) / expSoFar : 1;
     return {
       ready: true as const,
       periodId: args.periodId,
@@ -682,6 +695,7 @@ export const pace = scopedQuery({
       soFar,
       expSoFar,
       heading,
+      ratio,
       plan,
       planned,
       needPerDay: remaining.length ? Math.max(0, plan - soFar) / remaining.length : 0,

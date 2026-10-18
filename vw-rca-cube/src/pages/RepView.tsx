@@ -610,6 +610,8 @@ type Pace = {
   soFar: number;
   elapsedDays: number;
   heading: number;
+  /** Full-period goal over goal so far (weekday-shaped): the one projection factor for every dial. */
+  ratio?: number;
   plan: number;
   planned: number;
   needPerDay: number;
@@ -1747,6 +1749,30 @@ const TENURE_TARGETS: Record<"retention" | "repeat" | "churn", Record<"all" | "p
 const levelTone = (v: number | null, [good, watch]: [number, number], lowerBetter = false): Tone =>
   v === null ? "na" : lowerBetter ? (v <= good ? "good" : v <= watch ? "watch" : "bad") : v >= good ? "good" : v >= watch ? "watch" : "bad";
 const CHURN_DAYS = 45;
+/** Retention and repeat ordering are lumpier on short windows (each clinic is capped at its average baseline, and few
+ * clinics reorder inside a week), so the bar scales with the window: median rep result on a tab of this length relative
+ * to the whole analysis window, measured on the live book 2026-10-18 (day 0.44 / 0.43, week 0.78 / 0.71, month 0.95 /
+ * 0.92, 77+ days 1). Piecewise-linear in log(days). Churn is by last order date and does not depend on the tab. */
+const WINDOW_SCALE: Record<"retention" | "repeat", Array<[number, number]>> = {
+  retention: [[1, 0.44], [7, 0.775], [31, 0.949], [77, 1]],
+  repeat: [[1, 0.431], [7, 0.707], [31, 0.917], [77, 1]],
+};
+const windowScale = (kind: "retention" | "repeat", days: number): number => {
+  const a = WINDOW_SCALE[kind];
+  if (days <= a[0][0]) return a[0][1];
+  if (days >= a[a.length - 1][0]) return 1;
+  for (let i = 1; i < a.length; i++) {
+    if (days <= a[i][0]) {
+      const [d0, v0] = a[i - 1], [d1, v1] = a[i];
+      return v0 + ((Math.log(days) - Math.log(d0)) / (Math.log(d1) - Math.log(d0))) * (v1 - v0);
+    }
+  }
+  return 1;
+};
+const scaledLevels = (kind: "retention" | "repeat", tenure: "all" | "pre" | "mid" | "cur", days: number): [number, number] => {
+  const f = windowScale(kind, days), [g, w] = TENURE_TARGETS[kind][tenure];
+  return [g * f, w * f];
+};
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
 
@@ -1831,7 +1857,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "New Revenue",
           value: K(k.newRevenue + (k.reactivatedRevenue ?? 0)),
-          sub: `${k.newCustomers} new + ${k.reactivatedCount ?? 0} reactivated clinics · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
+          sub: `${k.newCustomers} of ${k.newTotal ?? k.newCustomers} new + ${k.reactivatedCount ?? 0} of ${(b.reactivatedIds ?? []).length} reactivated clinics ordering · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
           ids: [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])],
           n: k.newRevenue + (k.reactivatedRevenue ?? 0), u: "$", flow: true, better: 1,
           tone: "act",
@@ -1905,14 +1931,14 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           value: P(k.revenueRetention),
           sub: "existing clinics' baseline $ kept",
           ids: b.existingIds, n: k.revenueRetention, u: "%", better: 1,
-          tone: levelTone(k.revenueRetention, TENURE_TARGETS.retention[tenure]),
+          tone: levelTone(k.revenueRetention, scaledLevels("retention", tenure, b.days)),
         },
         {
           label: "Repeat ordering",
           value: P(k.repeatRate),
           sub: `${k.repeatCount} of ${k.activeCount} ordered 2+ times`,
           ids: k.repeatIds, n: k.repeatRate, u: "%", better: 1,
-          tone: levelTone(k.repeatRate, TENURE_TARGETS.repeat[tenure]),
+          tone: levelTone(k.repeatRate, scaledLevels("repeat", tenure, b.days)),
         },
         { label: "At-risk customers", value: String(k.atRisk), sub: `${K(k.atRiskRev)} below baseline`, tone: "act", ids: b.opp?.atRisk?.ids, n: k.atRisk, u: "n", better: -1 },
         {
@@ -2162,11 +2188,11 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d * 100).toFixed(1)}%`, good: c.better ? Math.sign(d) === c.better : null };
   };
   const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
-  const scale = scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1;
-  const newCo = (b.lenses?.cohorts ?? []).find((c: Book) => /new/i.test(c.key));
+  // One projection factor for every dial (full-period goal over goal so far, by weekday shape), so the parts add up to Combined.
+  const scale = scPace?.ratio ?? (scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1);
   const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
     // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
-    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: Math.max(0, (k.newRevenue - (newCo?.delta ?? 0)) * scale), fmt: K, planLbl: "baseline", allProducts: scoped },
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: 0, fmt: K, planLbl: "no baseline", allProducts: scoped },
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
