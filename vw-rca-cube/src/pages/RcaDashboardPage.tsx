@@ -2174,7 +2174,7 @@ export function RcaDashboardPage() {
             n="Q2"
             q="Volume, price or patient traffic?"
             value={Math.abs(volume) > Math.abs(aovEffect) ? "Volume" : "Price"}
-            body={`${INT(Math.abs(active.orders - active.expectedOrders))} orders ${active.orders < active.expectedOrders ? "never came in" : "above plan"}, worth ${MONEY(volume)}. AOV moved ${MONEY(aovEffect)} the other way ($${INT(active.aov)} vs $${INT(active.baseAov)})${trafficRow ? `, and ${INT(Math.abs(trafficRow.value))} ${trafficRow.value < 0 ? "fewer" : "more"} patients walked in` : ""}.`}
+            body={`${INT(Math.abs(active.orders - active.expectedOrders))} orders ${active.orders < active.expectedOrders ? "never came in" : "above goal"}, worth ${MONEY(volume)}. AOV moved ${MONEY(aovEffect)} the other way ($${INT(active.aov)} vs $${INT(active.baseAov)})${trafficRow ? `, and ${INT(Math.abs(trafficRow.value))} ${trafficRow.value < 0 ? "fewer" : "more"} patients walked in` : ""}.`}
           />
           <ReadoutCard
             n="Q3"
@@ -3494,7 +3494,7 @@ function YearProjection({
       {proj.plan.count > 0 ? (
         <div className="rca-lens-note">
           <strong>
-            {INT(proj.plan.count)} clinic plan
+            {INT(proj.plan.count)} clinic target
             {proj.plan.count === 1 ? "" : "s"}
           </strong>{" "}
           included: targets of {MONEY_PLAIN(proj.plan.weeklyRevenueUplift)} per week above

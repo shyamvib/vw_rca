@@ -622,14 +622,10 @@ function fullPeriodSpan(periodId: string): string[] | null {
   return null; // "all" / whatever the outer page's custom window resolves to
 }
 
-/** Pace for the thermometer, adapted to whatever window the rep has open
- * (Shyam, 2026-09-28 round 5) — was hardcoded to "this week"; now: so far /
- * heading-to / plan for Today/This week/This month/Custom alike. The
- * rep's own weekly clinic targets (`clinicPlan`) only make sense as a week
- * override, so they're applied for the week window and pro-rated by the
- * window's own day count for day/month/custom (day = 1/7th, month = full
- * calendar days / 7, custom = whatever's elapsed / 7) instead of guessing
- * a different target grain that doesn't exist in the data model. */
+/** Pace for the dials, for whatever window the rep has open: so far / heading-to / goal. The "plan" is the goal for the
+ * whole window (Shyam, 2026-10-18): the Settings target spread by baseline weekday weights, projected over the days
+ * still to come with the book's own weekday shape. Weekly clinic targets no longer override it, so the dial, the
+ * matrix and the trees all speak of one goal. (Field names keep `plan` for the goal over the full window.) */
 export const pace = scopedQuery({
   args: { periodId: v.string(), sales: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -646,15 +642,10 @@ export const pace = scopedQuery({
     const span = fullPeriodSpan(args.periodId) ?? eachDay(cfg.currentStart, cfg.currentEnd);
     const elapsed = span.filter(d => d >= cfg.currentStart && d <= cfg.currentEnd);
     const remaining = span.filter(d => d > cfg.currentEnd);
-    const plans = await ctx.db.query("clinicPlan").collect();
-    const planBy = new Map(plans.map(p => [p.clinic, p.targetRevenueWeek]));
-    const planScale = span.length / 7;
     let soFar = 0;
     let expSoFar = 0;
     let expRest = 0;
     let plan = 0;
-    let planned = 0;
-    let fullP75 = 0;
     for (const r of res.rows) {
       soFar += r.actual;
       expSoFar += r.expected;
@@ -666,14 +657,7 @@ export const pace = scopedQuery({
       const rest = k * remaining.reduce((s, d) => s + rate[dow(d)], 0);
       expRest += rest;
       const full = k * span.reduce((s, d) => s + rate[dow(d)], 0);
-      const p = planBy.get(r.clinic);
-      if (p && p > 0) {
-        plan += p * planScale;
-        planned++;
-      } else {
-        plan += full;
-        fullP75 += full;
-      }
+      plan += full;
     }
     // Heading-to: this window's pace vs baseline so far, applied to the days left.
     // Clamped to soFar (Shyam, 2026-09-28): a negative expRest/paceRatio edge
@@ -685,7 +669,7 @@ export const pace = scopedQuery({
     if (rb && expSoFar > 0) {
       const sc = rb.rev / expSoFar;
       expRest *= sc;
-      plan += fullP75 * (sc - 1); // only P75-derived plan scales; clinicPlan targets kept
+      plan *= sc; // the goal for the whole window, rescaled with the rep-level goal like the days so far
       expSoFar = rb.rev;
     }
     const paceRatio = expSoFar ? soFar / expSoFar : 1;
@@ -705,7 +689,6 @@ export const pace = scopedQuery({
       heading,
       ratio,
       plan,
-      planned,
       needPerDay: remaining.length ? Math.max(0, plan - soFar) / remaining.length : 0,
     };
   },

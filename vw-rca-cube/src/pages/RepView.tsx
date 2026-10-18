@@ -298,9 +298,9 @@ export function RepView(props: {
   const prevWord = thermoWin.label.replace("This ", "Last ");
   const planBeat =
     pace && !paceTooEarly(pace) && pace.plan > 0 && pace.heading > pace.plan
-      ? { label: `${thermoWin.label}: on pace to beat plan`, amount: pace.heading - pace.plan, pct: pace.heading / pace.plan }
+      ? { label: `${thermoWin.label}: on pace to beat goal`, amount: pace.heading - pace.plan, pct: pace.heading / pace.plan }
       : lastPace && lastPace.plan > 0 && lastPace.heading > lastPace.plan
-        ? { label: `${prevWord} beat plan`, amount: lastPace.heading - lastPace.plan, pct: lastPace.heading / lastPace.plan }
+        ? { label: `${prevWord} beat goal`, amount: lastPace.heading - lastPace.plan, pct: lastPace.heading / lastPace.plan }
         : null;
   const activeBook =
     tab === "today" ? tb : tab === "week" ? wb : tab === "month" ? mb : tab === "quarter" ? qb : b;
@@ -613,7 +613,6 @@ type Pace = {
   /** Full-period goal over goal so far (weekday-shaped): the one projection factor for every dial. */
   ratio?: number;
   plan: number;
-  planned: number;
   needPerDay: number;
   remainingDays: number;
   firstDay: string | null;
@@ -674,15 +673,15 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
   if (paceTooEarly(pace))
     return (
       <div className="rv-rail-sec">
-        <div className="rv-eyebrow">{winLabel} vs plan<Info k="gauge" /></div>
+        <div className="rv-eyebrow">{winLabel} vs goal<Info k="gauge" /></div>
         <p className="rv-thermo-headline">Waiting on {winLabel.toLowerCase()}'s data.</p>
         <p className="rv-dim rv-small">
           Only {pace.elapsedDays} day(s) in so far (data to {fmtD(pace.lastDay)}), too early to project.
-          {lastPace && lastPace.plan ? ` Last window finished at ${P(lastPace.heading / lastPace.plan, 1)} of plan.` : ""}
+          {lastPace && lastPace.plan ? ` Last window finished at ${P(lastPace.heading / lastPace.plan, 1)} of goal.` : ""}
         </p>
         <div className="rv-thermo-row">
           <i className="sw plan" />
-          <span>Plan</span>
+          <span>Goal</span>
           <b>{K(pace.plan)}</b>
         </div>
       </div>
@@ -700,12 +699,12 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
   const trackEnd = polar(0, RADIUS);
   return (
     <div className="rv-rail-sec">
-      <div className="rv-eyebrow rv-eyebrow-row">{winLabel} vs plan<Info k="gauge" /><MeterToggle v={mStyle} set={setMStyle} /></div>
+      <div className="rv-eyebrow rv-eyebrow-row">{winLabel} vs goal<Info k="gauge" /><MeterToggle v={mStyle} set={setMStyle} /></div>
       {mStyle === "bar" ? (
         <div style={{ margin: "10px 0 6px" }}><MiniMeter soFar={pace.soFar} heading={pace.heading} plan={pace.plan} style="bar" big /></div>
       ) : (<>
       <div className="rv-gauge-cap">
-        Scale zoomed to {KT(vmin)}–{KT(vmax)} so the gap to plan reads clearly.
+        Scale zoomed to {KT(vmin)}–{KT(vmax)} so the gap to goal reads clearly.
       </div>
       <svg className="rv-gauge" viewBox="0 0 224 132" width="224" height="132">
         <path
@@ -749,7 +748,7 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
       <div className="rv-thermo-legend">
         <div className="rv-thermo-row">
           <i className="sw plan" />
-          <span>Plan</span>
+          <span>Goal</span>
           <b>{K(pace.plan)}</b>
         </div>
         <div className="rv-thermo-row">
@@ -786,7 +785,7 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
         )}
       </p>
       <p className="rv-dim rv-small">
-        Plan = your weekly clinic targets where set ({pace.planned}), pro-rated to this window; baseline for the rest.
+        Goal = the Settings target spread over the year by baseline weekday weights, projected over the whole window.
       </p>
     </div>
   );
@@ -1182,7 +1181,7 @@ function WindowTab({
           {planBeat ? (
             <div className="rv-mini-item">
               <b>+{K(planBeat.amount)}</b>
-              <span>{planBeat.label}<br />over plan ({P(planBeat.pct, 0)})</span>
+              <span>{planBeat.label}<br />over goal ({P(planBeat.pct, 0)})</span>
             </div>
           ) : null}
           <button
@@ -1701,7 +1700,7 @@ function Targets({ b }: { b: Book }) {
         <h2>Weekly targets<Info k="targets" /></h2>
         <span className="rv-mono">Top 10 clinics · {K(total)}/wk</span>
       </div>
-      <p className="rv-dim rv-small">Edits move the thermometer's plan line. Blank = baseline.</p>
+      <p className="rv-dim rv-small">Weekly clinic targets feed the year-end projection; they do not change the goal. Blank = baseline.</p>
       <div className="rv-targets">
         {b.targetClinics.map((c: Book) => {
           const cur = draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? Math.round(c.baseWeek);
@@ -2196,10 +2195,10 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
-    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: scoped }] : []),
+    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingBaseline ?? 0) * scale, fmt: K, planLbl: "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
-    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "expected", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "plan" }] : []),
+    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "goal" }] : []),
   ];
   // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
   const bookClinics = (b.allIds ?? []).length;
@@ -2292,7 +2291,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         </div>
       </div>
       <div className="rv-sec-head" style={{ marginTop: 8 }}>
-        <h2>Outcomes vs heading to &amp; plan</h2>
+        <h2>Outcomes vs heading to &amp; goal</h2>
         <MeterToggle v={mStyle} set={setMStyle} />
       </div>
       {scoped ? (
@@ -3595,8 +3594,8 @@ function TourGuide({ setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 }
 
 const INFO: Record<string, string> = {
-  lb: "Ranks reps on % of plan for this window. Toggle my team / all reps. Team leads are excluded; other reps' clinic data stays private.",
-  gauge: "Solid needle = booked so far. Dotted needle = where you're heading at current pace. End of the dial = plan. Shows this week on Today.",
+  lb: "Ranks reps on % of goal for this window. Toggle my team / all reps. Team leads are excluded; other reps' clinic data stays private.",
+  gauge: "Solid needle = booked so far. Dotted needle = where you're heading at current pace. End of the dial = goal. Shows this week on Today.",
   call: "Existing clinics 5–45 days since their last order (beyond 45 = lost), ranked by $ at stake then days since order. Filter by health note or portfolio status. Click a clinic for its full card.",
   newc: "New clinics due for their next order, order 4 first. Use the days-between-orders filter to change the window (default 14–21 days). Shows who dropped off before the next order.",
   tree: "Actual vs expected (baseline) for this window, split into volume, AOV, products, cohorts and states. Green beats baseline, red misses it. Click any branch for its clinic list. 'Simplify' switches to a lighter tree.",
@@ -3614,8 +3613,8 @@ const INFO: Record<string, string> = {
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
   queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; click the clinic count for the list. Hours and likelihoods are estimates.",
-  great: "What's going right in this window: clinics beating goal and extra dollars over plan. Click a number for the clinics.",
-  headline: "Booked vs plan for this window and the $/day needed for the days left.",
+  great: "What's going right in this window: clinics beating goal and extra dollars over goal. Click a number for the clinics.",
+  headline: "Booked vs goal for this window and the $/day needed for the days left.",
 };
 function Info({ k }: { k: string }) {
   const [o, setO] = useState(false);
