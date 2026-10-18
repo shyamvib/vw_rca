@@ -87,7 +87,11 @@ export const book = scopedQuery({
     // Retention, NRR, expansion and churn compare with what these clinics actually did before (the BASELINE, a mean
     // run rate), not with the goal (baseline plus the P75 stretch): retention is "did they keep what they had".
     // Goal-based shortfall stays on the tree; real change vs ambition is explicit there (2026-10-16).
-    const existing = rows.filter(r => EXISTING.has(r.cohort) && r.baseline > 0);
+    // A clinic whose first order fell inside the baseline window and that has not ordered since is labelled "new" by
+    // the cohort code (first order in the baseline), but it brought baseline revenue and stopped: that is churn, so
+    // it counts as existing (2026-10-18). A "new" clinic that IS ordering now has a first order in the current
+    // window and no baseline, so the baseline > 0 test keeps it out.
+    const existing = rows.filter(r => (EXISTING.has(r.cohort) || r.cohort === "new") && r.baseline > 0);
     const exAct = sum(existing, r => r.actual);
     const exExp = sum(existing, r => r.baseline);
     const exOrd = sum(existing, r => r.orders);
