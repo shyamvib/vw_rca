@@ -611,7 +611,7 @@ async function portfolio(
     | undefined;
 
   const baseDays = eachDay(cfg.baselineStart, cfg.baselineEnd);
-  const [cur, base, changes] = await Promise.all([
+  const [cur, base, changes, anchorRows] = await Promise.all([
     ordersRows({ family: true, start, end, m: { rev: "revenue", ord: "orders" },
         filters: [eq(`${O}.clinic_id`, Number(args.clinic)), ...scopeFilters(scope)] }),
     ordersRows({ family: true, start: cfg.baselineStart, end: cfg.baselineEnd, m: { rev: "revenue", ord: "orders" },
@@ -634,6 +634,8 @@ async function portfolio(
         return await cubeRows({ dimensions: dims, filters }, map);
       }
     })(),
+    // The anchor is the same for every clinic, so a clinic with no status rows can still print exact dates.
+    cubeRows({ dimensions: ["portfolio_changes.anchor_date"], limit: 1 }, { "portfolio_changes.anchor_date": "Portfolio Changes[Anchor Date]" }).catch(() => [] as Array<Record<string, unknown>>),
   ]);
 
   // The period's share of the baseline window, weighted by day type, so the
@@ -739,7 +741,7 @@ async function portfolio(
   // Portfolio Changes (cube/model/cubes/portfolio_changes.yml): recent = the last 28 days up to the latest order date, the
   // baseline = the 90 days before that (average shown per 28 days). The model reports the latest order date it used; if it
   // does not (older model), the dashboard's cutoff plus the lag is the best estimate.
-  const reported = String(changes[0]?.["Portfolio Changes[Anchor Date]"] ?? "").slice(0, 10);
+  const reported = String(changes[0]?.["Portfolio Changes[Anchor Date]"] ?? anchorRows[0]?.["Portfolio Changes[Anchor Date]"] ?? "").slice(0, 10);
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(reported) ? reported : addDays(cfg.currentEnd, cfg.lagDays ?? 1);
   return {
     rows,
