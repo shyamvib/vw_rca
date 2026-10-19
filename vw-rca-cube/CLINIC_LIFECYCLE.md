@@ -39,11 +39,14 @@ Numbers are from the live snapshot (window Aug 1 to Oct 17, baseline Feb 20 to M
 - **New clinics** get a goal as a group, not one by one. The New Business dial shows a real goal instead of "—", and New + Existing adds up to Combined for goal, heading and plan.
 - Company goal still equals the target exactly.
 - Settings warns when the new-business number is so large that existing goals fall below their baseline.
-- **Decided 2026-10-18:**
-  - The new-business goal is **5% of the target ($6.5M on $130M)**. The Settings number defaults to it and can be changed; the existing factor is then about 1.02.
-  - It is **spread evenly by calendar day** (with the baseline weekday weights used everywhere else). Phasing by last year's signup pattern can come later.
+- **Decided 2026-10-18 (updated later the same day):**
+  - The new-business goal defaults to **last year's new-clinic revenue** (revenue in 2025 from clinics that first ordered in 2025, including ones that have since churned): **$9.48M**, 7.3% of the $130M target. It is still a Settings number and can be overridden. (It started as 5% of the target, $6.5M; that was 31% below last year and made new business look far ahead.)
+  - It is **phased by last year's monthly shape** of that revenue (3.2% of the year in January up to 13.2% in October, 10.7% and 10.9% in November and December), spread evenly within a month, instead of evenly through the year.
   - **Reps share it by their existing baseline share** (how goals already split).
   - It **stays at rep and company level**: no goal on individual new clinics (a lump split across clinics that join through the year would dilute every time one joins). New clinic lists show revenue and status, not above/below goal.
+  - Goals: existing clinics carry (target minus the new-business goal) over their baseline pace, so at $9.48M the existing factor is 0.986 (existing goals 1.4% under baseline; the cap that keeps them at baseline is $7.77M). Existing revenue is only about 88% of that goal, so existing still reads behind. Settings shows a warning when the slice is above the cap.
+  - Attainment on the live data with this setup (new + returning revenue over the phased goal): August 79%, September 82%, October 1 to 17 77%, window 80%: new business is running about 20% behind last year's pace at the same point.
+  - The New dial projects its heading with its own factor (full-period phased goal over goal so far); the Existing dial uses the weekday-shaped factor; New + Existing add up to the Combined heading and plan.
 - Considered and not chosen: splitting by each rep's new revenue so far (circular: every rep ends at the same % of goal, and a rep with no new revenue gets no goal); splitting by last year's new revenue per rep with a 10% equal share (it differentiates reps, but was not chosen).
 - For reference when choosing the Settings number: last year's new-clinic revenue (clinics that first ordered in 2025, including ones that have since churned) was **$9.48M** (8.7% of 2025 revenue of $108.6M), so $6.5M is 31% below it. The most the slice can be while existing goals stay at their baseline is $8.6M. This year's signups are running at about $6.2M annualised ($4.90M so far), which is about 35% below last year; against $6.5M spread evenly, goal to date is $5.17M, so new business reads 95% of goal.
 
@@ -75,7 +78,7 @@ Everything in section 1 is built. The rebuild side (`analytics/refresh.ts`, `ana
 
 1. New = first order in the current year, no baseline; active / reactivated / churned split; Active has a "New" tier in the trees.
 2. Churn by the clinic's own threshold (45 days for new clinics, max(45, 3x typical gap) for established ones); reactivated only for no-baseline clinics after an unusual gap; slow buyers with no baseline get their own 12-month history as a baseline.
-3. The new-business goal: a Settings number (default 5% of the target), the existing factor from the remainder, rep shares by baseline share, a "New business goal" line in every lens so each lens adds up to the shortfall, and the New and Existing dial plans adding up to the Combined plan.
+3. The new-business goal: a Settings number (default: last year's new-clinic revenue), the existing factor from the remainder, rep shares by baseline share, a "New business goal" line in every lens so each lens adds up to the shortfall, and the New and Existing dial plans adding up to the Combined plan.
 4. Scorecard: New Revenue cell headline = all new revenue with active / reactivated / churned lines, Existing excludes new clinics, churn base = existing + new + returning, new in a tab = first order on or before the tab's last day, order 1 to 2 conversion on a rolling 90 days.
 
 Offline checks on the live data (15 reps, this week / month / quarter): company, clinics, reps, rep books and cohorts tie to the headline; New + Existing + returning revenue equals the book; (existing goal + new goal) x projection ratio equals the Combined plan; no invariant violations.
