@@ -2223,11 +2223,16 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const bookClinics = (b.allIds ?? []).length;
   const famBuyers = pg ? pg.buyerIds.length : null;
   const dialCell = (p: string) => rows.find(r => r.pillar === (p === EXISTING ? "Retention" : p))?.cells[0];
-  const clinicCount = (p: string): { n: number | null; why: string } => {
+  // Clinics that ordered in this tab. A dial's group (new / existing / the whole book) also holds clinics that did not
+  // order in it: they carry a goal and are the "pulling down" side, so the dial shows both counts (2026-10-18).
+  const orderedSet = useMemo(() => new Set(b.activeIds ?? []), [b.activeIds]);
+  const clinicCount = (p: string): { n: number | null; ordered?: number; why: string } => {
     // The dial and the matrix cell it stands for must count the same clinics, so read it off the cell's own list.
     const own = dialCell(p)?.ids;
-    if (own) return { n: own.length, why: clinicCount0(p).why };
-    return clinicCount0(p);
+    const base = own ? { n: own.length, why: clinicCount0(p).why } : clinicCount0(p);
+    const splits = !scoped && (p === "New Business" || p === EXISTING || p === "Combined");
+    const ids = p === "New Business" ? [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])] : p === EXISTING ? (b.existingIds ?? []) : p === "Combined" ? (b.allIds ?? []) : [];
+    return splits && base.n !== null ? { ...base, ordered: ids.filter((id: string) => orderedSet.has(id)).length } : base;
   };
   const clinicCount0 = (p: string): { n: number | null; why: string } => {
     switch (p) {
@@ -2235,7 +2240,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
       case "Product Growth": return { n: famBuyers, why: `ordered ${family}` };
       case EXISTING: return { n: (b.existingIds ?? []).length, why: "existing: ordered in the baseline" };
-      default: return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: bookClinics, why: "any orders or a baseline" };
+      default: return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: bookClinics, why: "existing + new + returning" };
     }
   };
   const [mStyle, setMStyle] = useMeterStyle();
@@ -2335,8 +2340,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
               const cc = clinicCount(m.pillar);
               return (
                 <div className="rv-outm-clin" title={`Clinics this dial is measured over: ${cc.why}`}>
-                  <b>{cc.n ?? "…"}</b> clinics
-                  <span>{cc.why}{m.pillar === "Combined" && !scoped ? "" : ` · of ${bookClinics} in the book`}</span>
+                  <b>{cc.ordered !== undefined ? `${cc.ordered} of ${cc.n}` : (cc.n ?? "…")}</b> {cc.ordered !== undefined ? "clinics ordered" : "clinics"}
+                  <span>{cc.why}{m.pillar === "Combined" && !scoped ? ` · ${cc.n} in the book` : ` · of ${bookClinics} in the book`}</span>
                 </div>
               );
             })()}
