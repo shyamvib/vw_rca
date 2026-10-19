@@ -1763,7 +1763,7 @@ const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: wh
 const TENURE_TARGETS: Record<"retention" | "repeat" | "churn", Record<"all" | "pre" | "mid" | "cur", [number, number]>> = {
   retention: { all: [0.76, 0.7], pre: [0.77, 0.73], mid: [0.65, 0.53], cur: [0.49, 0.4] },
   repeat: { all: [0.68, 0.62], pre: [0.76, 0.72], mid: [0.66, 0.55], cur: [0.54, 0.45] },
-  churn: { all: [0.29, 0.35], pre: [0.19, 0.24], mid: [0.3, 0.35], cur: [0.52, 0.58] },
+  churn: { all: [0.35, 0.42], pre: [0.19, 0.24], mid: [0.3, 0.35], cur: [0.67, 0.7] },
 };
 const levelTone = (v: number | null, [good, watch]: [number, number], lowerBetter = false): Tone =>
   v === null ? "na" : lowerBetter ? (v <= good ? "good" : v <= watch ? "watch" : "bad") : v >= good ? "good" : v >= watch ? "watch" : "bad";
@@ -2189,7 +2189,16 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
   const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
   const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel);
-  const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...c, tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
+  // This year's signups have no baseline (new clinics carry none), so Revenue Retention / NRR / Expansion / At-risk have
+  // nothing to compare with; for that cut retention is the share of new clinics still ordering (2026-10-18).
+  const curCell = (c: Cell): Cell => {
+    const still = k.churnBase ? (k.churnBase - (k.churned ?? 0)) / k.churnBase : null;
+    if (c.label === "Revenue Retention")
+      return { ...c, value: P(still), sub: `${(k.churnBase ?? 0) - (k.churned ?? 0)} of ${k.churnBase ?? 0} new clinics still ordering · no baseline yet`, ids: k.churnBaseIds, n: still, u: "%", better: 1, tone: levelTone(still, [1 - TENURE_TARGETS.churn.cur[0], 1 - TENURE_TARGETS.churn.cur[1]]) };
+    if (c.label === "NRR" || c.label === "Expansion Revenue" || c.label === "At-risk customers") return NA(c.label, "new clinics have no baseline yet");
+    return c;
+  };
+  const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...(tenureSel === "cur" ? curCell(c) : c), tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
   const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
   const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
   const deltaOf = (c: Cell) => {
@@ -2271,7 +2280,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     if (!c.ids?.length) return;
     e.stopPropagation();
     // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
-    const contrib = listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
+    const contrib = tenureSel === "cur" && c.label === "Revenue Retention" ? CONTRIB["Customer churn"] : listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
     const ids = contrib ? contrib.universe(b) : c.ids!;
     setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
