@@ -2757,8 +2757,8 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
  * DECLINING / STOPPED) is the last 28 days against the prior 90 days, whatever the tab. Tests that have a status but no
  * row in the tab (the model works on tests, not families) are listed in their own block. */
 type PortRes = {
-  rows: Array<{ family: string; orders: number; expectedOrders: number; orderDelta: number; status: string; baselineAvg: number; recentOrders: number; product?: boolean }>;
-  testStatus: Array<{ test: string; status: string; baselineAvg: number; recentOrders: number }>;
+  rows: Array<{ family: string; orders: number; expectedOrders: number; orderDelta: number; status: string; baselineAvg: number; recentOrders: number; product?: boolean; lastBefore?: string }>;
+  testStatus: Array<{ test: string; status: string; baselineAvg: number; recentOrders: number; lastBefore?: string }>;
   window?: { start: string; end: string };
   recent?: { start: string; end: string };
   prior?: { start: string; end: string };
@@ -2829,7 +2829,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
                   {res.isNew ? <span className="rv-dim"> · no baseline</span> : <span className="rv-dim"> vs {r.expectedOrders.toFixed(0)}</span>}
                 </td>
                 <td className={`rca-num ${res.isNew ? "rv-dim" : r.orderDelta < 0 ? "bad" : "good"}`}>{res.isNew ? "—" : `${r.orderDelta >= 0 ? "+" : ""}${r.orderDelta.toFixed(0)}`}</td>
-                <td>{r.status ? <span className={`rca-status is-${r.status.toLowerCase()}`}>{r.status}</span> : <span className="rv-dim">—</span>}</td>
+                <td>{r.status ? <span className={`rca-status is-${r.status.toLowerCase()}`} title={r.lastBefore ? `Ordered before, last on ${fmtD(r.lastBefore)}; none in the prior 90 days, then again in the last 28` : undefined}>{r.status}</span> : <span className="rv-dim">—</span>}{r.lastBefore ? <span className="rv-dim"> · last {fmtD(r.lastBefore)}</span> : null}</td>
                 <td className="rca-num rv-dim">{r.status ? `${r.baselineAvg.toFixed(1)} → ${r.recentOrders.toFixed(0)}` : "—"}</td>
               </tr>
             ))}
@@ -2853,7 +2853,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
               {res.testStatus.map(t => (
                 <tr key={t.test}>
                   <td>{t.test}</td>
-                  <td><span className={`rca-status is-${t.status.toLowerCase()}`}>{t.status}</span></td>
+                  <td><span className={`rca-status is-${t.status.toLowerCase()}`}>{t.status}</span>{t.lastBefore ? <span className="rv-dim"> · last {fmtD(t.lastBefore)}</span> : null}</td>
                   <td className="rca-num rv-dim">{t.baselineAvg.toFixed(1)} → {t.recentOrders.toFixed(0)}</td>
                 </tr>
               ))}

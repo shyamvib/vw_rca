@@ -1000,6 +1000,9 @@ select.rca-select,
 .rca-status.is-new {
   color: var(--vw-success);
 }
+.rca-status.is-restarted {
+  color: var(--vw-warning, #b7791f);
+}
 
 .rca-filters {
   display: flex;

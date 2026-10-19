@@ -577,10 +577,12 @@ export type PortfolioRow = {
   recentOrders: number;
   /** a real product family (not Non Zoomer / Unmapped): what Products per customer counts */
   product?: boolean;
+  /** for a restarted family: the date of its last order before the status window */
+  lastBefore?: string;
 };
 
 /** Portfolio Changes status of a test the clinic has no row for in the selected window (the model works at test level). */
-export type TestStatus = { test: string; status: string; baselineAvg: number; recentOrders: number };
+export type TestStatus = { test: string; status: string; baselineAvg: number; recentOrders: number; lastBefore?: string };
 
 /**
  * A clinic's own product portfolio: which single families it orders, this
@@ -743,6 +745,35 @@ async function portfolio(
   // does not (older model), the dashboard's cutoff plus the lag is the best estimate.
   const reported = String(changes[0]?.["Portfolio Changes[Anchor Date]"] ?? anchorRows[0]?.["Portfolio Changes[Anchor Date]"] ?? "").slice(0, 10);
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(reported) ? reported : addDays(cfg.currentEnd, cfg.lagDays ?? 1);
+  // "NEW" only means no orders in the prior 90 days. When the clinic ordered that family any time before the status window
+  // (whatever the tab or the baseline period), it is a restart, not a new product for the clinic (2026-10-18).
+  if ([...rows, ...testStatus].some(x => x.status === "NEW")) {
+    const lastBefore = new Map<string, string>();
+    try {
+      const hist = await ordersRows({
+        family: true, day: true, start: "2000-01-01", end: addDays(anchor, -118), m: { ord: "orders" },
+        filters: [eq(`${O}.clinic_id`, Number(args.clinic)), ...scopeFilters(scope)],
+      });
+      for (const r of hist) {
+        const d = String(r[`${TABLE}[order_date]`] ?? "").slice(0, 10);
+        if (!d || num(r, "ord") <= 0) continue;
+        for (const f of splitFamilies(familyOf(r))) {
+          const k = f.toLowerCase();
+          if ((lastBefore.get(k) ?? "") < d) lastBefore.set(k, d);
+        }
+      }
+    } catch {
+      /* history is a refinement: without it the model's NEW stays as it is */
+    }
+    for (const x of rows) {
+      const lb = lastBefore.get(x.family.toLowerCase());
+      if (x.status === "NEW" && lb) { x.status = "RESTARTED"; x.lastBefore = lb; }
+    }
+    for (const x of testStatus) {
+      const lb = lastBefore.get(x.test.toLowerCase());
+      if (x.status === "NEW" && lb) { x.status = "RESTARTED"; x.lastBefore = lb; }
+    }
+  }
   return {
     rows,
     testStatus,
