@@ -123,6 +123,7 @@ export const context = internalQuery({
         pstatus: c.pstatus ?? [],
         baseRev: c.baseRev,
         baseOrders: c.baseOrders,
+        isNew: c.isNew ?? false,
         rev: c.rev,
         ord: c.ord,
         bRev: c.bRev,
@@ -601,7 +602,7 @@ async function portfolio(
   const meta = clinics.find(
     (c: { clinic: string }) => c.clinic === args.clinic,
   ) as
-    | { rev: number[]; ord: number[]; bRev: number[]; baseRev: number }
+    | { rev: number[]; ord: number[]; bRev: number[]; baseRev: number; isNew?: boolean }
     | undefined;
 
   const baseDays = eachDay(cfg.baselineStart, cfg.baselineEnd);
@@ -670,14 +671,17 @@ async function portfolio(
       a.orders += num(r, "ord");
     }
   }
-  for (const r of base) {
-    const fams = splitFamilies(familyOf(r));
-    for (const f of fams) {
-      const a = touch(f);
-      a.expected += (num(r, "rev") / fams.length) * share;
-      a.expectedOrders += num(r, "ord") * share;
+  // A clinic that is new this year has no baseline (lifecycle rules, 2026-10-18), so nothing is expected of it per family
+  // either; what it ordered in the baseline period is not turned into an expectation.
+  if (!meta?.isNew)
+    for (const r of base) {
+      const fams = splitFamilies(familyOf(r));
+      for (const f of fams) {
+        const a = touch(f);
+        a.expected += (num(r, "rev") / fams.length) * share;
+        a.expectedOrders += num(r, "ord") * share;
+      }
     }
-  }
 
   const status = new Map<
     string,

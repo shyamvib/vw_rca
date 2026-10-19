@@ -887,6 +887,47 @@ export const refreshData = internalAction({
           }
         }
       }
+      // New clinics carry no baseline (analytics/lifecycleRules.ts), so what they ordered in the baseline period comes
+      // out of the family baselines too, keeping family goals consistent with the headline goal (2026-10-18).
+      if (newBaseRemoved.size) {
+        const newIdList = [...newBaseRemoved.keys()].filter(cid => /^\d+$/.test(cid));
+        const newFamRows: any[][] = await Promise.all(
+          Array.from({ length: Math.ceil(newIdList.length / 500) }, (_, ci) =>
+            ordersRows({
+              by: ["team_lead", "sales_id"], family: true, day: true, start: baselineStart, end: baselineEnd,
+              m: { rev: "revenue", ord: "orders", brev: "bundle_revenue", bord: "bundle_orders" },
+              filters: [eq(`${O}.clinic_id`, ...newIdList.slice(ci * 500, ci * 500 + 500))],
+            }),
+          ),
+        );
+        for (const nrows of newFamRows) {
+          for (const r of nrows) {
+            const fams = splitFamilies(familyOf(r));
+            const i = dow(dateOf(r, "order_date"));
+            const rev = num(r, "rev") / fams.length;
+            const ord = num(r, "ord");
+            const bRev = num(r, "brev") / fams.length;
+            const bOrd = num(r, "bord");
+            const sales = salesLabelOf(r);
+            for (const f of fams) {
+              for (const [scope, sRev, sOrd] of [
+                ["all", rev, ord],
+                ["bundle", bRev, bOrd],
+                ["nonbundle", rev - bRev, ord - bOrd],
+              ] as Array<[string, number, number]>) {
+                if (sRev === 0 && sOrd === 0) continue;
+                for (const m2 of [famBase.get(`${scope}|${leadOf(r)}|${f}`), famBaseSales.get(`${scope}|${sales}|${f}`)]) {
+                  if (!m2) continue;
+                  m2.rev[i] = Math.max(0, m2.rev[i] - sRev);
+                  m2.ord[i] = Math.max(0, m2.ord[i] - sOrd);
+                  m2.total = Math.max(0, m2.total - sRev);
+                  m2.orders = Math.max(0, m2.orders - sOrd);
+                }
+              }
+            }
+          }
+        }
+      }
       const famDays: Array<{
         scope: string;
         lead: string;
@@ -2893,6 +2934,47 @@ export const refreshSnapshot = internalAction({
               bs.total += sRev;
               bs.orders += sOrd;
               famBaseSales.set(ks, bs);
+            }
+          }
+        }
+      }
+      // New clinics carry no baseline (analytics/lifecycleRules.ts), so what they ordered in the baseline period comes
+      // out of the family baselines too, keeping family goals consistent with the headline goal (2026-10-18).
+      if (newBaseRemoved.size) {
+        const newIdList = [...newBaseRemoved.keys()].filter(cid => /^\d+$/.test(cid));
+        const newFamRows: any[][] = await Promise.all(
+          Array.from({ length: Math.ceil(newIdList.length / 500) }, (_, ci) =>
+            ordersRows({
+              by: ["team_lead", "sales_id"], family: true, day: true, start: baselineStart, end: baselineEnd,
+              m: { rev: "revenue", ord: "orders", brev: "bundle_revenue", bord: "bundle_orders" },
+              filters: [eq(`${O}.clinic_id`, ...newIdList.slice(ci * 500, ci * 500 + 500))],
+            }),
+          ),
+        );
+        for (const nrows of newFamRows) {
+          for (const r of nrows) {
+            const fams = splitFamilies(familyOf(r));
+            const i = dow(dateOf(r, "order_date"));
+            const rev = num(r, "rev") / fams.length;
+            const ord = num(r, "ord");
+            const bRev = num(r, "brev") / fams.length;
+            const bOrd = num(r, "bord");
+            const sales = salesLabelOf(r);
+            for (const f of fams) {
+              for (const [scope, sRev, sOrd] of [
+                ["all", rev, ord],
+                ["bundle", bRev, bOrd],
+                ["nonbundle", rev - bRev, ord - bOrd],
+              ] as Array<[string, number, number]>) {
+                if (sRev === 0 && sOrd === 0) continue;
+                for (const m2 of [famBase.get(`${scope}|${leadOf(r)}|${f}`), famBaseSales.get(`${scope}|${sales}|${f}`)]) {
+                  if (!m2) continue;
+                  m2.rev[i] = Math.max(0, m2.rev[i] - sRev);
+                  m2.ord[i] = Math.max(0, m2.ord[i] - sOrd);
+                  m2.total = Math.max(0, m2.total - sRev);
+                  m2.orders = Math.max(0, m2.orders - sOrd);
+                }
+              }
             }
           }
         }
