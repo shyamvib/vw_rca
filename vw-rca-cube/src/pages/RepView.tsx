@@ -1877,7 +1877,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           label: "New Revenue",
           value: K(k.newRevenue + (k.reactivatedRevenue ?? 0)),
           sub: k.newSplit
-            ? `New ${K(k.newSplit.active.rev + k.newSplit.reactivated.rev + k.newSplit.churned.rev)}: active ${K(k.newSplit.active.rev)} · reactivated ${K(k.newSplit.reactivated.rev)} · churned ${K(k.newSplit.churned.rev)} (${k.newTotal} clinics) · returning ${K(k.newSplit.returning.rev)} (${k.newSplit.returning.n}) · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`
+            ? `${k.newSplit.active.ordering + k.newSplit.reactivated.ordering + k.newSplit.churned.ordering + k.newSplit.returning.ordering} of ${k.newTotal + k.newSplit.returning.n} clinics ordered · new clinics ${K(k.newSplit.active.rev + k.newSplit.reactivated.rev + k.newSplit.churned.rev)} (active ${K(k.newSplit.active.rev)}, reactivated ${K(k.newSplit.reactivated.rev)}, churned ${K(k.newSplit.churned.rev)}) · older clinics back ${K(k.newSplit.returning.rev)} · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`
             : `${k.newCustomers} of ${k.newTotal ?? k.newCustomers} new + ${k.reactivatedCount ?? 0} of ${(b.reactivatedIds ?? []).length} reactivated clinics ordering · ${P(b.totals.actual ? (k.newRevenue + (k.reactivatedRevenue ?? 0)) / b.totals.actual : null)} of revenue`,
           ids: [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])],
           n: k.newRevenue + (k.reactivatedRevenue ?? 0), u: "$", flow: true, better: 1,
