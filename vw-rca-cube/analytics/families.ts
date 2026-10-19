@@ -616,14 +616,24 @@ async function portfolio(
         filters: [eq(`${O}.clinic_id`, Number(args.clinic)), ...scopeFilters(scope)] }),
     ordersRows({ family: true, start: cfg.baselineStart, end: cfg.baselineEnd, m: { rev: "revenue", ord: "orders" },
         filters: [eq(`${O}.clinic_id`, Number(args.clinic)), ...scopeFilters(scope)] }),
-    cubeRows({ dimensions: ["portfolio_changes.clinic_id", "portfolio_changes.test_name", "portfolio_changes.status", "portfolio_changes.baseline_28d_avg", "portfolio_changes.recent_orders"],
-        filters: [eq("portfolio_changes.clinic_id", Number(args.clinic))] }, {
+    // The model also reports the date it anchored "the last 28 days" on; older Cube models do not have that member yet, so
+    // fall back to the query without it.
+    (async () => {
+      const dims = ["portfolio_changes.clinic_id", "portfolio_changes.test_name", "portfolio_changes.status", "portfolio_changes.baseline_28d_avg", "portfolio_changes.recent_orders"];
+      const map: Record<string, string> = {
         "portfolio_changes.clinic_id": "Portfolio Changes[Clinic Id]",
         "portfolio_changes.test_name": "Portfolio Changes[Test Name]",
         "portfolio_changes.status": "Portfolio Changes[Status]",
         "portfolio_changes.baseline_28d_avg": "Portfolio Changes[Baseline 28D Average]",
         "portfolio_changes.recent_orders": "Portfolio Changes[Recent Orders]",
-      }),
+      };
+      const filters = [eq("portfolio_changes.clinic_id", Number(args.clinic))];
+      try {
+        return await cubeRows({ dimensions: [...dims, "portfolio_changes.anchor_date"], filters }, { ...map, "portfolio_changes.anchor_date": "Portfolio Changes[Anchor Date]" });
+      } catch {
+        return await cubeRows({ dimensions: dims, filters }, map);
+      }
+    })(),
   ]);
 
   // The period's share of the baseline window, weighted by day type, so the
@@ -727,14 +737,17 @@ async function portfolio(
     .map(([, v]) => ({ test: v.test, status: v.status, baselineAvg: v.baselineAvg, recentOrders: v.recentOrders }))
     .sort((a, b) => a.test.localeCompare(b.test));
   // Portfolio Changes (cube/model/cubes/portfolio_changes.yml): recent = the last 28 days up to the latest order date, the
-  // baseline = the 84 days before that (average shown per 28 days). The latest order date is the dashboard's cutoff plus the lag.
-  const anchor = addDays(cfg.currentEnd, cfg.lagDays ?? 1);
+  // baseline = the 90 days before that (average shown per 28 days). The model reports the latest order date it used; if it
+  // does not (older model), the dashboard's cutoff plus the lag is the best estimate.
+  const reported = String(changes[0]?.["Portfolio Changes[Anchor Date]"] ?? "").slice(0, 10);
+  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(reported) ? reported : addDays(cfg.currentEnd, cfg.lagDays ?? 1);
   return {
     rows,
     testStatus,
     window: { start, end },
     recent: { start: addDays(anchor, -27), end: anchor },
-    prior: { start: addDays(anchor, -111), end: addDays(anchor, -28) },
+    prior: { start: addDays(anchor, -117), end: addDays(anchor, -28) },
+    anchorExact: /^\d{4}-\d{2}-\d{2}$/.test(reported),
     isNew: !!meta?.isNew,
   };
 }
@@ -780,6 +793,7 @@ export type PortfolioResult = {
   window?: { start: string; end: string };
   recent?: { start: string; end: string };
   prior?: { start: string; end: string };
+  anchorExact?: boolean;
   isNew?: boolean;
 };
 

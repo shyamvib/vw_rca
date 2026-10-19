@@ -1,7 +1,7 @@
 # DERIVED (not in BigQuery). Rebuilds Power BI 'Portfolio Changes' (clinic x test).
 # Rules INFERRED from Power BI output (Thiru's DAX not yet received), 2026-10-03:
 #   33-test whitelist (exact list from PBI), recent = last 28 days,
-#   baseline = the 84 days before, Baseline 28D Average = baseline / 3.
+#   baseline = the 90 days before (changed from 84 on 2026-10-18), Baseline 28D Average = baseline x 28 / 90.
 #   NEW = baseline 0 & recent >= 1; STOPPED = baseline >= 3 & recent 0;
 #   DECLINING = baseline >= 6 & recent >= 1 & recent <= 0.5 x average.
 # Known gap vs PBI: STOPPED 1,149 vs 1,218; NEW 1,965 vs 2,325; DECLINING 417 vs 192.
@@ -15,11 +15,12 @@ cubes:
         SELECT o.clinic_id, ANY_VALUE(o.customer_practice_name) AS clinic_name,
                ANY_VALUE(o.sales_id) AS sales_id, t.test_name_v2 AS test_name,
                COUNT(DISTINCT IF(DATE(o.order_date) > DATE_SUB(a.d, INTERVAL 28 DAY), o.sample_id, NULL)) AS recent_orders,
-               COUNT(DISTINCT IF(DATE(o.order_date) <= DATE_SUB(a.d, INTERVAL 28 DAY), o.sample_id, NULL)) AS baseline_orders
+               COUNT(DISTINCT IF(DATE(o.order_date) <= DATE_SUB(a.d, INTERVAL 28 DAY), o.sample_id, NULL)) AS baseline_orders,
+               ANY_VALUE(a.d) AS anchor_date
         FROM {{ env_var('BQ_DATASET') }}.customer_rfm_segmented_orders o
         JOIN {{ env_var('BQ_DATASET') }}.fact_order_tests_enriched t USING (sample_id)
         CROSS JOIN anchor a
-        WHERE DATE(o.order_date) > DATE_SUB(a.d, INTERVAL 112 DAY)
+        WHERE DATE(o.order_date) > DATE_SUB(a.d, INTERVAL 118 DAY)
           AND o.clinic_id IS NOT NULL
           AND t.test_name_v2 IN (
             'Comprehensive Metabolic Panel', 'Heavy Metals (Creatinine)', 'Mycotoxins', 'Gut Zoomer',
@@ -33,11 +34,11 @@ cubes:
         GROUP BY o.clinic_id, t.test_name_v2
       ),
       s AS (
-        SELECT *, baseline_orders / 3 AS baseline_28d_avg,
+        SELECT *, baseline_orders * 28 / 90 AS baseline_28d_avg,
           CASE
             WHEN baseline_orders = 0 AND recent_orders >= 1 THEN 'NEW'
             WHEN baseline_orders >= 3 AND recent_orders = 0 THEN 'STOPPED'
-            WHEN baseline_orders >= 6 AND recent_orders >= 1 AND recent_orders <= 0.5 * baseline_orders / 3 THEN 'DECLINING'
+            WHEN baseline_orders >= 6 AND recent_orders >= 1 AND recent_orders <= 0.5 * baseline_orders * 28 / 90 THEN 'DECLINING'
           END AS status
         FROM lines
       )
@@ -52,6 +53,7 @@ cubes:
       - { name: baseline_orders, sql: baseline_orders, type: number }
       - { name: baseline_28d_avg, sql: baseline_28d_avg, type: number }
       - { name: recent_orders, sql: recent_orders, type: number }
+      - { name: anchor_date, sql: "CAST(anchor_date AS STRING)", type: string }
     measures:
       - { name: rows, type: count }
     pre_aggregations:

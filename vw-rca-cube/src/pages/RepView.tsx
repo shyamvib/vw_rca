@@ -2754,7 +2754,7 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
 /** Rep-scoped clinic portfolio panel — same `families.portfolioAction` the main dashboard's expandable clinic row calls;
  * `assertOwnsClinic` inside it already restricts a rep session to their own clinics.
  * Two windows live here and are labelled as such (2026-10-18): Orders and expected follow the tab; the status (NEW /
- * DECLINING / STOPPED) is the last 28 days against the prior 84 days, whatever the tab. Tests that have a status but no
+ * DECLINING / STOPPED) is the last 28 days against the prior 90 days, whatever the tab. Tests that have a status but no
  * row in the tab (the model works on tests, not families) are listed in their own block. */
 type PortRes = {
   rows: Array<{ family: string; orders: number; expectedOrders: number; orderDelta: number; status: string; baselineAvg: number; recentOrders: number; product?: boolean }>;
@@ -2792,7 +2792,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
   if (res.rows.length === 0 && res.testStatus.length === 0) return <div className="rca-sub rv-dim">No product families in this window.</div>;
   const win = res.window ? `${fmtD(res.window.start)} – ${fmtD(res.window.end)}` : "this window";
   const rec = res.recent ? `${fmtD(res.recent.start)} – ${fmtD(res.recent.end)}` : "last 28 days";
-  const pri = res.prior ? `${fmtD(res.prior.start)} – ${fmtD(res.prior.end)}` : "prior 84 days";
+  const pri = res.prior ? `${fmtD(res.prior.start)} – ${fmtD(res.prior.end)}` : "prior 90 days";
   return (
     <div className="rca-portfolio rv-expand-panel">
       <div className="rv-eyebrow rv-dim">
@@ -2804,7 +2804,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
         {res.isNew ? "New this year, so no baseline and nothing expected." : "Expected is this clinic's baseline-period orders scaled to the window."}
       </div>
       <div className="rca-sub rv-dim rca-tiny">
-        Status is separate and does not change with the tab: the last 28 days ({rec}) against the prior 84 days ({pri}), tracked per test.
+        Status is separate and does not change with the tab: the last 28 days ({rec}) against the prior 90 days ({pri}), tracked per test.
       </div>
       {res.rows.length ? (
         <table className="rca-table rca-table-sub">
@@ -2813,8 +2813,8 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
               <th>Family</th>
               <th className="rca-num" title={`Orders in ${win}`}>Orders · {win}</th>
               <th className="rca-num">Order Δ</th>
-              <th title={`Last 28 days (${rec}) vs the prior 84 days (${pri})`}>Status ⓘ</th>
-              <th className="rca-num" title="Prior 84 days, per 28 days → last 28 days">Prior 84d (per 28d) → last 28d</th>
+              <th title={`Last 28 days (${rec}) vs the prior 90 days (${pri})`}>Status ⓘ</th>
+              <th className="rca-num" title="Prior 90 days, per 28 days → last 28 days">Prior 90d (per 28d) → last 28d</th>
             </tr>
           </thead>
           <tbody>
@@ -2846,7 +2846,7 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
               <tr>
                 <th>Test</th>
                 <th>Status ⓘ</th>
-                <th className="rca-num" title="Prior 84 days, per 28 days → last 28 days">Prior 84d (per 28d) → last 28d</th>
+                <th className="rca-num" title="Prior 90 days, per 28 days → last 28 days">Prior 90d (per 28d) → last 28d</th>
               </tr>
             </thead>
             <tbody>
@@ -3041,7 +3041,7 @@ function FocusTable({
                   <option key={v} value={v}>{v} ({n})</option>
                 ))}
               </select>
-              <select className="rca-select" value={pstatus} onChange={e => setPstatus(e.target.value)} title="Portfolio status: the last 28 days vs the prior 84 days">
+              <select className="rca-select" value={pstatus} onChange={e => setPstatus(e.target.value)} title="Portfolio status: the last 28 days vs the prior 90 days">
                 <option value="">Portfolio status · any</option>
                 {pstatusOptions.map(([v, n]) => (
                   <option key={v} value={v}>{v} ({n})</option>
