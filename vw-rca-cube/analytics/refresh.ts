@@ -368,6 +368,19 @@ export const refreshData = internalAction({
       // Revenue and orders in the 12 months up to the end of the baseline period, per clinic: the own-history baseline of
       // a slow buyer that skipped the baseline period (analytics/lifecycleRules.ts).
       const pPriorRev = ordersRows({ by: ["clinic_id"], start: addDays(baselineEnd, -364), end: baselineEnd, m: { rev: "revenue", ord: "orders" } });
+      // Last year's revenue by month, per clinic: joined with first-order dates it gives last year's new-clinic revenue by
+      // month, the shape the new-business goal is phased by (and its total is the default new-business goal).
+      const priorYearNum = Number(currentEnd.slice(0, 4)) - 1;
+      const pPriorYearMonths = Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+          ordersRows({
+            by: ["clinic_id"],
+            start: `${priorYearNum}-${String(i + 1).padStart(2, "0")}-01`,
+            end: new Date(Date.UTC(priorYearNum, i + 1, 0)).toISOString().slice(0, 10),
+            m: { rev: "revenue" },
+          }),
+        ),
+      );
 
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
@@ -707,6 +720,15 @@ export const refreshData = internalAction({
           baseByClinic.set(id, b1);
         }
       }
+      const newMonthRev: number[] = Array(12).fill(0);
+      (await pPriorYearMonths).forEach((mrows, mi) => {
+        for (const r of mrows) {
+          const cid = String(r[`${TABLE}[clinic_id]`] ?? "");
+          if ((firstOrderOf.get(cid) ?? "").startsWith(String(priorYearNum))) newMonthRev[mi] += num(r, "rev");
+        }
+      });
+      const priorNewTotal = newMonthRev.reduce((t, x) => t + x, 0);
+      const newPhasing = priorNewTotal > 0 ? newMonthRev.map(x => x / priorNewTotal) : undefined;
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
         const lc = lifeOf.get(id);
@@ -1918,7 +1940,7 @@ export const refreshData = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * (cfg.annualTarget ?? 130_000_000) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
@@ -2380,6 +2402,19 @@ export const refreshSnapshot = internalAction({
       // Revenue and orders in the 12 months up to the end of the baseline period, per clinic: the own-history baseline of
       // a slow buyer that skipped the baseline period (analytics/lifecycleRules.ts).
       const pPriorRev = ordersRows({ by: ["clinic_id"], start: addDays(baselineEnd, -364), end: baselineEnd, m: { rev: "revenue", ord: "orders" } });
+      // Last year's revenue by month, per clinic: joined with first-order dates it gives last year's new-clinic revenue by
+      // month, the shape the new-business goal is phased by (and its total is the default new-business goal).
+      const priorYearNum = Number(currentEnd.slice(0, 4)) - 1;
+      const pPriorYearMonths = Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+          ordersRows({
+            by: ["clinic_id"],
+            start: `${priorYearNum}-${String(i + 1).padStart(2, "0")}-01`,
+            end: new Date(Date.UTC(priorYearNum, i + 1, 0)).toISOString().slice(0, 10),
+            m: { rev: "revenue" },
+          }),
+        ),
+      );
 
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
@@ -2704,6 +2739,15 @@ export const refreshSnapshot = internalAction({
           baseByClinic.set(id, b1);
         }
       }
+      const newMonthRev: number[] = Array(12).fill(0);
+      (await pPriorYearMonths).forEach((mrows, mi) => {
+        for (const r of mrows) {
+          const cid = String(r[`${TABLE}[clinic_id]`] ?? "");
+          if ((firstOrderOf.get(cid) ?? "").startsWith(String(priorYearNum))) newMonthRev[mi] += num(r, "rev");
+        }
+      });
+      const priorNewTotal = newMonthRev.reduce((t, x) => t + x, 0);
+      const newPhasing = priorNewTotal > 0 ? newMonthRev.map(x => x / priorNewTotal) : undefined;
       const retained: string[] = [];
       for (const [id] of baseByClinic) {
         const lc = lifeOf.get(id);
@@ -3889,7 +3933,7 @@ export const refreshSnapshot = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * (cfg.annualTarget ?? 130_000_000) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).

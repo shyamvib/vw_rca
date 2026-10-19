@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { newGoalFor, targetScale } from "./baseline";
+import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
 import { loadCfg } from "./config";
@@ -714,15 +714,27 @@ export const pace = scopedQuery({
       plan *= sc; // the goal for the whole window, rescaled with the rep-level goal like the days so far
       expSoFar = rb.rev;
     }
-    const paceRatio = expSoFar ? soFar / expSoFar : 1;
-    const heading = Math.max(soFar, soFar + expRest * paceRatio);
-    // Full-period goal over goal-so-far, by weekday shape: every dial projects with this one factor (heading = so far x
-    // ratio, plan = goal x ratio), so New + Existing add up to the Combined dial (2026-10-18).
+    // Full-period goal over goal-so-far, by weekday shape, for the existing-business goal.
     const ratio = expSoFar > 0 ? (expSoFar + expRest) / expSoFar : 1;
-    // The new-business goal (the rep's share of a slice of the target) is spread over the year by the same weekday weights,
-    // so it projects with the same factor; the dial's goal is the existing part plus this.
-    const newSoFar = await newGoalFor(ctx, cfg, args.periodId, sum(res.rows, r => r.baseline));
-    const newPlan = newSoFar * ratio;
+    // The new-business goal (the rep's baseline share of a slice of the target) is phased by last year's monthly shape of
+    // new-clinic revenue, so it projects with its own factor (full period over so far), not the weekday one.
+    const scopeBase = sum(res.rows, r => r.baseline);
+    const goalRow = await goalRowFor(ctx, cfg, args.periodId);
+    const settings = await mainSettings(ctx);
+    const newSoFar = newGoalOf(goalRow, settings, scopeBase);
+    const fullShare = newShareOver(goalRow?.newPhasing, span, Number(cfg.currentEnd.slice(0, 4)));
+    const newPlan =
+      goalRow && fullShare !== undefined && goalRow.baseRevenue
+        ? (sliceOf(goalRow, settings) * fullShare * scopeBase) / goalRow.baseRevenue
+        : newSoFar * ratio;
+    const newRatio = newSoFar > 0 ? newPlan / newSoFar : ratio;
+    // Revenue from clinics without a baseline (new, plus returning ones) vs the rest, each projected with its own factor.
+    const isNoBaseline = (r: ClinicRow) => !!r.isNew || ((r.baselineWeekly ?? r.baseline) <= 0 && (r.cohort === "reactivated" || r.cohort === "churned"));
+    const newRevSoFar = sum(res.rows.filter(isNoBaseline), r => r.actual);
+    const existingRevSoFar = soFar - newRevSoFar;
+    const existingHeading = existingRevSoFar * ratio;
+    const newHeading = newRevSoFar * newRatio;
+    const heading = Math.max(soFar, existingHeading + newHeading);
     const existingPlan = plan;
     plan += newPlan;
     return {
@@ -736,9 +748,12 @@ export const pace = scopedQuery({
       expSoFar,
       heading,
       ratio,
+      newRatio,
       plan,
       existingPlan,
       newPlan,
+      existingHeading,
+      newHeading,
       newGoal: newSoFar,
       needPerDay: remaining.length ? Math.max(0, plan - soFar) / remaining.length : 0,
     };

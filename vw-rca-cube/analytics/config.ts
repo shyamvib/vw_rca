@@ -73,7 +73,7 @@ export const get = scopedQuery({
       .query("periodGoal")
       .withIndex("by_gen_period", q => q.eq("gen", row.gen ?? 0).eq("periodId", "all"))
       .first();
-    return { ...row, yearBaseline: g?.yearBaseRevenue ?? null };
+    return { ...row, yearBaseline: g?.yearBaseRevenue ?? null, newGoalDefault: g?.newDefaultSlice ?? null };
   },
 });
 

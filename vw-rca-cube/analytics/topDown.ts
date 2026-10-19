@@ -7,6 +7,7 @@
  */
 import { geoKeyOf } from "./geoKey";
 import { dow, rollingBaseline, type baselinePlan } from "./dateUtils";
+import { newShareOver } from "./baseline";
 
 type Kind = "all" | "quarter" | "month" | "week" | "day";
 type Def = { id: string; kind: Kind; days: string[] };
@@ -36,7 +37,16 @@ export function topDownAllocate(args: {
   /** Settings annual target and the calendar year it belongs to. When given, goal = the target spread by baseline
    * weekday weights (additive over time and entities, identical for the same days in any period kind); otherwise
    * the goal is the company rolling P75. */
-  target?: { annual: number; year: number; /** new-business goal carved out of the target (Settings number) */ newSlice?: number };
+  target?: {
+    annual: number;
+    year: number;
+    /** new-business goal carved out of the target (the Settings number, or last year's new-clinic revenue) */
+    newSlice?: number;
+    /** last year's new-clinic revenue by month, as 12 shares of the year: how the new-business goal is phased */
+    newPhasing?: number[];
+    /** last year's new-clinic revenue: the default new-business goal */
+    newDefaultSlice?: number;
+  };
 }) {
   const { defs, planOf, days, identity, rates, companyDaily, target } = args;
   // Baseline (mean) run rate by weekday, summed per rep: additive by construction.
@@ -49,7 +59,8 @@ export function topDownAllocate(args: {
   }
   const periodGoal: Array<{
     periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number;
-    target?: number; newSlice?: number; yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
+    target?: number; newSlice?: number; newShare?: number; newPhasing?: number[]; newDefaultSlice?: number;
+    yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
   }> = [];
   // Company mean revenue per weekday, and the baseline of the whole target year (every day, Jan 1 to Dec 31).
   const coRate = [0, 0, 0, 0, 0, 0, 0];
@@ -119,7 +130,11 @@ export function topDownAllocate(args: {
     }
     periodGoal.push({
       periodId: id, goalRevenue: totR, goalOrders: totO, baseRevenue: sumR, baseOrders: sumO,
-      ...(tShare === undefined ? {} : { target: target!.annual, newSlice: target!.newSlice ?? 0, yearBaseRevenue: yearBase, tShare }),
+      ...(tShare === undefined ? {} : {
+        target: target!.annual, newSlice: target!.newSlice ?? 0, yearBaseRevenue: yearBase, tShare,
+        ...(target!.newPhasing ? { newShare: newShareOver(target!.newPhasing, pd, target!.year), newPhasing: target!.newPhasing } : {}),
+        ...(target!.newDefaultSlice ? { newDefaultSlice: target!.newDefaultSlice } : {}),
+      }),
       p75Revenue: p75R, p75Orders: p75O,
     });
     const repR = new Map<string, number>(), repO = new Map<string, number>();

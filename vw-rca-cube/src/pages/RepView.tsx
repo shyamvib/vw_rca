@@ -615,6 +615,9 @@ type Pace = {
   /** Goal for the whole window for the New Business dial (the rep's share of the new-business goal). */
   newPlan?: number;
   existingPlan?: number;
+  /** Each part of the heading is projected with its own factor (existing: weekday shape; new business: last year's monthly shape). */
+  existingHeading?: number;
+  newHeading?: number;
   plan: number;
   needPerDay: number;
   remainingDays: number;
@@ -2210,13 +2213,13 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const scale = scPace?.ratio ?? (scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1);
   const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
     // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
-    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: scPace?.newHeading ?? (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
       : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
-    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
+    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: tenureSel === "all" && scPace?.existingHeading !== undefined ? scPace.existingHeading : (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
     ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "goal" }] : []),
   ];
   // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).

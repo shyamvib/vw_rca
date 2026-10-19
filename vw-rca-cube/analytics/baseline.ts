@@ -37,31 +37,65 @@ export type GoalFactors = {
   found: boolean;
 };
 
-type GoalRow = { target?: number; newSlice?: number; yearBaseRevenue?: number; tShare?: number };
+type GoalRow = {
+  target?: number;
+  newSlice?: number;
+  yearBaseRevenue?: number;
+  tShare?: number;
+  /** Company share of the year's new-business goal falling in this period (last year's monthly shape). */
+  newShare?: number;
+  /** 12 monthly shares of the year's new-business goal (last year's new-clinic revenue by month). */
+  newPhasing?: number[];
+  /** Last year's revenue from clinics that were new that year: the default new-business goal. */
+  newDefaultSlice?: number;
+  baseRevenue?: number;
+};
 
-/** Share of the target given to new business when Settings has no number yet. */
+/** Share of the target given to new business when there is neither a Settings number nor a prior year to anchor on. */
 export const DEFAULT_NEW_SHARE = 0.05;
-export type GoalSettings = { target?: number; newGoal: number };
+/** `newGoalExplicit` is the Settings number; without one the new-business goal is last year's new-clinic revenue. */
+export type GoalSettings = { target?: number; newGoalExplicit?: number };
+
+export function sliceOf(row: GoalRow | null | undefined, st: GoalSettings | undefined): number {
+  if (st?.newGoalExplicit !== undefined) return st.newGoalExplicit;
+  if (row?.newDefaultSlice) return row.newDefaultSlice;
+  return st?.target ? DEFAULT_NEW_SHARE * st.target : 0;
+}
 
 /** Multiplier taking the existing-business goal stored at refresh to the one for the current Settings (target and new-business goal). */
 export function targetScaleOf(row: GoalRow | null | undefined, st: GoalSettings | undefined): number {
   if (!row || !row.target || !row.yearBaseRevenue || row.tShare === undefined || !st?.target) return 1;
   const m = (t: number, slice: number) => row.tShare! * ((t - slice) / row.yearBaseRevenue!) + (1 - row.tShare!);
   const then = m(row.target, row.newSlice ?? 0);
-  return then > 0 ? m(st.target, st.newGoal) / then : 1;
+  return then > 0 ? m(st.target, sliceOf(row, st)) / then : 1;
+}
+
+/** Share of a (full) set of days of the target year taken by the new-business goal, phased by last year's monthly shape. */
+export function newShareOver(phasing: number[] | undefined, days: string[], year: number): number | undefined {
+  if (!phasing || phasing.length !== 12) return undefined;
+  let s = 0;
+  for (const d of days) {
+    if (Number(d.slice(0, 4)) !== year) continue;
+    const m = Number(d.slice(5, 7));
+    s += phasing[m - 1] / new Date(Date.UTC(year, m, 0)).getUTCDate();
+  }
+  return s;
 }
 
 /** The new-business goal for one scope (company, lead, rep) and period, given the scope's baseline in that period. */
 export function newGoalOf(row: GoalRow | null | undefined, st: GoalSettings | undefined, scopeBaseline: number): number {
-  if (!row || !row.yearBaseRevenue || row.tShare === undefined || !st?.target || !st.newGoal) return 0;
-  return (st.newGoal * row.tShare * scopeBaseline) / row.yearBaseRevenue;
+  if (!row || !st?.target) return 0;
+  const slice = sliceOf(row, st);
+  if (!slice) return 0;
+  if (row.newShare !== undefined && row.baseRevenue) return (slice * row.newShare * scopeBaseline) / row.baseRevenue;
+  if (!row.yearBaseRevenue || row.tShare === undefined) return 0;
+  return (slice * row.tShare * scopeBaseline) / row.yearBaseRevenue;
 }
 
 /** The Settings target and new-business goal live on the shared "main" config row; a rep's own window row can hold a stale copy. */
 export async function mainSettings(ctx: { db: QueryCtx["db"] }): Promise<GoalSettings> {
   const row = await ctx.db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
-  const target = row?.annualTarget;
-  return { target, newGoal: row?.newBusinessGoal ?? (target ? DEFAULT_NEW_SHARE * target : 0) };
+  return { target: row?.annualTarget, newGoalExplicit: row?.newBusinessGoal };
 }
 
 /** Same multiplier, looked up by period; 1 when the snapshot has no goal row. */
@@ -76,6 +110,15 @@ export async function targetScale(
     .withIndex("by_gen_period", q => q.eq("gen", cfg.gen ?? 0).eq("periodId", periodId))
     .first();
   return targetScaleOf(row, await mainSettings(ctx));
+}
+
+/** The stored goal row for a period (the company's, with the target / new-business settings it was built with). */
+export async function goalRowFor(ctx: { db: QueryCtx["db"] }, cfg: { gen?: number } | null | undefined, periodId: string) {
+  if (!cfg) return null;
+  return await ctx.db
+    .query("periodGoal")
+    .withIndex("by_gen_period", q => q.eq("gen", cfg.gen ?? 0).eq("periodId", periodId))
+    .first();
 }
 
 /** New-business goal for a scope and period (0 when the snapshot has no goal row). */

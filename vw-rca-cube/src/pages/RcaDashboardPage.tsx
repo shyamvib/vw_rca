@@ -1677,7 +1677,7 @@ export function RcaDashboardPage() {
                         newGoalDraft ??
                         String(
                           (cfg as { newBusinessGoal?: number }).newBusinessGoal ??
-                            Math.round(0.05 * ((cfg as { annualTarget?: number }).annualTarget ?? 130000000)),
+                            Math.round((cfg as { newGoalDefault?: number | null }).newGoalDefault ?? 0.05 * ((cfg as { annualTarget?: number }).annualTarget ?? 130000000)),
                         )
                       }
                       onChange={e => {
@@ -1709,15 +1709,16 @@ export function RcaDashboardPage() {
                   it is spread over the year by baseline weekday weights, so
                   every goal (period, rep, clinic) adds up to it. The
                   new-business goal is the slice of it given to this year's new
-                  clinics as a group (default 5%, split over reps by their
-                  baseline share); existing clinics carry the rest. It applies
+                  clinics as a group (default: last year's new-clinic revenue,
+                  phased by last year's monthly shape and split over reps by
+                  their baseline share); existing clinics carry the rest. It applies
                   instantly — no Power BI refresh needed.
                   {targetSaved ? " Saved." : ""}
                 </div>
                 {(() => {
                   const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
                   const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
-                  const ng = Number(newGoalDraft ?? (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? 0.05 * t);
+                  const ng = Number(newGoalDraft ?? (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (cfg as { newGoalDefault?: number | null }).newGoalDefault ?? 0.05 * t);
                   if (base && t - ng < base)
                     return (
                       <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>

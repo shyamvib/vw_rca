@@ -249,6 +249,11 @@ const schema = defineSchema({
     target: v.optional(v.number()),
     /** the new-business goal carved out of the target when this row was built (Settings number) */
     newSlice: v.optional(v.number()),
+    /** share of the year's new-business goal in this period (phased by last year's monthly new-clinic revenue) */
+    newShare: v.optional(v.number()),
+    newPhasing: v.optional(v.array(v.number())),
+    /** last year's new-clinic revenue, the default new-business goal */
+    newDefaultSlice: v.optional(v.number()),
     yearBaseRevenue: v.optional(v.number()),
     tShare: v.optional(v.number()),
     /** The company rolling P75 for the period (the old goal), kept as a benchmark. */
