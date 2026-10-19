@@ -1722,15 +1722,16 @@ export function RcaDashboardPage() {
                   if (base && t - ng < base)
                     return (
                       <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
-                        With a new-business goal of {"$"}{(ng / 1e6).toFixed(1)}M, existing clinics carry {"$"}{((t - ng) / 1e6).toFixed(1)}M against
-                        their {"$"}{(base / 1e6).toFixed(1)}M a year baseline: their goals sit under baseline, so their
-                        ambition shows negative. The most the new-business goal can be is {"$"}{(Math.max(0, t - base) / 1e6).toFixed(1)}M.
+                        With a new-business goal of {"$"}{(ng / 1e6).toFixed(1)}M, the rest of the target ({"$"}{((t - ng) / 1e6).toFixed(1)}M) is below what
+                        existing clinics already do ({"$"}{(base / 1e6).toFixed(1)}M a year), so their goals are held at that level and the
+                        year's goal totals {"$"}{((base + ng) / 1e6).toFixed(1)}M, {"$"}{((base + ng - t) / 1e6).toFixed(1)}M above the target.
+                        The new-business goal that keeps the total on target is {"$"}{(Math.max(0, t - base) / 1e6).toFixed(1)}M.
                       </div>
                     );
                   return base && t < base ? (
                     <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
-                      Target is below the current run rate ({"$"}{(base / 1e6).toFixed(1)}M a year): goals sit
-                      under baseline, so ambition shows negative.
+                      Target is below what the book already does ({"$"}{(base / 1e6).toFixed(1)}M a year): goals are held at that level,
+                      so the year's goal totals more than the target.
                     </div>
                   ) : null;
                 })()}
@@ -2334,9 +2335,9 @@ export function RcaDashboardPage() {
                 {active.delta < 0 ? "below" : "above"} goal
               </div>
               {active.realChange !== undefined && active.ambition !== undefined ? (
-                <div className="rca-root-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
-                  <span style={{ color: active.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Real change {MONEY(active.realChange)}</span>
-                  <span style={{ color: active.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Ambition {MONEY(-active.ambition)}</span>
+                <div className="rca-root-split" title="Shortfall vs goal = change vs baseline (actual − baseline) plus the goal stretch (goal above baseline). Baseline is what these clinics normally do.">
+                  <span style={{ color: active.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Change vs baseline {MONEY(active.realChange)}</span>
+                  <span style={{ color: active.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Goal stretch {MONEY(-active.ambition)}</span>
                 </div>
               ) : null}
               <div className="rca-eyebrow rca-blue">
@@ -2454,8 +2455,8 @@ export function RcaDashboardPage() {
                         </div>
                         {row.real !== undefined && row.ambition !== undefined ? (
                           <div className="rca-lens-real">
-                            <span style={{ color: row.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>real {MONEY(row.real)}</span>
-                            <span style={{ color: row.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>ambition {MONEY(-row.ambition)}</span>
+                            <span style={{ color: row.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>vs baseline {MONEY(row.real)}</span>
+                            <span style={{ color: row.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>goal stretch {MONEY(-row.ambition)}</span>
                           </div>
                         ) : null}
                         <div className="rca-lens-row-sub">

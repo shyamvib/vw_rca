@@ -44,7 +44,7 @@ Numbers are from the live snapshot (window Aug 1 to Oct 17, baseline Feb 20 to M
   - It is **phased by last year's monthly shape** of that revenue (3.2% of the year in January up to 13.2% in October, 10.7% and 10.9% in November and December), spread evenly within a month, instead of evenly through the year.
   - **Reps share it by their existing baseline share** (how goals already split).
   - It **stays at rep and company level**: no goal on individual new clinics (a lump split across clinics that join through the year would dilute every time one joins). New clinic lists show revenue and status, not above/below goal.
-  - Goals: existing clinics carry (target minus the new-business goal) over their baseline pace, so at $9.48M the existing factor is 0.986 (existing goals 1.4% under baseline; the cap that keeps them at baseline is $7.77M). Existing revenue is only about 88% of that goal, so existing still reads behind. Settings shows a warning when the slice is above the cap.
+  - Goals: existing clinics carry (target minus the new-business goal) over their baseline pace, **but their goal is never below their baseline** (decided 2026-10-18: the factor is floored at 1). The slice that keeps the total on target is $7.77M (the cap). Above it, existing goals are held at baseline and the year's goal totals more than the target: at the $10.0M saved in Settings the year's goal is baseline $122.2M + $10.0M = $132.2M, $2.2M above the $130M target. Settings says so when the slice is above the cap.
   - Attainment on the live data with this setup (new + returning revenue over the phased goal): August 79%, September 82%, October 1 to 17 77%, window 80%: new business is running about 20% behind last year's pace at the same point.
   - The New dial projects its heading with its own factor (full-period phased goal over goal so far); the Existing dial uses the weekday-shaped factor; New + Existing add up to the Combined heading and plan.
 - Considered and not chosen: splitting by each rep's new revenue so far (circular: every rep ends at the same % of goal, and a rep with no new revenue gets no goal); splitting by last year's new revenue per rep with a 10% equal share (it differentiates reps, but was not chosen).
@@ -102,3 +102,11 @@ Expected live numbers (from the offline run, before the rebuild): this year's si
 
 - The reading of the tree and dial: new clinics feed the tree by status (active new under Active, churned under Churned, reactivated under Reactivated) while the New Business dial shows them together with the three-way split. - **confirmed** 
 - Reactivated lasting 90 days after the order that ended the gap, then back to active. **confirmed**
+
+## 6. Words used on the dashboard (changed 2026-10-18)
+
+The shortfall against goal is split in two, with plain names:
+- **Change vs baseline** (was "real change"): actual minus baseline, what the clinics did compared with what they normally do.
+- **Goal stretch** (was "ambition"): how far the goal sits above baseline. With the floor above it is never negative for existing clinics; the new-business goal counts as stretch.
+- Shortfall vs goal = change vs baseline plus goal stretch (shown with the stretch as a negative number, so the two add up to the shortfall).
+- **Baseline** is what these clinics normally do (their average over the baseline period).

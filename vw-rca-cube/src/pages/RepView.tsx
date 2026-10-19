@@ -1266,9 +1266,9 @@ function WindowTab({
               <div className="rv-eyebrow rv-dim">{periodLabel}</div>
               <div className={`rv-tree-node-v ${b.totals.delta < 0 ? "bad" : "good"}`}>{SK(b.totals.delta)}</div>
               {b.totals.realChange !== undefined ? (
-                <div className="rv-tree-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
-                  <span className={b.totals.realChange < 0 ? "bad" : "good"}>Real change {SK(b.totals.realChange)}</span>
-                  <span className={b.totals.ambition > 0 ? "bad" : "good"}>Ambition {SK(-b.totals.ambition)}</span>
+                <div className="rv-tree-split" title="Shortfall vs goal = change vs baseline (actual − baseline) plus the goal stretch (goal above baseline). Baseline is what these clinics normally do.">
+                  <span className={b.totals.realChange < 0 ? "bad" : "good"}>Change vs baseline {SK(b.totals.realChange)}</span>
+                  <span className={b.totals.ambition > 0 ? "bad" : "good"}>Goal stretch {SK(-b.totals.ambition)}</span>
                 </div>
               ) : null}
               <div className="rv-eyebrow rv-blue">clinic list ↓</div>
@@ -1292,7 +1292,7 @@ function WindowTab({
                         <b className={r.v < 0 ? "bad" : "good"}>{SK(r.v)}</b>
                       </div>
                       {r.real !== undefined && r.amb !== undefined ? (
-                        <div className="rv-lens-real"><span className={r.real < 0 ? "bad" : "good"}>real {SK(r.real)}</span><span className={r.amb > 0 ? "bad" : "good"}>ambition {SK(-r.amb)}</span></div>
+                        <div className="rv-lens-real"><span className={r.real < 0 ? "bad" : "good"}>vs baseline {SK(r.real)}</span><span className={r.amb > 0 ? "bad" : "good"}>goal stretch {SK(-r.amb)}</span></div>
                       ) : null}
                       <Bar v={r.v} max={max} />
                     </button>
@@ -1330,9 +1330,9 @@ function WindowTab({
                 {b.totals.delta < 0 ? "below" : "above"} goal
               </div>
               {b.totals.realChange !== undefined ? (
-                <div className="rca-root-split" title="Shortfall vs goal = real change (actual − baseline) minus ambition (goal − baseline)">
-                  <span style={{ color: b.totals.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Real change {SK(b.totals.realChange)}</span>
-                  <span style={{ color: b.totals.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Ambition {SK(-b.totals.ambition)}</span>
+                <div className="rca-root-split" title="Shortfall vs goal = change vs baseline (actual − baseline) plus the goal stretch (goal above baseline). Baseline is what these clinics normally do.">
+                  <span style={{ color: b.totals.realChange < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Change vs baseline {SK(b.totals.realChange)}</span>
+                  <span style={{ color: b.totals.ambition > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>Goal stretch {SK(-b.totals.ambition)}</span>
                 </div>
               ) : null}
               <div className="rca-eyebrow rca-blue">{focus && focus.focus === "" ? "hide clinics" : "clinic detail ↓"}</div>
@@ -1375,8 +1375,8 @@ function WindowTab({
                         </div>
                         {r.real !== undefined && r.amb !== undefined ? (
                           <div className="rca-lens-real">
-                            <span style={{ color: r.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>real {SK(r.real)}</span>
-                            <span style={{ color: r.amb > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>ambition {SK(-r.amb)}</span>
+                            <span style={{ color: r.real < 0 ? "var(--vw-error)" : "var(--vw-success)" }}>vs baseline {SK(r.real)}</span>
+                            <span style={{ color: r.amb > 0 ? "var(--vw-error)" : "var(--vw-success)" }}>goal stretch {SK(-r.amb)}</span>
                           </div>
                         ) : null}
                         <div className="rca-lens-row-sub">
@@ -2043,7 +2043,7 @@ const VS_BASELINE: Contribution = {
   universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their goal", down: "Below their goal",
   note: "Each clinic's revenue this window against its own goal. Clinic baselines are set per clinic, so these sums can differ from the book-level figure in the card (which uses the rep-level baseline).",
 };
-const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, f: r => r.realChange, up: "Above their baseline", down: "Below their baseline", universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline (real change, before the goal's stretch)." };
+const EXISTING_VS_BASELINE: Contribution = { ...VS_BASELINE, f: r => r.realChange, up: "Above their baseline", down: "Below their baseline", universe: b => b.existingIds ?? [], note: "Clinics that ordered in the baseline: revenue this window against their own baseline (change vs baseline, before the goal's stretch)." };
 const CONTRIB: Record<string, Contribution> = {
   "New Revenue": { universe: b => [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], f: r => r.actual, unit: "$", up: "Bringing revenue", down: "Not ordering yet", note: "New clinics (first order this calendar year) and returning ones (no baseline: silent through the baseline period after an unusual gap) have no baseline, so each one's revenue counts in full. The headline is all of it, whether the clinic is still active, reactivated or now churned." },
   AOV: { universe: b => b.activeIds ?? [], f: r => r.aovEffect, unit: "$", up: "AOV above their baseline", down: "AOV below their baseline", note: "Revenue effect of each clinic's AOV against its own baseline AOV, on the orders it placed." },
@@ -2673,7 +2673,7 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
         <div className="rv-ch-hero-l">vs goal · {winLabel ?? "this period"} · {K(detail.expected)} goal{detail.baseline !== undefined ? ` · ${K(detail.baseline)} baseline` : ""}</div>
         {detail.realChange !== undefined ? (
           <div className="rv-ch-hero-l">
-            real change <b className={detail.realChange < 0 ? "bad" : "good"}>{SK(detail.realChange)}</b> · ambition <b className={detail.ambition > 0 ? "bad" : "good"}>{SK(-detail.ambition)}</b>
+            vs baseline <b className={detail.realChange < 0 ? "bad" : "good"}>{SK(detail.realChange)}</b> · goal stretch <b className={detail.ambition > 0 ? "bad" : "good"}>{SK(-detail.ambition)}</b>
           </div>
         ) : null}
       </div>
@@ -3009,8 +3009,8 @@ function FocusTable({
                     <th className="rca-num">AOV Δ</th>
                     <th className="rca-num">Bundle %</th>
                     <th className="rca-num">Bundle Δ</th>
-                    <th className="rca-num" title="Actual minus baseline">Real Δ</th>
-                    <th className="rca-num" title="Actual minus goal = real Δ minus ambition">vs Goal</th>
+                    <th className="rca-num" title="Actual minus baseline: what the clinic did compared with what it normally does">vs baseline</th>
+                    <th className="rca-num" title="Actual minus goal = change vs baseline plus the goal stretch">vs Goal</th>
                   </tr>
                 </thead>
                 <tbody>

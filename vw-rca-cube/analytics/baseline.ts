@@ -65,7 +65,8 @@ export function sliceOf(row: GoalRow | null | undefined, st: GoalSettings | unde
 /** Multiplier taking the existing-business goal stored at refresh to the one for the current Settings (target and new-business goal). */
 export function targetScaleOf(row: GoalRow | null | undefined, st: GoalSettings | undefined): number {
   if (!row || !row.target || !row.yearBaseRevenue || row.tShare === undefined || !st?.target) return 1;
-  const m = (t: number, slice: number) => row.tShare! * ((t - slice) / row.yearBaseRevenue!) + (1 - row.tShare!);
+  // The existing-business goal is never below baseline: the factor is floored at 1 (2026-10-18).
+  const m = (t: number, slice: number) => row.tShare! * Math.max(1, (t - slice) / row.yearBaseRevenue!) + (1 - row.tShare!);
   const then = m(row.target, row.newSlice ?? 0);
   return then > 0 ? m(st.target, sliceOf(row, st)) / then : 1;
 }

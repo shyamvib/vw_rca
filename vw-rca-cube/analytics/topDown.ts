@@ -125,7 +125,10 @@ export function topDownAllocate(args: {
       const allBase = pd.reduce((t, d) => t + coRate[dow(d)], 0);
       tShare = allBase > 0 ? inYear / allBase : 0;
       const slice = target.newSlice ?? 0;
-      const m = tShare * ((target.annual - slice) / yearBase) + (1 - tShare);
+      // Existing clinics' goal is never below their baseline (2026-10-18): when the target minus the new-business goal is
+      // under their baseline pace, the factor is held at 1 and the year's goal totals a little more than the target.
+      const f = Math.max(1, (target.annual - slice) / yearBase);
+      const m = tShare * f + (1 - tShare);
       totR = sumR * m; totO = sumO * m;
     }
     periodGoal.push({
