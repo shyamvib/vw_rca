@@ -5149,7 +5149,7 @@ function useClinicFilters<
           className="rca-select"
           value={status ?? ""}
           onChange={e => setStatus(e.target.value || null)}
-          title="Portfolio status: recent 28 days vs. prior 90-day baseline"
+          title="Portfolio status: the last 28 days vs the prior 84 days"
         >
           <option value="">Portfolio status · any</option>
           {statusOptions.map(([v, n]) => (
@@ -5403,7 +5403,7 @@ function ClinicPortfolio({
         attributed to one family without pro-rating it.
       </div>
       <div className="rca-sub rca-dim2 rca-tiny">
-        Portfolio status compares the last 28 days of orders against the prior 90-day baseline — independent of the window selected above.
+        Portfolio status compares the last 28 days of orders against the prior 84 days, per test — independent of the window selected above.
       </div>
       <table className="rca-table rca-table-sub">
         <thead>
@@ -5411,8 +5411,8 @@ function ClinicPortfolio({
             <th>Family</th>
             <th className="rca-num">Orders</th>
             <th className="rca-num">Order Δ</th>
-            <th title="Recent 28 days vs. prior 90-day baseline">Portfolio status ⓘ</th>
-            <th className="rca-num" title="Prior 90-day baseline daily average → recent 28-day total">28d recent vs 90d baseline</th>
+            <th title="Last 28 days vs the prior 84 days">Portfolio status ⓘ</th>
+            <th className="rca-num" title="Prior 84 days, per 28 days → last 28 days">Prior 84d (per 28d) → last 28d</th>
           </tr>
         </thead>
         <tbody>

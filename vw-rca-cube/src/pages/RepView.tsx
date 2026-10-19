@@ -2751,21 +2751,31 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
   );
 }
 
-/** Rep-scoped clinic portfolio panel — same `families.portfolioAction` the
- * main dashboard's expandable clinic row calls; `assertOwnsClinic` inside it
- * already restricts a rep session to their own clinics. */
+/** Rep-scoped clinic portfolio panel — same `families.portfolioAction` the main dashboard's expandable clinic row calls;
+ * `assertOwnsClinic` inside it already restricts a rep session to their own clinics.
+ * Two windows live here and are labelled as such (2026-10-18): Orders and expected follow the tab; the status (NEW /
+ * DECLINING / STOPPED) is the last 28 days against the prior 84 days, whatever the tab. Tests that have a status but no
+ * row in the tab (the model works on tests, not families) are listed in their own block. */
+type PortRes = {
+  rows: Array<{ family: string; orders: number; expectedOrders: number; orderDelta: number; status: string; baselineAvg: number; recentOrders: number; product?: boolean }>;
+  testStatus: Array<{ test: string; status: string; baselineAvg: number; recentOrders: number }>;
+  window?: { start: string; end: string };
+  recent?: { start: string; end: string };
+  prior?: { start: string; end: string };
+  isNew?: boolean;
+};
 function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: string }) {
   const run = useRcaAction(api.families.portfolioAction);
-  const [rows, setRows] = useState<Book[] | null>(null);
+  const [res, setRes] = useState<PortRes | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    setRows(null);
+    setRes(null);
     setError(null);
     run({ password: pw(), clinic, periodId })
       .then(r => {
-        if (live) setRows(r.rows);
+        if (live) setRes(r as unknown as PortRes);
       })
       .catch(e => {
         if (live) setError(String(e).slice(0, 160));
@@ -2776,36 +2786,81 @@ function RepClinicPortfolio({ clinic, periodId }: { clinic: string; periodId: st
   }, [run, clinic, periodId]);
 
   if (error) return <div className="rca-sub rv-dim">{error}</div>;
-  if (rows === null) return <div className="rca-sub rv-dim">Loading this clinic's portfolio…</div>;
-  if (rows.length === 0) return <div className="rca-sub rv-dim">No product families in this window.</div>;
+  if (res === null) return <div className="rca-sub rv-dim">Loading this clinic's portfolio…</div>;
+  const ordered = res.rows.filter(r => r.orders > 0);
+  const products = ordered.filter(r => r.product !== false);
+  if (res.rows.length === 0 && res.testStatus.length === 0) return <div className="rca-sub rv-dim">No product families in this window.</div>;
+  const win = res.window ? `${fmtD(res.window.start)} – ${fmtD(res.window.end)}` : "this window";
+  const rec = res.recent ? `${fmtD(res.recent.start)} – ${fmtD(res.recent.end)}` : "last 28 days";
+  const pri = res.prior ? `${fmtD(res.prior.start)} – ${fmtD(res.prior.end)}` : "prior 84 days";
   return (
     <div className="rca-portfolio rv-expand-panel">
-      <div className="rv-eyebrow rv-dim">Product families ordered by this clinic</div>
-      <div className="rca-sub rv-dim rca-tiny">
-        Portfolio status compares the last 28 days of orders against the prior 90-day baseline — independent of the window tab above.
+      <div className="rv-eyebrow rv-dim">
+        Product families · {win}: {ordered.length} ordered ({products.length} product famil{products.length === 1 ? "y" : "ies"})
+        {res.testStatus.length ? ` · ${res.testStatus.length} other test${res.testStatus.length === 1 ? "" : "s"} with activity in the last 28 days` : ""}
       </div>
-      <table className="rca-table rca-table-sub">
-        <thead>
-          <tr>
-            <th>Family</th>
-            <th className="rca-num">Orders</th>
-            <th className="rca-num">Order Δ</th>
-            <th title="Recent 28 days vs. prior 90-day baseline">Portfolio status ⓘ</th>
-            <th className="rca-num" title="Prior 90-day baseline daily average → recent 28-day total">28d recent vs 90d baseline</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r: Book) => (
-            <tr key={r.family}>
-              <td>{r.family}</td>
-              <td className="rca-num">{r.orders.toFixed(0)} <span className="rv-dim">vs {r.expectedOrders.toFixed(0)}</span></td>
-              <td className={`rca-num ${r.orderDelta < 0 ? "bad" : "good"}`}>{r.orderDelta >= 0 ? "+" : ""}{r.orderDelta.toFixed(0)}</td>
-              <td>{r.status ? <span className={`rca-status is-${r.status.toLowerCase()}`}>{r.status}</span> : <span className="rv-dim">—</span>}</td>
-              <td className="rca-num rv-dim">{r.status ? `${r.baselineAvg.toFixed(1)} → ${r.recentOrders.toFixed(0)}` : "—"}</td>
+      <div className="rca-sub rv-dim rca-tiny">
+        Orders and expected follow the tab ({win}).{" "}
+        {res.isNew ? "New this year, so no baseline and nothing expected." : "Expected is this clinic's baseline-period orders scaled to the window."}
+      </div>
+      <div className="rca-sub rv-dim rca-tiny">
+        Status is separate and does not change with the tab: the last 28 days ({rec}) against the prior 84 days ({pri}), tracked per test.
+      </div>
+      {res.rows.length ? (
+        <table className="rca-table rca-table-sub">
+          <thead>
+            <tr>
+              <th>Family</th>
+              <th className="rca-num" title={`Orders in ${win}`}>Orders · {win}</th>
+              <th className="rca-num">Order Δ</th>
+              <th title={`Last 28 days (${rec}) vs the prior 84 days (${pri})`}>Status ⓘ</th>
+              <th className="rca-num" title="Prior 84 days, per 28 days → last 28 days">Prior 84d (per 28d) → last 28d</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {res.rows.map(r => (
+              <tr key={r.family}>
+                <td>
+                  {r.family}
+                  {r.product === false ? <span className="rv-dim"> · not a product family</span> : null}
+                </td>
+                <td className="rca-num">
+                  {r.orders.toFixed(0)}
+                  {res.isNew ? <span className="rv-dim"> · no baseline</span> : <span className="rv-dim"> vs {r.expectedOrders.toFixed(0)}</span>}
+                </td>
+                <td className={`rca-num ${res.isNew ? "rv-dim" : r.orderDelta < 0 ? "bad" : "good"}`}>{res.isNew ? "—" : `${r.orderDelta >= 0 ? "+" : ""}${r.orderDelta.toFixed(0)}`}</td>
+                <td>{r.status ? <span className={`rca-status is-${r.status.toLowerCase()}`}>{r.status}</span> : <span className="rv-dim">—</span>}</td>
+                <td className="rca-num rv-dim">{r.status ? `${r.baselineAvg.toFixed(1)} → ${r.recentOrders.toFixed(0)}` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="rca-sub rv-dim">No families ordered in {win}.</div>
+      )}
+      {res.testStatus.length ? (
+        <>
+          <div className="rv-eyebrow rv-dim" style={{ marginTop: 10 }}>Other tests with activity in the last 28 days ({rec})</div>
+          <table className="rca-table rca-table-sub">
+            <thead>
+              <tr>
+                <th>Test</th>
+                <th>Status ⓘ</th>
+                <th className="rca-num" title="Prior 84 days, per 28 days → last 28 days">Prior 84d (per 28d) → last 28d</th>
+              </tr>
+            </thead>
+            <tbody>
+              {res.testStatus.map(t => (
+                <tr key={t.test}>
+                  <td>{t.test}</td>
+                  <td><span className={`rca-status is-${t.status.toLowerCase()}`}>{t.status}</span></td>
+                  <td className="rca-num rv-dim">{t.baselineAvg.toFixed(1)} → {t.recentOrders.toFixed(0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -2986,7 +3041,7 @@ function FocusTable({
                   <option key={v} value={v}>{v} ({n})</option>
                 ))}
               </select>
-              <select className="rca-select" value={pstatus} onChange={e => setPstatus(e.target.value)} title="Portfolio status: recent 28 days vs. prior 90-day baseline">
+              <select className="rca-select" value={pstatus} onChange={e => setPstatus(e.target.value)} title="Portfolio status: the last 28 days vs the prior 84 days">
                 <option value="">Portfolio status · any</option>
                 {pstatusOptions.map(([v, n]) => (
                   <option key={v} value={v}>{v} ({n})</option>

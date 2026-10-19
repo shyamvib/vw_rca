@@ -575,7 +575,12 @@ export type PortfolioRow = {
   status: string;
   baselineAvg: number;
   recentOrders: number;
+  /** a real product family (not Non Zoomer / Unmapped): what Products per customer counts */
+  product?: boolean;
 };
+
+/** Portfolio Changes status of a test the clinic has no row for in the selected window (the model works at test level). */
+export type TestStatus = { test: string; status: string; baselineAvg: number; recentOrders: number };
 
 /**
  * A clinic's own product portfolio: which single families it orders, this
@@ -586,13 +591,13 @@ export type PortfolioRow = {
 async function portfolio(
   ctx: any,
   args: { clinic: string; periodId: string; scope?: string },
-): Promise<{ rows: PortfolioRow[]; note?: string }> {
+): Promise<PortfolioResult> {
   const scope = args.scope ?? "all";
   const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, {
     cfgKey: viewerCfgKey(ctx),
     periodId: args.periodId,
   });
-  if (!cfg) return { rows: [] };
+  if (!cfg) return { rows: [], testStatus: [] };
   const gfR = goal?.rev ?? windowP75(cfg);
   const { start, end, days } = periodRange(
     args.periodId,
@@ -685,12 +690,13 @@ async function portfolio(
 
   const status = new Map<
     string,
-    { status: string; baselineAvg: number; recentOrders: number }
+    { test: string; status: string; baselineAvg: number; recentOrders: number }
   >();
   for (const r of changes) {
     const test = String(r["Portfolio Changes[Test Name]"] ?? "").trim();
     if (!test) continue;
     status.set(test.toLowerCase(), {
+      test,
       status: String(r["Portfolio Changes[Status]"] ?? ""),
       baselineAvg: Number(r["Portfolio Changes[Baseline 28D Average]"] ?? 0),
       recentOrders: Number(r["Portfolio Changes[Recent Orders]"] ?? 0),
@@ -709,10 +715,28 @@ async function portfolio(
       status: st?.status ?? "",
       baselineAvg: st?.baselineAvg ?? 0,
       recentOrders: st?.recentOrders ?? 0,
+      product: family !== "Non Zoomer" && family !== "Unmapped",
     };
   });
   rows.sort((a, b) => a.orderDelta - b.orderDelta);
-  return { rows };
+  // The status model works on tests (Portfolio Changes), not product families: a test with a status that matches no
+  // family row above (e.g. "Hormone Zoomer 2.0", or a test ordered only just before the window) is listed on its own.
+  const shown = new Set(rows.map(r => r.family.toLowerCase()));
+  const testStatus: TestStatus[] = [...status]
+    .filter(([k, v]) => !shown.has(k) && v.status)
+    .map(([, v]) => ({ test: v.test, status: v.status, baselineAvg: v.baselineAvg, recentOrders: v.recentOrders }))
+    .sort((a, b) => a.test.localeCompare(b.test));
+  // Portfolio Changes (cube/model/cubes/portfolio_changes.yml): recent = the last 28 days up to the latest order date, the
+  // baseline = the 84 days before that (average shown per 28 days). The latest order date is the dashboard's cutoff plus the lag.
+  const anchor = addDays(cfg.currentEnd, cfg.lagDays ?? 1);
+  return {
+    rows,
+    testStatus,
+    window: { start, end },
+    recent: { start: addDays(anchor, -27), end: anchor },
+    prior: { start: addDays(anchor, -111), end: addDays(anchor, -28) },
+    isNew: !!meta?.isNew,
+  };
 }
 
 export const portfolioAction = scopedAction({
@@ -724,9 +748,9 @@ export const portfolioAction = scopedAction({
   handler: async (
     ctx,
     args,
-  ): Promise<{ rows: PortfolioRow[]; note?: string }> => {
+  ): Promise<PortfolioResult> => {
     await assertOwnsClinic(ctx, args.clinic);
-    const key = (viewerCfgKey(ctx) ?? "") + `port3|${args.periodId}|${args.clinic}|${args.scope ?? "all"}`;
+    const key = (viewerCfgKey(ctx) ?? "") + `port4|${args.periodId}|${args.clinic}|${args.scope ?? "all"}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, {
       key,
     });
@@ -748,6 +772,16 @@ export const portfolioInternal = internalAction({
   },
   handler: async (ctx, args) => await portfolio(ctx, args),
 });
+
+export type PortfolioResult = {
+  rows: PortfolioRow[];
+  testStatus: TestStatus[];
+  note?: string;
+  window?: { start: string; end: string };
+  recent?: { start: string; end: string };
+  prior?: { start: string; end: string };
+  isNew?: boolean;
+};
 
 export type UnmappedTest = {
   test: string;

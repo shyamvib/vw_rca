@@ -110,3 +110,10 @@ The shortfall against goal is split in two, with plain names:
 - **Goal stretch** (was "ambition"): how far the goal sits above baseline. With the floor above it is never negative for existing clinics; the new-business goal counts as stretch.
 - Shortfall vs goal = change vs baseline plus goal stretch (shown with the stretch as a negative number, so the two add up to the shortfall).
 - **Baseline** is what these clinics normally do (their average over the baseline period).
+
+## 7. Clinic card, product families (changed 2026-10-18)
+
+- The card's family table has two windows and now says so. **Orders and expected follow the tab** (expected = the clinic's baseline-period orders in that family scaled to the window; a clinic that is new this year has none expected). **Status** (NEW / DECLINING / STOPPED) is the last 28 days against the prior 84 days up to the latest order, tracked per test, whatever the tab (the old text said "prior 90 days"; the model uses 84, shown per 28 days).
+- The status model works on 33 tests (Portfolio Changes, `cube/model/cubes/portfolio_changes.yml`), not product families, so a status only attaches to a family row when the names match exactly. Tests with a status but no family row in the tab (for example "Hormone Zoomer 2.0", or a Zoomer ordered only in late September) are listed in a second block, "Other tests with activity in the last 28 days".
+- The heading counts families ordered in the tab and how many are product families (Non Zoomer and Unmapped are not), so it reads against Products per customer. Cross-sell candidates use lifetime families (since Jan 2025), a third window.
+- Family baselines (rep, lead and clinic card) no longer include what new clinics ordered in the baseline period.
