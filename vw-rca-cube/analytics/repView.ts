@@ -134,6 +134,7 @@ export const book = scopedQuery({
     const existingSet = new Set(existing.map(r => r.clinic));
     const churnBase = rows.filter(r => existingSet.has(r.clinic) || isNew(r) || reactivatedSet.has(r.clinic));
     const churned = churnBase.filter(isChurned);
+    const churnBaseSet = new Set(churnBase.map(r => r.clinic));
     const retainedCap = sum(existing, r => Math.min(r.actual, r.baseline));
     const contraction = sum(
       existing.filter(r => r.orders > 0 && r.realChange < 0),
@@ -531,7 +532,9 @@ export const book = scopedQuery({
       tenure,
       earlyLife,
       existingIds: existing.map(r => r.clinic),
-      allIds: rows.filter(r => r.orders > 0 || r.expected > 0).map(r => r.clinic),
+      // Everyone in the book: clinics ordering or holding a goal in this tab, plus every new / reactivated / returning clinic,
+      // so the New and Existing dials' clinic counts add up to this one (2026-10-18).
+      allIds: rows.filter(r => r.orders > 0 || r.expected > 0 || churnBaseSet.has(r.clinic)).map(r => r.clinic),
       oppIds: [...new Set([...atRiskRows, ...aovGap].map(r => r.clinic))],
       stuck,
       stuckMin,
