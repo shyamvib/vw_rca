@@ -124,3 +124,9 @@ Idea (2026-10-19): drop the model's "last 28 days vs prior 90 days" status and u
 - NEW: ordered in the tab and never before it. RESTARTED: ordered in the tab, ordered before, gap since its previous order of that family 90 days or more. STOPPED: none in the tab although expected is at least 1 and it has ordered before. DECLINING: ordered in the tab at half or less of expected. Expected is the existing baseline-period expectation.
 - Open flaws to resolve: short tabs make STOPPED noisy (need expected of at least 1 in the tab and the days since its last order past its own usual gap); clinics new this year have no baseline so no STOPPED / DECLINING; the comparison base (baseline period vs the period before the tab); past tabs must use history only up to the tab's end; use product families, not the model's 33 tests (names do not match families); the "Portfolio status" filter above the clinic lists, the "Portfolio changes" count and some feed alerts are built from the Cube model and would have to be rebuilt per rep and tab from the clinic-by-family order data.
 - Until then the card keeps the model's status (last 28 days vs prior 90 days, per test) with NEW relabelled RESTARTED when the clinic ordered that family before the status window; the clinic-list filter still shows the model's labels (NEW, not RESTARTED).
+
+## 9. Family expectations on the clinic card (2026-10-19)
+
+- A family needs **3 or more orders in the baseline period** before anything is expected of it; with fewer (or for a clinic new this year) the card says "nothing expected" and shows no expected, no Order Δ.
+- Even with an expectation, the Order Δ is shown only when **expected is 1 or more in the tab**; below that the card reads "vs <1" and a dash.
+- These thresholds only affect the Expected and Order Δ columns; the status thresholds in the Cube model (STOPPED 3, DECLINING 6) are separate.

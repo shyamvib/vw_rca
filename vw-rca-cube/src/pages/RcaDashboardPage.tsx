@@ -5333,6 +5333,8 @@ type PortfolioRow = {
   status: string;
   baselineAvg: number;
   recentOrders: number;
+  /** ok / low (expected under 1 in this window: no Order Δ) / none (under 3 baseline orders: nothing expected). */
+  expectation?: "ok" | "low" | "none";
 };
 
 /** The families a single clinic actually orders, with its portfolio status. */
@@ -5421,17 +5423,20 @@ function ClinicPortfolio({
               <td>{r.family}</td>
               <td className="rca-num">
                 {INT(r.orders)}{" "}
-                <span className="rca-dim2">vs {INT(r.expectedOrders)}</span>
+                <span className="rca-dim2">
+                  {r.expectation === "none" ? "· nothing expected" : r.expectation === "low" ? "vs <1" : `vs ${INT(r.expectedOrders)}`}
+                </span>
               </td>
               <td
                 className="rca-num rca-strong"
                 style={{
                   color:
-                    r.orderDelta < 0 ? "var(--vw-error)" : "var(--vw-success)",
+                    r.expectation && r.expectation !== "ok"
+                      ? "var(--vw-gray-60, #777)"
+                      : r.orderDelta < 0 ? "var(--vw-error)" : "var(--vw-success)",
                 }}
               >
-                {r.orderDelta >= 0 ? "+" : ""}
-                {INT(r.orderDelta)}
+                {r.expectation && r.expectation !== "ok" ? "—" : `${r.orderDelta >= 0 ? "+" : ""}${INT(r.orderDelta)}`}
               </td>
               <td>
                 {r.status ? (

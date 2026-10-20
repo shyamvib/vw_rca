@@ -579,7 +579,15 @@ export type PortfolioRow = {
   product?: boolean;
   /** for a restarted family: the date of its last order before the status window */
   lastBefore?: string;
+  /** The clinic's orders of this family in the baseline period (before scaling). */
+  baseOrders?: number;
+  /** ok: a usable expectation; low: expected under 1 in this tab (no Order Δ); none: under 3 baseline orders, or a clinic new this year. */
+  expectation?: "ok" | "low" | "none";
 };
+
+/** A family needs this many baseline orders before anything is expected of it, and this much expected in the tab before an Order Δ is shown. */
+export const MIN_BASE_ORDERS = 3;
+export const MIN_EXPECTED_ORDERS = 1;
 
 /** Portfolio Changes status of a test the clinic has no row for in the selected window (the model works at test level). */
 export type TestStatus = { test: string; status: string; baselineAvg: number; recentOrders: number; lastBefore?: string };
@@ -669,6 +677,7 @@ async function portfolio(
       expected: number;
       expectedOrders: number;
       bundleOrders: number;
+      baseOrders: number;
     }
   >();
   const touch = (f: string) => {
@@ -678,6 +687,7 @@ async function portfolio(
       expected: 0,
       expectedOrders: 0,
       bundleOrders: 0,
+      baseOrders: 0,
     };
     acc.set(f, a);
     return a;
@@ -699,6 +709,7 @@ async function portfolio(
         const a = touch(f);
         a.expected += (num(r, "rev") / fams.length) * share;
         a.expectedOrders += num(r, "ord") * share;
+        a.baseOrders += num(r, "ord");
       }
     }
 
@@ -718,14 +729,20 @@ async function portfolio(
   }
   const rows: PortfolioRow[] = [...acc].map(([family, a]) => {
     const st = status.get(family.toLowerCase());
+    // Minimum order thresholds (2026-10-19): fewer than MIN_BASE_ORDERS baseline orders of a family is no expectation (a
+    // clinic new this year has none by definition); under MIN_EXPECTED_ORDERS expected in the tab there is no Order Δ.
+    const expectation: "ok" | "low" | "none" = meta?.isNew || a.baseOrders < MIN_BASE_ORDERS ? "none" : a.expectedOrders < MIN_EXPECTED_ORDERS ? "low" : "ok";
+    const noExp = expectation === "none";
     return {
       family,
       revenue: a.revenue,
       orders: a.orders,
-      expected: a.expected,
-      expectedOrders: a.expectedOrders,
-      delta: a.revenue - a.expected,
-      orderDelta: a.orders - a.expectedOrders,
+      expected: noExp ? 0 : a.expected,
+      expectedOrders: noExp ? 0 : a.expectedOrders,
+      delta: a.revenue - (noExp ? 0 : a.expected),
+      orderDelta: expectation === "ok" ? a.orders - a.expectedOrders : 0,
+      baseOrders: a.baseOrders,
+      expectation,
       status: st?.status ?? "",
       baselineAvg: st?.baselineAvg ?? 0,
       recentOrders: st?.recentOrders ?? 0,
