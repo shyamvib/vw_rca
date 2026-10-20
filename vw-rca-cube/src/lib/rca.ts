@@ -74,11 +74,21 @@ async function post(name: string, args: unknown): Promise<unknown> {
   await baseReady;
   if (!BASE) await resolveBase();
   if (!BASE) throw new RcaError("The analytics service is not reachable right now. Try again in a minute.");
-  const res = await fetch(`${BASE}/rpc`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name, args }),
-  });
+  const call = () =>
+    fetch(`${BASE}/rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, args }),
+    });
+  let res: Response;
+  try {
+    res = await call();
+  } catch (e) {
+    // "Failed to fetch": the service restarted and its quick tunnel got a new URL (announced to Convex). Look the URL up
+    // again and retry once instead of surfacing the error until the next 60-second poll (2026-10-20).
+    if (!(await resolveBase())) throw e;
+    res = await call();
+  }
   let body: { value?: unknown; error?: string };
   try {
     body = await res.json();
