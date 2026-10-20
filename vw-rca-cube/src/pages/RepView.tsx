@@ -3540,8 +3540,7 @@ function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<type
   add(o.returning?.n, { ids: o.returning?.ids, id: "returning", p: "New Business", label: "Make the restart stick", detail: `${o.returning?.n} biggest returning clinics ordering again`, per: 0.15, up: o.returning?.up, prMul: 1.1 });
   const la = o.lowAovPlan ?? o.lowAov;
   add(la?.n, { ids: la?.ids, id: "lowAov", p: "Bundle growth", label: "Bundle suggestion on next order", detail: `top ${la?.n} of ${o.lowAov?.n} clinics under $400 AOV`, per: 0.2, up: la?.up, prMul: 0.9 });
-  const gr = o.growingPlan ?? o.growing;
-  add(gr?.n, { ids: gr?.ids, id: "growing", p: "Expansion", label: "Thank and expand growing clinics", detail: `top ${gr?.n} of ${o.growing?.n} clinics above baseline`, per: 0.1, up: (gr?.up ?? 0) * 0.25, prMul: 1.3 });
+  // Growing clinics are not an action: they are already above baseline, so there is no gap to close. Expansion work is the second-family pitch below.
   add(o.followUp?.n, { ids: o.followUp?.ids, id: "followUp", p: "Retention", label: "Follow up touched clinics that have not reordered", detail: `${o.followUp?.n} clinics touched this week, no order since`, per: 0.2, up: o.followUp?.up, prMul: 0.8 });
   add(o.idle?.n, { ids: o.idle?.ids, id: "idle", p: "Retention", label: "First touch for the biggest idle clinics", detail: `${o.idle?.n} untouched clinics with no order this week`, per: 0.25, up: o.idle?.up, prMul: 0.7 });
   add(o.gap?.n, { ids: o.gap?.ids, id: "gap", p: "Retention", label: "Close the gap: the clinics behind goal", detail: `${o.gap?.n} clinics make up most of this week's shortfall`, per: 0.3, up: o.gap?.up, prMul: 0.5 });

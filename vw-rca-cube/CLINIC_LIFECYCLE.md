@@ -164,8 +164,9 @@ A rep account can carry `allReps: true` (set with `adminUpsert`). It signs in li
 
 ## 14. My week plan refresh (2026-10-19)
 
-- Pools follow the lifecycle rules: Call first = at least 5 days since the last order and not churned by the clinic's own threshold; new-clinic actions use the calendar-year "new" rule; each long pool is capped to the biggest 25 (15 for growing / returning) so the hours are realistic.
+- Pools follow the lifecycle rules: Call first = at least 5 days since the last order and not churned by the clinic's own threshold; new-clinic actions use the calendar-year "new" rule; each long pool is capped to the biggest 25 (15 for returning) so the hours are realistic.
 - Likelihood starts from the rep's own touched-then-reordered rate over the quarter (shrunk toward 50% over 20 clinics), times a per-action factor, capped at 0.9. Win-backs (churned clinics, stopped / declining products) count half their baseline revenue.
 - New actions: win back churned clinics, save new clinics near the churn line (30-44 days), get the second order, make the restart stick (returning clinics), follow up touched-not-reordered, first touch for big idle clinics, close the gap (clinics behind goal), win back STOPPED products, re-engage DECLINING products, lift the target product, introduce it to new clinics, ask for the repeat, whitespace and cross-sell (now ranked).
 - The page shows "Gap to goal this week" (heading vs goal, split existing / new business) and how much of the shortfall the planned actions are expected to cover.
 - Open: Today's "Call first" list now uses the own-threshold rule while the scorecard At-risk cell keeps its 5-44 day window plus health flags; the target product for the product actions is Hormone Zoomer (the scorecard default).
+- Growing clinics are not a plan action (already above baseline, no gap; the upside was an assumption). Expansion is the second-family pitch only.

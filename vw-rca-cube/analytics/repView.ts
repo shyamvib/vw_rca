@@ -529,7 +529,6 @@ export const book = scopedQuery({
       // The plan works the biggest few of each long pool (a rep cannot call 285 clinics in a week): capped at 25 by dollars.
       callFirstPlan: (() => { const t = [...callFirstPool].sort((a, b) => cfUp(b.r) - cfUp(a.r)).slice(0, 25); return pool(t.map(x => x.r), sum(t.map(x => x.r), cfUp)); })(),
       atRiskPlan: (() => { const t = [...atRiskRows].sort((a, b) => -a.realChange - -b.realChange).sort((a, b) => a.realChange - b.realChange).slice(0, 25); return pool(t, sum(t, r => Math.max(0, -r.realChange))); })(),
-      growingPlan: (() => { const t = [...growing].sort((a, b) => b.realChange - a.realChange).slice(0, 15); return pool(t, sum(t, r => r.realChange)); })(),
       lowAovPlan: (() => { const t = [...lowAov].sort((a, b) => lowUp(b) - lowUp(a)).slice(0, 25); return pool(t, sum(t, lowUp)); })(),
       followUp: pool(followUpRows, sum(followUpRows, wkBase)),
       idle: pool(idleRows, sum(idleRows, wkBase)),
