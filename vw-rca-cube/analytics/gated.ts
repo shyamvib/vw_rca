@@ -38,7 +38,9 @@ import { REP_TOKEN_PREFIX, resolveRepToken } from "./repAuth";
 
 export type Viewer =
   | { kind: "team"; email?: string }
-  | { kind: "rep"; rep: string; email: string };
+  | { kind: "rep"; rep: string; email: string }
+  // Rep-view-only login that may open any rep's book: scoped data calls pass through unpinned, team-only calls are refused.
+  | { kind: "lead"; email: string };
 
 const passwordArgs = { password: v.string() };
 
@@ -56,7 +58,8 @@ async function resolveViewer(
         : await (ctx as ActionCtx).runQuery(internal.repAuth.resolveSession, {
             credential,
           });
-    return session ? { kind: "rep", ...session } : null;
+    if (!session) return null;
+    return session.all ? { kind: "lead", email: session.email } : { kind: "rep", rep: session.rep, email: session.email };
   }
   if (!(await verifyPassword(credential))) return null;
   const email = teamUserEmail(credential);
@@ -76,7 +79,7 @@ async function checkTeam(
 ): Promise<TeamResult> {
   const viewer = await resolveViewer(ctx, args.password);
   if (!viewer) throw new Error(DENIED);
-  if (viewer.kind === "rep") throw new Error(REP_DENIED);
+  if (viewer.kind !== "team") throw new Error(REP_DENIED);
   return { ctx: { viewer }, args: {} };
 }
 

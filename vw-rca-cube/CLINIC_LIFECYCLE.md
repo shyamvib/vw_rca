@@ -157,3 +157,7 @@ Next step when resumed: write the scripts (option 1), then set up the clone and 
 - **Beating goal, Momentum, Bundle gainers, Comebacks**: existing clinics only (not new, has a baseline), each against its own goal. New and returning clinics have no per-clinic goal (they sit under the new-business goal), so their whole revenue no longer counts as "beating goal". The old on-pace check for new clinics is dropped here.
 - **New-logo wins**: this year's new clinics plus returning clinics (no baseline, reactivated) that ordered in the window; the card shows the split. Membership is the calendar-year rule, not "first order inside the window".
 - **Touch effort** (Great Job line and the Touch effort cards): pool = existing + new + returning (same as the churn base); the team average uses the same pool. The Great Job line's "last N days" follows the Touch effort "Order within" choice (14 when it is "any time"); the choice is shared between the two.
+
+## 13. Rep-view-only logins that see every rep (2026-10-19)
+
+A rep account can carry `allReps: true` (set with `adminUpsert`). It signs in like a rep but is not pinned to one salesperson: scoped data calls pass through with whatever `sales` the page asks for, team-only calls (company dashboard, Business Feed, settings) are refused, and the UI shows only the Rep view with a rep list and a "Switch rep" button. First two: Suzi Hansen, Kristina Banister. Needs the Convex deploy, the engine tarball and the frontend push.

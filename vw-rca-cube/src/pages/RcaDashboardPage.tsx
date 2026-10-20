@@ -1212,7 +1212,8 @@ export function RcaDashboardPage() {
   const isRep = repLogin !== null;
   // Reps only get their own view: no company dashboard, no Business Feed.
   const [view, setView] = useState<"dashboard" | "feed" | "rep">(isRep ? "rep" : "dashboard");
-  const [salesRep, setSalesRep] = useState<string>(repLogin?.rep ?? "");
+  const isLead = repLogin?.all === true; // rep-view only, but any rep's book
+  const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
   const [geoPick, setGeoPick] = useState<string | null>(null);
   // The map only appears once the geography branch is opened, and its tables
   // stay behind a "show as table" toggle so the page is not a wall of numbers.
@@ -1801,7 +1802,7 @@ export function RcaDashboardPage() {
           {isRep ? (
             <>
               <span className="rca-rep-badge">
-                Viewing <strong>{repLogin!.rep}</strong>'s book
+                {isLead ? (salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
               </span>
               <input
                 className="rca-search-input"
@@ -1948,6 +1949,7 @@ export function RcaDashboardPage() {
           <RepView
             sales={salesRep}
             isRep={isRep}
+            canSwitchRep={isLead}
             periodId={periodIdSafe}
             periodLabel={
               periodIdSafe === "all"

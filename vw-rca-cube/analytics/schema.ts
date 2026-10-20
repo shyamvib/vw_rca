@@ -576,6 +576,8 @@ const schema = defineSchema({
   repAccounts: defineTable({
     email: v.string(),
     rep: v.string(), // exact salesperson name as in clinicMeta.sales
+    // Rep-view-only login that may open any rep's book (not pinned to `rep`); no dashboard, no business feed.
+    allReps: v.optional(v.boolean()),
     salt: v.string(),
     hash: v.string(),
     createdAt: v.number(),

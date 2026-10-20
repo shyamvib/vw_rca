@@ -56,7 +56,8 @@ export function setEmail(value: string) {
  */
 export const REP_KEY = "vw-rca-rep";
 
-export type RepSession = { rep: string; email: string };
+/** `all`: a rep-view-only login that may open any rep's book (no dashboard, no business feed). */
+export type RepSession = { rep: string; email: string; all?: boolean };
 
 export function repSession(): RepSession | null {
   try {

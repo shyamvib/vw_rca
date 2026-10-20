@@ -50,7 +50,7 @@ export function PasswordGate({ children }: { children: ReactNode }) {
       if (res?.kind === "rep") {
         setPw(`rs:${res.token}`);
         setEmail(clean);
-        setRepSession({ rep: res.rep, email: clean });
+        setRepSession({ rep: res.rep, email: clean, all: res.all === true });
         setOk(true);
       } else if (res?.kind === "team") {
         // Tag the credential with the email so each person keeps their own

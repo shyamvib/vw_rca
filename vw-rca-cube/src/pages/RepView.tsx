@@ -63,6 +63,8 @@ export type RepViewPeriod = { id: string; kind: string; label: string; start: st
 export function RepView(props: {
   sales: string;
   isRep: boolean;
+  /** A rep-view-only login that may open any rep: shows a way back to the rep list. */
+  canSwitchRep?: boolean;
   periodId: string;
   periodLabel: string;
   weeks: RepViewPeriod[];
@@ -298,6 +300,7 @@ export function RepView(props: {
       <aside className="rv-rail">
         <div className="rv-brand"><Logo tone="white" height={18} /></div>
         <div className="rv-rep">{sales}</div>
+        {props.canSwitchRep ? <button type="button" className="rv-explain" onClick={() => props.onPickRep("")}>Switch rep</button> : null}
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>

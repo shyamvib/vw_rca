@@ -37,7 +37,7 @@ async function hashWithSalt(salt: string, password: string): Promise<string> {
   return await sha256Hex(`${salt}::${password}`);
 }
 
-export type RepSession = { rep: string; email: string };
+export type RepSession = { rep: string; email: string; all?: boolean };
 
 /** Resolves a `rs:` token to its session, or null when unknown/expired. */
 export async function resolveRepToken(
@@ -59,13 +59,13 @@ export async function resolveRepToken(
     .withIndex("by_email", q => q.eq("email", row.email))
     .unique();
   if (!account) return null;
-  return { rep: account.rep, email: row.email };
+  return { rep: account.rep, email: row.email, all: account.allReps === true };
 }
 
 /** Action-side lookup (actions have no ctx.db). */
 export const resolveSession = internalQuery({
   args: { credential: v.string() },
-  returns: v.union(v.null(), v.object({ rep: v.string(), email: v.string() })),
+  returns: v.union(v.null(), v.object({ rep: v.string(), email: v.string(), all: v.optional(v.boolean()) })),
   handler: async (ctx, { credential }) => await resolveRepToken(ctx, credential),
 });
 
@@ -98,7 +98,7 @@ export const login = mutation({
   returns: v.union(
     v.null(),
     v.object({ kind: v.literal("team") }),
-    v.object({ kind: v.literal("rep"), token: v.string(), rep: v.string() }),
+    v.object({ kind: v.literal("rep"), token: v.string(), rep: v.string(), all: v.optional(v.boolean()) }),
   ),
   handler: async (ctx, args) => {
     const email = normalizeEmail(args.email);
@@ -121,7 +121,7 @@ export const login = mutation({
         lastSeen: now,
       });
       await ctx.db.insert("accessLog", { email, at: now, agent });
-      return { kind: "rep" as const, token, rep: account.rep };
+      return { kind: "rep" as const, token, rep: account.rep, all: account.allReps === true };
     }
     if (!(await verifyPassword(args.password))) return null;
     await ctx.db.insert("accessLog", { email, at: Date.now(), agent });
@@ -132,7 +132,7 @@ export const login = mutation({
 /** Who the current rep credential belongs to (null when not a rep session). */
 export const me = query({
   args: { credential: v.string() },
-  returns: v.union(v.null(), v.object({ rep: v.string(), email: v.string() })),
+  returns: v.union(v.null(), v.object({ rep: v.string(), email: v.string(), all: v.optional(v.boolean()) })),
   handler: async (ctx, { credential }) => await resolveRepToken(ctx, credential),
 });
 
@@ -159,6 +159,7 @@ export const logout = mutation({
 const accountShape = v.object({
   email: v.string(),
   rep: v.string(),
+  allReps: v.optional(v.boolean()),
   updatedAt: v.number(),
   lastLogin: v.union(v.null(), v.number()),
 });
@@ -179,6 +180,7 @@ export const list = query({
       out.push({
         email: r.email,
         rep: r.rep,
+        allReps: r.allReps === true,
         updatedAt: r.updatedAt,
         lastLogin: last?.at ?? null,
       });
@@ -215,7 +217,7 @@ type UpsertResult = { ok: boolean; error?: string };
 
 async function upsertAccount(
   ctx: MutationCtx,
-  args: { email: string; rep: string; password?: string },
+  args: { email: string; rep: string; password?: string; allReps?: boolean },
 ): Promise<UpsertResult> {
     const email = normalizeEmail(args.email);
     if (!email) return { ok: false, error: "Use a @vibrant-wellness.com, @vibrant-america.com or @vibrant-wellness.co.uk email." };
@@ -227,7 +229,7 @@ async function upsertAccount(
       .unique();
     const now = Date.now();
     if (existing) {
-      const patch: Record<string, unknown> = { rep, updatedAt: now };
+      const patch: Record<string, unknown> = { rep, updatedAt: now, ...(args.allReps === undefined ? {} : { allReps: args.allReps }) };
       if (args.password) {
         if (args.password.length < 8) return { ok: false, error: "Password needs at least 8 characters." };
         const salt = randomToken();
@@ -247,6 +249,7 @@ async function upsertAccount(
     await ctx.db.insert("repAccounts", {
       email,
       rep,
+      ...(args.allReps ? { allReps: true } : {}),
       salt,
       hash: await hashWithSalt(salt, args.password),
       createdAt: now,
@@ -262,6 +265,7 @@ export const upsert = mutation({
     email: v.string(),
     rep: v.string(),
     password: v.optional(v.string()),
+    allReps: v.optional(v.boolean()),
   },
   returns: v.union(v.null(), v.object({ ok: v.boolean(), error: v.optional(v.string()) })),
   handler: async (ctx, args) => {
@@ -275,7 +279,7 @@ export const upsert = mutation({
  * the browser) — for seeding test accounts on preview.
  */
 export const adminUpsert = internalMutation({
-  args: { email: v.string(), rep: v.string(), password: v.optional(v.string()) },
+  args: { email: v.string(), rep: v.string(), password: v.optional(v.string()), allReps: v.optional(v.boolean()) },
   returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
   handler: async (ctx, args) => await upsertAccount(ctx, args),
 });
