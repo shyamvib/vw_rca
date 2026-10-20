@@ -7,7 +7,7 @@
  */
 const SHOW_SANKEY = true;
 import { Logo } from "@/components/Logo";
-import { ScorecardGuide } from "./ScorecardGuide";
+import { ScorecardGuide, guideIdFor, guideNav, openGuide } from "./ScorecardGuide";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
@@ -124,6 +124,8 @@ export function RepView(props: {
     setScFocus(focus);
     setTab("week");
   };
+  // "Explain this metric" on the scorecard opens the guide tab at that metric.
+  guideNav.go = () => { setSearchSel(null); setScFocus(null); setTab("scorecard"); };
   // Prior same-shape window for the scorecard's WoW/MoM/QoQ chips (Shyam, 2026-10-13).
   const prevFor = (pid: string | undefined) => {
     for (const list of [days, weeks, months, quarters] as Array<Array<{ id: string; label: string }>>) {
@@ -2108,7 +2110,7 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
           ))}
         </div>
       ) : null}
-      <p className="rv-contrib-note">{v?.note ?? contrib.note}</p>
+      <p className="rv-contrib-note">{v?.note ?? contrib.note} <button type="button" className="rv-explain" onClick={() => openGuide(guideIdFor(label))}>Explain this metric</button></p>
       <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} />
     </>
   );
@@ -2452,6 +2454,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
                 </div>
                 <div className="rv-mx-v">{c.value}</div>
                 <div className="rv-mx-s">{c.sub}</div>
+                <button type="button" className="rv-explain" onClick={e => { e.stopPropagation(); openGuide(guideIdFor(c.label)); }}>Explain this metric</button>
                 {(() => { const d = deltaOf(c); return d ? <div className={`rv-mx-d ${d.good === null ? "" : d.good ? "up" : "dn"}`}>{cmpTag} {d.txt}{c.flow ? " /day" : ""} <span>vs {prevLabel}</span></div> : null; })()}
               </div>
             ))}

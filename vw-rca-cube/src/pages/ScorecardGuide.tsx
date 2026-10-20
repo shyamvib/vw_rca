@@ -4,9 +4,40 @@
  * it counts, and a small made-up example with a picture. Nothing here loads data; the numbers in the examples are invented
  * to make the arithmetic easy to follow.
  */
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 type Go = (t: "week" | "month" | "quarter") => void;
+
+/** The actual scorecard links here ("Explain this metric"): the app registers `go` to switch to the guide tab; the guide scrolls to `target` when it opens. */
+export const guideNav = { target: null as string | null, go: (_id: string) => {} };
+export function openGuide(id: string) {
+  guideNav.target = id;
+  guideNav.go(id);
+}
+
+/** Scorecard cell label to guide section id (family-scoped cells keep the same labels). */
+const GUIDE_ID: Record<string, string> = {
+  "New Revenue": "new-revenue",
+  AOV: "aov",
+  "Low-AOV customers": "low-aov",
+  "Target Product Orders": "target-product-orders",
+  "Product adoption": "product-adoption",
+  "Product whitespace": "product-whitespace",
+  "Repeat product rate": "repeat-product-rate",
+  "Revenue Retention": "revenue-retention",
+  "Repeat ordering": "repeat-ordering",
+  "At-risk customers": "at-risk",
+  "Customer churn": "churn",
+  "Expansion Revenue": "expansion-revenue",
+  "Products per customer": "products-per-customer",
+  "Cross-sell candidates": "cross-sell",
+  NRR: "nrr",
+  "Net Revenue Growth": "net-growth",
+  "Growth run-rate": "run-rate",
+  "Revenue opportunity": "opportunity",
+  "Growth decomposition": "decomposition",
+};
+export const guideIdFor = (label: string): string => GUIDE_ID[label] ?? "notyet";
 
 /* ───────────── small pictures ───────────── */
 
@@ -610,12 +641,83 @@ const NOT_YET = [
   { name: "Stack penetration and Stack mix", why: "need per-order panel mix" },
 ];
 
+/** The scorecard grid exactly as it is on the window tabs: one row per pillar, four columns, with a one-line summary per cell. */
+type MxCell = { label: string; says: string; kind?: "act" | "na" };
+const MATRIX: Array<{ pillar: string; cells: MxCell[] }> = [
+  { pillar: "New Business", cells: [
+    { label: "New Revenue", says: "Money from new clinics and clinics that came back." },
+    { label: "Pipeline", says: "Not in the data yet.", kind: "na" },
+    { label: "Unconverted prospects", says: "Not in the data yet.", kind: "na" },
+    { label: "Win rate", says: "Not in the data yet.", kind: "na" },
+  ] },
+  { pillar: "Bundle growth", cells: [
+    { label: "AOV", says: "Average spend per order against normal." },
+    { label: "Stack penetration", says: "Not in the data yet.", kind: "na" },
+    { label: "Low-AOV customers", says: "Clinics placing orders under $400.", kind: "act" },
+    { label: "Stack mix", says: "Not in the data yet.", kind: "na" },
+  ] },
+  { pillar: "Product Growth", cells: [
+    { label: "Target Product Orders", says: "Orders of the chosen product against expected." },
+    { label: "Product adoption", says: "New clinics that have tried the product." },
+    { label: "Product whitespace", says: "Clinics you marked that never bought it.", kind: "act" },
+    { label: "Repeat product rate", says: "Clinics that bought the product again." },
+  ] },
+  { pillar: "Retention", cells: [
+    { label: "Revenue Retention", says: "Share of normal revenue kept, growth not counted." },
+    { label: "Repeat ordering", says: "Ordering clinics that ordered 2+ times." },
+    { label: "At-risk customers", says: "Regular clinics starting to slip.", kind: "act" },
+    { label: "Customer churn", says: "Clinics that have been quiet too long." },
+  ] },
+  { pillar: "Expansion", cells: [
+    { label: "Expansion Revenue", says: "Extra revenue from growing clinics." },
+    { label: "Products per customer", says: "How many product families a clinic buys." },
+    { label: "Cross-sell candidates", says: "Clinics to offer another product.", kind: "act" },
+    { label: "NRR", says: "Revenue against normal, growth and losses together." },
+  ] },
+  { pillar: "Combined", cells: [
+    { label: "Net Revenue Growth", says: "Ahead of or behind goal so far." },
+    { label: "Growth run-rate", says: "Weekly pace against the goal's pace." },
+    { label: "Revenue opportunity", says: "Dollars you could win back.", kind: "act" },
+    { label: "Growth decomposition", says: "Gap from fewer orders or smaller orders." },
+  ] },
+];
+
+function Matrix({ onPick }: { onPick: (id: string) => void }) {
+  return (
+    <div className="rv-matrix gd-mx" role="table" aria-label="The scorecard grid; click a cell for its explanation">
+      <div className="rv-mx-h">Pillar</div>
+      <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
+      <div className="rv-mx-h">Leading indicator<span>Will it happen?</span></div>
+      <div className="rv-mx-h">Opportunity<span>Where to act</span></div>
+      <div className="rv-mx-h">Diagnostic<span>Why</span></div>
+      {MATRIX.map(r => (
+        <div className="rv-mx-row" key={r.pillar}>
+          <div className="rv-mx-p"><b>{r.pillar}</b></div>
+          {r.cells.map(c => (
+            <button
+              type="button"
+              key={c.label}
+              className={`rv-mx-c gd-mx-c ${c.kind ?? "plain"}`}
+              onClick={() => onPick(c.kind === "na" ? "notyet" : guideIdFor(c.label))}
+            >
+              <div className="rv-mx-l">{c.label}</div>
+              <div className="gd-mx-s">{c.says}</div>
+              <div className="gd-mx-go">{c.kind === "na" ? "see why" : "explain ↓"}</div>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ───────────── page ───────────── */
 
-function Card({ m }: { m: Metric }) {
+function Card({ m, flash }: { m: Metric; flash: boolean }) {
   return (
-    <article className="gd-card" id={`gd-${m.id}`}>
+    <article className={`gd-card${flash ? " gd-flash" : ""}`} id={`gd-${m.id}`}>
       <header>
+        <button type="button" className="gd-back" onClick={() => jump("gd-matrix")}>↑ back to the grid</button>
         <h3>{m.name}</h3>
         <p className="gd-asks">{m.asks}</p>
       </header>
@@ -646,6 +748,21 @@ function Card({ m }: { m: Metric }) {
 const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
 export function ScorecardGuide({ onOpen }: { onOpen: Go }) {
+  const [flash, setFlash] = useState<string | null>(null);
+  const pick = (id: string) => {
+    jump(id === "notyet" ? "gd-notyet" : `gd-${id}`);
+    setFlash(id);
+    window.setTimeout(() => setFlash(f => (f === id ? null : f)), 1800);
+  };
+  // Arriving from "Explain this metric" on the scorecard: open at that metric.
+  useEffect(() => {
+    const t = guideNav.target;
+    if (!t) return;
+    guideNav.target = null;
+    const h = window.setTimeout(() => pick(t), 60);
+    return () => window.clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="gd">
       <div className="rv-eyebrow">Scorecard guide</div>
@@ -661,12 +778,20 @@ export function ScorecardGuide({ onOpen }: { onOpen: Go }) {
         <button type="button" className="rv-sc-btn" onClick={() => onOpen("quarter")}>This quarter's</button>
       </div>
 
-      <nav className="gd-toc" aria-label="Guide contents">
+      <section className="gd-sec" id="gd-matrix">
+        <h2>The scorecard at a glance</h2>
+        <p className="gd-blurb">
+          This is the grid exactly as it appears on each window tab, with a line on what each cell says. Click any cell to jump to its full
+          explanation, and use "Explain this metric" on the live scorecard to land here.
+        </p>
+        <Matrix onPick={pick} />
+      </section>
+
+      <nav className="gd-toc" aria-label="Other parts of the guide">
         <button type="button" onClick={() => jump("gd-start")}>Start here</button>
         <button type="button" onClick={() => jump("gd-words")}>Key words</button>
         <button type="button" onClick={() => jump("gd-groups")}>Groups of clinics</button>
-        <button type="button" onClick={() => jump("gd-dials")}>The dials</button>
-        {SECTIONS.map(s => <button type="button" key={s.id} onClick={() => jump(`gd-sec-${s.id}`)}>{s.title}</button>)}
+        <button type="button" onClick={() => jump("gd-dials")}>The five dials</button>
         <button type="button" onClick={() => jump("gd-notyet")}>Not in the data yet</button>
       </nav>
 
@@ -759,11 +884,11 @@ export function ScorecardGuide({ onOpen }: { onOpen: Go }) {
         <section className="gd-sec" id={`gd-sec-${s.id}`} key={s.id}>
           <h2>{s.title}</h2>
           <p className="gd-blurb">{s.blurb}</p>
-          {s.metrics.map(m => <Card m={m} key={m.id} />)}
+          {s.metrics.map(m => <Card m={m} key={m.id} flash={flash === m.id} />)}
         </section>
       ))}
 
-      <section className="gd-sec" id="gd-notyet">
+      <section className={`gd-sec${flash === "notyet" ? " gd-flash" : ""}`} id="gd-notyet">
         <h2>Not in the data yet</h2>
         <p className="gd-blurb">These cells are greyed out on the scorecard because the data behind them is not available yet. They will light up when it is.</p>
         <ul>
