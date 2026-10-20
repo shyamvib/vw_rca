@@ -1908,7 +1908,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           ? {
               label: "Product adoption",
               value: P(pg.adoption),
-              sub: `${pg.adoptN} of ${pg.newN} new clinics ordered ${pg.family}${pg.addedIds.length ? ` · ${pg.addedIds.length} existing added it` : ""}`,
+              sub: `${pg.adoptN + pg.addedIds.length} of ${pg.newN + pg.exN} clinics · new ${pg.adoptN}/${pg.newN} · existing added ${pg.addedIds.length}/${pg.exN}`,
               ids: [...pg.adoptIds, ...pg.addedIds], n: pg.adoption, u: "%", better: 1,
               tone: pg.adoption === null ? "na" : pg.adoption >= 0.5 ? "good" : pg.adoption >= 0.3 ? "watch" : "bad",
             }
@@ -2330,7 +2330,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         detail: cl => { const c = pgMap.get(cl); const st = famStatus(c, family); return `${isNewC(cl) ? "New clinic" : "Existing"} · ${c?.win[family] ?? 0} ${family} orders in this window${st ? ` · ${st}` : ""}`; },
         note: `New clinics ordering this window, split by whether they ordered ${family}.`,
         variants: [
-          { label: "New clinics", inScope: r => isNewC(r.clinic), f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1), up: `Ordered ${family}`, down: `Ordering, but not ${family}`, note: `New clinics (first order this year) that ordered in this window, split by whether ${family} was among their orders. This is the adoption rate on the card.` },
+          { label: "All clinics", f: r => (isNewC(r.clinic) ? ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1) : famStatus(pgMap.get(r.clinic), family) === "NEW" ? 1 : -1), up: `Adopted ${family}`, down: `Ordering, but not ${family}`, note: `The card's percentage: new clinics that ordered ${family} plus existing clinics that added it (status NEW), out of all of them that ordered in this window.` },
+          { label: "New clinics", inScope: r => isNewC(r.clinic), f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1), up: `Ordered ${family}`, down: `Ordering, but not ${family}`, note: `New clinics (first order this year) that ordered in this window, split by whether ${family} was among their orders. Part of the adoption rate on the card.` },
           { label: "Existing clinics", inScope: r => !isNewC(r.clinic), f: r => (famStatus(pgMap.get(r.clinic), family) === "NEW" ? 1 : -1), up: `Added ${family} (status NEW)`, down: `Ordering, but have not added ${family}`, note: `Established clinics that ordered in this window, split by whether they added ${family}: Portfolio Changes status NEW means no ${family} orders in the 90 days before the last 28, and fewer than 3 ever before (3+ earlier orders would be RESTARTED, not new to them). It looks at the last 28 days, so it does not move with the tab.` },
         ],
       };
@@ -2607,7 +2608,7 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Product Growth", "Product Mix %", "Selected family share of revenue.", hz && totalRev ? P(hz.revenue / totalRev, 1) : null, "no Hormone Zoomer orders"),
     n("Product Growth", "Attach Rate", "Orders that attach the target product.", null, "needs per-order panel mix"),
     n("Product Growth", "Product Penetration", "Clinics you marked eligible that have ordered the product.", pg && pg.eligN ? P((pg.eligN - pg.wsN) / pg.eligN) : null, "mark eligible clinics in the planner below"),
-    n("Product Growth", "Product Adoption", "New clinics with orders in the window that ordered the selected family.", pg ? P(pg.adoption) : null, "no new clinics with orders"),
+    n("Product Growth", "Product Adoption", "New clinics that ordered the selected family plus existing clinics that added it (status NEW), out of all measured.", pg ? P(pg.adoption) : null, "no new clinics with orders"),
     n("Product Growth", "Repeat Rate", "Clinics ordering the selected family that ordered it 2+ times in the window.", pg ? P(pg.repeat) : null, "no orders"),
     n("Product Growth", "Product Whitespace", "Eligible clinics (marked by you) that never ordered it.", pg ? String(pg.wsN) : null, "loading"),
     n("Product Growth", "Portfolio changes", "Clinics by Portfolio Changes status (NEW / DECLINING / STOPPED).", pstat(b), "no portfolio status"),
@@ -3800,7 +3801,7 @@ function famExpected(c: PGClinic | undefined, family: string): number {
 }
 type PGStats = {
   addedIds: string[];
-  family: string; adoption: number | null; adoptN: number; newN: number;
+  family: string; adoption: number | null; adoptN: number; newN: number; exN: number;
   repeat: number | null; repN: number; pairN: number; wsN: number; eligN: number; wsIds: string[];
   ppc: number | null; ppcRange: string; activeN: number; adoptIds: string[]; repIds: string[]; activeIds: string[]; buyerIds: string[]; xs: XSell[]; xsUp: number;
 };
@@ -3846,6 +3847,8 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   const adoptIds = newOrd.filter(c => (c.win[family] ?? 0) > 0).map(c => c.clinic);
   // Existing clinics that added the product: Portfolio Changes says NEW for it (no orders of it in the prior 90 days, fewer than 3 before).
   const addedIds = clinics.filter(c => !newSet.has(c.clinic) && famStatus(c, family) === "NEW").map(c => c.clinic);
+  // Existing clinics measured: ordering a product in the window, or having added this one (status NEW, which looks at the last 28 days).
+  const exN = clinics.filter(c => !newSet.has(c.clinic) && (prod(c.win).length > 0 || famStatus(c, family) === "NEW")).length;
   const repIds = buyers.filter(c => c.win[family] >= 2).map(c => c.clinic);
   const activeIds = active.map(c => c.clinic);
   // Cross-sell: active clinics on 1–2 families (lifetime). Suggest the family most
@@ -3872,7 +3875,7 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   const el = elig.filter(e => e.family === family);
   const wsIds = el.filter(e => !((byId.get(e.clinic)?.life[family] ?? 0) > 0)).map(e => e.clinic);
   return {
-    family, adoption: newOrd.length ? adoptN / newOrd.length : null, adoptN, newN: newOrd.length,
+    family, adoption: newOrd.length + exN ? (adoptN + addedIds.length) / (newOrd.length + exN) : null, adoptN, newN: newOrd.length, exN,
     repeat: pairN ? repN / pairN : null, repN, pairN, wsN: wsIds.length, eligN: el.length, wsIds,
     ppc, ppcRange, activeN: active.length, adoptIds, addedIds, repIds, activeIds, buyerIds: buyers.map(c => c.clinic), xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
   };

@@ -306,15 +306,15 @@ const SECTIONS: Section[] = [
         asks: "Of my new clinics that are buying Zoomer tests, how many have tried this product?",
         see: "A percentage and \"x of y new clinics ordered the product\".",
         how: [
-          "Take this year's new clinics that ordered any Zoomer product in the window (Non Zoomer does not count).",
-          "Count how many of them ordered the chosen family.",
-          "Divide.",
+          "Take this year's new clinics that ordered any Zoomer product in the window (Non Zoomer does not count), plus existing clinics that ordered a product or added this one.",
+          "Count the new clinics that ordered the chosen family, plus the existing clinics that added it (status NEW).",
+          "Divide. The card shows the split: new a/b · existing added c/d.",
         ],
         who: "New clinics that bought at least one Zoomer product in the window.",
-        click: "Two lists. New clinics: who ordered the product and who is ordering without it. Existing clinics: who added the product (status NEW: none in the 90 days before the last 28, fewer than 3 ever before) and who has not. The percentage on the card is the new-clinic list only.",
+        click: "Two lists. New clinics: who ordered the product and who is ordering without it. Existing clinics: who added the product (status NEW: none in the 90 days before the last 28, fewer than 3 ever before) and who has not.",
         watch: [
-          "The percentage looks at new clinics only. On a short window the group can be a handful of clinics, so a single clinic moves it a lot.",
-          "Existing clinics that added the product are shown beside it on the card but are not part of the percentage.",
+          "The percentage blends new and existing clinics. Existing clinics adopt far less often, so it reads lower than the new-clinic rate alone; use the split under the number.",
+          "On a short window the new group can be a handful of clinics, so a single clinic moves it a lot.",
         ],
         example: {
           story: "Five new clinics bought Zoomer tests this month. Two of them bought Hormone Zoomer. Adoption is 2 of 5, which is 40%.",
