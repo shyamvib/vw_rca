@@ -855,8 +855,12 @@ function TodayTab({
       {agenda}
       <div className="rv-sec-head">
         <h2>Call first<Info k="call" /></h2>
-        <span>{b.callFirst.length} shown · $ at stake, then longest overdue · 5–44 days since last order</span>
+        <span>{b.callFirst.length} shown · biggest goal first, then longest overdue · 5+ days since last order, not churned</span>
       </div>
+      <HowCalc>
+        <p>Who is on it: existing clinics (not new, with a baseline) that last ordered at least 5 days ago and have not churned by their own threshold: 45 days, or three times their usual gap between orders for a slow buyer.</p>
+        <p>Order: the clinic's goal for the window, biggest first, then the longest overdue. The plan's "Overdue reorder calls" uses the dollars each clinic is short of that goal instead. The chips narrow the list by health note or portfolio status.</p>
+      </HowCalc>
       <div className="rv-chips">
         <button type="button" className={health === "" ? "is-on" : ""} onClick={() => onHealth("")}>
           All notes
@@ -921,6 +925,10 @@ function TodayTab({
           <h2>New clinics: getting to order 4<Info k="newc" /></h2>
           <span>{f.o1} new clinics in your book</span>
         </div>
+        <HowCalc>
+          <p>New clinics are those whose first order was this calendar year. Each box counts new clinics that reached that order number; a clinic with three orders is counted in orders 1, 2 and 3.</p>
+          <p>"About to fall off" lists clinics whose gap since their last order sits inside the days-between-orders filter (14 to 21 days by default), highest order number first: they are due for the next order but have not placed it.</p>
+        </HowCalc>
         <div className="rv-funnel">
           {[
             [f.o1, "Placed order 1"],
@@ -1241,6 +1249,11 @@ function WindowTab({
         </div>
       </div>
 
+      <HowCalc title="How the Great job numbers are calculated">
+        <p><b>Beating goal, Comebacks, Bundle gainers:</b> existing clinics only, each against its own goal (new and returning clinics have none; they sit under the new-business goal). Comebacks are clinics behind goal last week and at or above it now (week tab only). Bundle gainers have bundle dollars above their goal.</p>
+        <p><b>New-logo wins:</b> this year's new clinics plus returning clinics that ordered in the window. <b>On pace to beat goal:</b> where the window is heading against its goal, existing plus new business.</p>
+        <p><b>Touch line:</b> of existing, new and returning clinics you touched (call or meeting) in the last N days, the share that ordered on or after the touch. N follows the "Order within" choice in Touch effort (14 on any time).</p>
+      </HowCalc>
       <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={scFocus} />
 
       <div className="rv-sec-head">
@@ -1252,6 +1265,10 @@ function WindowTab({
           </button>
         </div>
       </div>
+      <HowCalc>
+        <p>The top number is actual minus goal for this window, split into change vs baseline (what really moved) and goal stretch (what the goal asks above baseline). Each card then cuts that same gap a different way, and every card adds up to the whole gap.</p>
+        <p>Volume is orders against expected, at the book's usual order value; AOV is what remains (a higher or lower ticket). The "New business goal" line is the slice of the target for this year's new clinics. Cohort rows are scaled to add up to the book total, so a clinic list can differ from its row by a small amount.</p>
+      </HowCalc>
       {simplify ? (
         <div className="rv-tree">
           <div className="rv-tree-root">
@@ -1595,6 +1612,9 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
         <h2>Provider retention funnel · orders 1→5<Info k="funnel" /></h2>
         <span>{data.clinics} new clinics this window</span>
       </div>
+      <HowCalc>
+        <p>Each stage counts the new clinics that reached that order number, and a clinic stays counted in the earlier stages. Each is compared with the baseline period's own new clinics at the same daily pace, so it reads as up or down rather than a raw count. "Active" means reached order 3 and still ordering in the last 14 days of the window.</p>
+      </HowCalc>
       <div className="rv-chips" role="group" aria-label="Filter by call/meeting before order 1">
         {(
           [
@@ -1719,6 +1739,9 @@ function Targets({ b }: { b: Book }) {
         <span className="rv-mono">Top 10 clinics · {K(total)}/wk</span>
       </div>
       <p className="rv-dim rv-small">Weekly clinic targets feed the year-end projection; they do not change the goal. Blank = baseline.</p>
+      <HowCalc>
+        <p>The ten clinics with the biggest baseline, with their baseline dollars and orders per week. If you set a target, the difference from the clinic's current weekly rate is carried over the weeks left in the year and added to the year-end projection, so you can see what your commitments do to the close.</p>
+      </HowCalc>
       <div className="rv-targets">
         {b.targetClinics.map((c: Book) => {
           const cur = draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? Math.round(c.baseWeek);
@@ -2372,6 +2395,10 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         <h2>Outcomes vs heading to &amp; goal</h2>
         <MeterToggle v={mStyle} set={setMStyle} />
       </div>
+      <HowCalc>
+        <p>Each dial shows booked so far, where the window is heading and the goal at the end of the dial. Heading is the pace to date carried over the whole window using each weekday's usual weight. Combined is Existing plus New; Existing is measured against its clinics' goals and New against the new-business goal. "x of y clinics ordered" counts the clinics that ordered in this window out of the group.</p>
+        <p>The colour compares heading with goal for that dial. The matrix below has one row per pillar; click a cell for the clinics behind it, or "Explain this metric" for its Scorecard guide entry.</p>
+      </HowCalc>
       {scoped ? (
         <div className="rv-scope">
           <span>Scorecard scoped to <b>{family}</b>. <i className="rv-famkey" /> Blue bar = follows {family}; &ldquo;all products&rdquo; = not family-specific yet (retention and expansion).{famLaunch ? ` ${family} launched ${famLaunch.firstOrder}, so there is no baseline and no target yet.` : ""}</span>
@@ -3438,6 +3465,10 @@ function TouchKpis({ sales, src, w }: {
           </select>{" "}of touch
         </label>
       </div>
+      <HowCalc>
+        <p><b>Touched:</b> existing, new and returning clinics with a call or meeting on or after the window's start. <b>Touched reorder:</b> those that ordered on or after the touch ("Order within" counts only orders inside that many days). <b>Untouched reorder:</b> clinics with no touch that ordered in the window anyway. <b>Idle:</b> no touch and no order. <b>Lift:</b> touched rate minus untouched rate.</p>
+        <p>The team average is the same figures for every rep under the same team lead, averaged rep by rep.</p>
+      </HowCalc>
       {!e ? <p className="rv-dim">Loading {WL.toLowerCase()}…</p> : (
         <div className="rv-kpis">
           <Card l="Touched" v={String(e.touched)} sub="clinics with a call/meeting" ids={e.touchedIds} team={vs(e.touched, tm?.touched, x => x.toFixed(0))} />
@@ -3660,6 +3691,9 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
           <div className="rv-opp-sub">Total revenue opportunity on your scorecard</div>
         </div>
       </div>
+      <HowCalc>
+        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> is one more product family at each clinic's current per-family spend; <b>Whitespace</b> is clinics you marked eligible for the selected product that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
+      </HowCalc>
       <div className="rv-opp-seg">
         {cards.filter(c => c.up).map(c => (
           <i key={c.id} style={{ flex: c.up }} className={planned[c.id] ? "on" : ""} />
@@ -3867,6 +3901,16 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
       </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
     </>
+  );
+}
+
+/** A collapsed "how is this calculated" note under a section heading (2026-10-20). */
+function HowCalc({ title = "How this is calculated", children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <details className="rv-howcalc">
+      <summary>{title}</summary>
+      <div className="rv-howcalc-b">{children}</div>
+    </details>
   );
 }
 

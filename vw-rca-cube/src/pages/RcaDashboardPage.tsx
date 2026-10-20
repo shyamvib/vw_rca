@@ -9,6 +9,7 @@ import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
+import { FaqDrawer } from "./Faq";
 
 type Row = {
   label: string;
@@ -1180,6 +1181,7 @@ export function RcaDashboardPage() {
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [faqOpen, setFaqOpen] = useState(false);
   const [startDraft, setStartDraft] = useState<string | null>(null);
   const [endDraft, setEndDraft] = useState<string | null>(null);
   const [autoEndDraft, setAutoEndDraft] = useState<boolean | null>(null);
@@ -1583,6 +1585,7 @@ export function RcaDashboardPage() {
       className={`rca-root${busy || refreshRunning ? " rca-root-busy" : ""}`}
       aria-busy={busy || refreshRunning}
     >
+      {faqOpen ? <FaqDrawer onClose={() => setFaqOpen(false)} /> : null}
       {settingsOpen ? (
         <>
           <div
@@ -1822,7 +1825,14 @@ export function RcaDashboardPage() {
               />
               <button
                 type="button"
-                className="rca-btn rca-btn-ghost rca-top-push"
+                className={`rca-btn rca-btn-ghost rca-top-push${faqOpen ? " is-active" : ""}`}
+                onClick={() => setFaqOpen(v => !v)}
+              >
+                ? FAQ
+              </button>
+              <button
+                type="button"
+                className="rca-btn rca-btn-ghost"
                 onClick={signOut}
               >
                 Sign out
@@ -1919,7 +1929,14 @@ export function RcaDashboardPage() {
           </div>
           <button
             type="button"
-            className={`rca-btn rca-btn-ghost rca-top-push${settingsOpen ? " is-active" : ""}`}
+            className={`rca-btn rca-btn-ghost rca-top-push${faqOpen ? " is-active" : ""}`}
+            onClick={() => setFaqOpen(v => !v)}
+          >
+            ? FAQ
+          </button>
+          <button
+            type="button"
+            className={`rca-btn rca-btn-ghost${settingsOpen ? " is-active" : ""}`}
             onClick={() => setSettingsOpen(v => !v)}
           >
             ⚙ Settings
