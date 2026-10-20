@@ -219,6 +219,7 @@ export function RepView(props: {
     try { return { sellHours: 28, weighted: true, pins: {}, ...JSON.parse(localStorage.getItem("rv-week-plan") || "{}") }; } catch { return { sellHours: 28, weighted: true, pins: {} }; }
   });
   const savePlan = (p: PlanState) => { setPlan(p); try { localStorage.setItem("rv-week-plan", JSON.stringify(p)); } catch { /* ignore */ } };
+  const planRows = usePlanRows(weekBookQ?.ready ? weekBookQ : null, weekFams, plan, sales, thisWeek?.id ?? "");
   // Bug fix (Shyam, 2026-09-28 round 5): this used to always query "Today"'s
   // periodId no matter which tab a clinic card was clicked from. A clinic
   // with $0 actual+expected specifically today (weekend baseline, etc.) but
@@ -398,7 +399,7 @@ export function RepView(props: {
             <div className="rv-loading">Loading {sales}'s day…</div>
           ) : (
             <>
-            {wb ? <NextBestAction rows={rankActions(wb, weekFams, plan)} onPlan={() => setTab("plan")} /> : null}
+            {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TouchKpis sales={sales} w="week" src={kpiSrc} />
             <TodayTab
               agenda={wb ? (
@@ -3466,27 +3467,109 @@ const hrsFor = (n: number, per: number) => Math.max(1, Math.min(10, Math.ceil(n 
 
 type ActionRow = { ids?: string[]; id: string; p: PKey; label: string; detail: string; hrs: number; up: number; pr: number; exp: number; score: number; inPlan?: boolean };
 
-function rankActions(b: Book, fams: Wins, plan: PlanState): ActionRow[] {
+/** Likelihood a touched clinic orders, from this rep's own touch record over the quarter (shrunk toward 50% when the
+ * sample is small); the fixed guesses it replaces were 0.5-0.7. Returns the base rate and where it came from. */
+function touchRate(b: Book): { pr: number; n: number; own: number | null } {
+  const e = b.effortWin?.quarter;
+  const n = e?.touched ?? 0, re = e?.touchedRe ?? 0;
+  return { pr: (re + 0.5 * 20) / (n + 20), n, own: n ? re / n : null };
+}
+
+/** Product actions from the status model (STOPPED / DECLINING per test) and the product mix. Dollars are weekly. */
+function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string): Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> {
+  const d = pgd.data as ({ clinics: PGClinic[]; baseWeeks?: number } | null);
+  if (!d || !d.baseWeeks) return [];
+  const wk = d.baseWeeks;
+  const out: Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> = [];
+  const famsOfClinic = (c: PGClinic) => Object.keys(c.base ?? {});
+  // Weekly baseline revenue of the families a clinic stopped / is declining on (test names run longer than the family name).
+  const lost = (status: string) => {
+    const hit: Array<{ c: PGClinic; up: number }> = [];
+    for (const c of d.clinics) {
+      if (c.isNew) continue;
+      let up = 0;
+      for (const [t, st] of c.tests ?? []) {
+        if (st !== status) continue;
+        const f = famsOfClinic(c).find(x => t.toLowerCase().startsWith(x.toLowerCase()));
+        if (f) up += (c.baseRev?.[f] ?? 0) / wk;
+      }
+      if (up > 0) hit.push({ c, up });
+    }
+    return hit.sort((a, b2) => b2.up - a.up).slice(0, 25);
+  };
+  const stopped = lost("STOPPED"), declining = lost("DECLINING");
+  if (stopped.length) out.push({ ids: stopped.map(x => x.c.clinic), id: "stopped", p: "Retention", label: "Win back stopped products", detail: `${stopped.length} clinics STOPPED a product they ordered 3+ times`, hrs: hrsFor(stopped.length, 0.3), up: 0.5 * stopped.reduce((t, x) => t + x.up, 0), prMul: 0.8 });
+  if (declining.length) out.push({ ids: declining.map(x => x.c.clinic), id: "declining", p: "Retention", label: "Re-engage declining products", detail: `${declining.length} clinics ordering a product at half its usual rate`, hrs: hrsFor(declining.length, 0.25), up: 0.25 * declining.reduce((t, x) => t + x.up, 0), prMul: 0.9 });
+  // Target product (the scorecard's default family): below expected, adoption gaps, single orders.
+  const fam = famName;
+  const famRev = d.clinics.reduce((t, c) => t + (c.baseRev?.[fam] ?? 0), 0), famOrd = d.clinics.reduce((t, c) => t + (c.base?.[fam] ?? 0), 0);
+  const perOrder = famOrd ? famRev / famOrd : 0;
+  const below = d.clinics.map(c => ({ c, gap: famExpected(c, fam) - (c.win[fam] ?? 0) })).filter(x => famExpected(x.c, fam) >= 1 && x.gap > 0.5).sort((a, b2) => b2.gap - a.gap).slice(0, 25);
+  if (below.length) out.push({ ids: below.map(x => x.c.clinic), id: "famBelow", p: "Product Growth", label: `Lift ${fam} orders`, detail: `${below.length} clinics below their expected ${fam} orders`, hrs: hrsFor(below.length, 0.2), up: below.reduce((t, x) => t + x.gap, 0) * perOrder, prMul: 1 });
+  const newOrdering = d.clinics.filter(c => (b.newIds ?? []).includes(c.clinic) && Object.keys(c.win).some(f => f !== "Unmapped" && f !== NON_ZOOMER && c.win[f] > 0) && !((c.win[fam] ?? 0) > 0));
+  if (newOrdering.length) out.push({ ids: newOrdering.map(c => c.clinic), id: "famAdopt", p: "Product Growth", label: `Introduce ${fam} to new clinics`, detail: `${newOrdering.length} new clinics ordering other Zoomers, not ${fam}`, hrs: hrsFor(newOrdering.length, 0.2), up: newOrdering.length * perOrder, prMul: 0.8 });
+  const once = d.clinics.filter(c => (c.win[fam] ?? 0) === 1);
+  if (once.length) out.push({ ids: once.map(c => c.clinic), id: "famRepeat", p: "Product Growth", label: `Ask for the ${fam} repeat`, detail: `${once.length} clinics ordered ${fam} once this week`, hrs: hrsFor(once.length, 0.15), up: once.length * perOrder, prMul: 0.9 });
+  const ws = pgd.elig.filter(e => e.family === fam && !((d.clinics.find(c => c.clinic === e.clinic)?.life[fam] ?? 0) > 0));
+  if (ws.length) out.push({ ids: [...new Set(ws.map(e => e.clinic))], id: "whitespace", p: "Product Growth", label: `Introduce ${fam} (whitespace)`, detail: `${new Set(ws.map(e => e.clinic)).size} clinics you marked eligible, never ordered`, hrs: hrsFor(ws.length, 0.25), up: ws.length * perOrder, prMul: 0.6 });
+  const pgA = pgStats(b, d.clinics, pgd.elig, "");
+  if (pgA.xs.length) out.push({ ids: pgA.xs.map(x => x.clinic), id: "crosssell", p: "Expansion", label: "Pitch a second product family", detail: `${pgA.xs.length} active clinics on 1-2 families`, hrs: hrsFor(pgA.xs.length, 0.2), up: pgA.xsUp / 4, prMul: 0.6 });
+  return out;
+}
+
+/** Everything the plan ranks: the scorecard's opportunity pools, the lifecycle and touch pools, and the product actions. */
+function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<typeof usePG>, famName = "Hormone Zoomer"): ActionRow[] {
   const o = b.opp;
   if (!o) return [];
   const st = pillarStatus(b, fams);
-  const raw: Array<Omit<ActionRow, "exp" | "score">> = [];
-  if (o.callFirst.n) raw.push({ ids: o.callFirst.ids, id: "callFirst", p: "Retention", label: "Overdue reorder calls", detail: `${o.callFirst.n} clinics on Call first`, hrs: hrsFor(o.callFirst.n, 0.25), up: o.callFirst.up, pr: 0.55 });
-  if (o.atRisk.n) raw.push({ ids: o.atRisk.ids, id: "atRisk", p: "Retention", label: "Check in on at-risk clinics", detail: `${o.atRisk.n} clinics, ${K(o.atRisk.up)} below baseline`, hrs: hrsFor(o.atRisk.n, 0.3), up: o.atRisk.up, pr: 0.5 });
-  if (o.nurture.n) raw.push({ ids: o.nurture.ids, id: "nurture", p: "New Business", label: "Nurture new clinics to their next order", detail: `${o.nurture.n} new clinics due 14–21d`, hrs: hrsFor(o.nurture.n, 0.3), up: o.nurture.up, pr: 0.5 });
-  if (o.lowAov.n) raw.push({ ids: o.lowAov.ids, id: "lowAov", p: "Bundle growth", label: "Bundle suggestion on next order", detail: `${o.lowAov.n} clinics under $400 AOV`, hrs: hrsFor(o.lowAov.n, 0.2), up: o.lowAov.up, pr: 0.5 });
-  if (o.growing.n) raw.push({ ids: o.growing.ids, id: "growing", p: "Expansion", label: "Thank and expand growing clinics", detail: `${o.growing.n} clinics above baseline`, hrs: hrsFor(o.growing.n, 0.1), up: o.growing.up * 0.25, pr: 0.7 });
+  const tr = touchRate(b);
+  const raw: Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> = [];
+  const add = (n: number | undefined, a: Omit<ActionRow, "exp" | "score" | "pr" | "hrs" | "detail"> & { detail: string; per: number; prMul: number }) => {
+    if (!n) return;
+    const { per, ...rest } = a;
+    raw.push({ ...rest, hrs: hrsFor(n, per) });
+  };
+  const cf = o.callFirstPlan ?? o.callFirst;
+  add(cf?.n, { ids: cf?.ids, id: "callFirst", p: "Retention", label: "Overdue reorder calls", detail: `top ${cf?.n} of ${o.callFirst?.n} overdue clinics by dollars (not churned)`, per: 0.25, up: cf?.up, prMul: 1.1 });
+  const ar = o.atRiskPlan ?? o.atRisk;
+  add(ar?.n, { ids: ar?.ids, id: "atRisk", p: "Retention", label: "Check in on at-risk clinics", detail: `top ${ar?.n} of ${o.atRisk?.n} at-risk clinics, ${K(ar?.up ?? 0)} below baseline`, per: 0.3, up: ar?.up, prMul: 1 });
+  add(o.churned?.n, { ids: o.churned?.ids, id: "churned", p: "Retention", label: "Win back churned clinics", detail: `${o.churned?.n} biggest clinics gone quiet in the last 6 months (half their baseline counted)`, per: 0.3, up: o.churned?.up, prMul: 0.5 });
+  add(o.nearChurn?.n, { ids: o.nearChurn?.ids, id: "nearChurn", p: "New Business", label: "Save new clinics near the churn line", detail: `${o.nearChurn?.n} new clinics silent 30-44 days`, per: 0.3, up: o.nearChurn?.up, prMul: 0.7 });
+  add(o.secondOrder?.n, { ids: o.secondOrder?.ids, id: "secondOrder", p: "New Business", label: "Get the second order", detail: `${o.secondOrder?.n} new clinics with one order so far`, per: 0.25, up: o.secondOrder?.up, prMul: 0.9 });
+  add(o.nurtureNew?.n, { ids: o.nurtureNew?.ids, id: "nurture", p: "New Business", label: "Nurture new clinics to order 4", detail: `${o.nurtureNew?.n} new clinics on orders 2-3, due for the next`, per: 0.3, up: o.nurtureNew?.up, prMul: 1 });
+  add(o.returning?.n, { ids: o.returning?.ids, id: "returning", p: "New Business", label: "Make the restart stick", detail: `${o.returning?.n} biggest returning clinics ordering again`, per: 0.15, up: o.returning?.up, prMul: 1.1 });
+  const la = o.lowAovPlan ?? o.lowAov;
+  add(la?.n, { ids: la?.ids, id: "lowAov", p: "Bundle growth", label: "Bundle suggestion on next order", detail: `top ${la?.n} of ${o.lowAov?.n} clinics under $400 AOV`, per: 0.2, up: la?.up, prMul: 0.9 });
+  const gr = o.growingPlan ?? o.growing;
+  add(gr?.n, { ids: gr?.ids, id: "growing", p: "Expansion", label: "Thank and expand growing clinics", detail: `top ${gr?.n} of ${o.growing?.n} clinics above baseline`, per: 0.1, up: (gr?.up ?? 0) * 0.25, prMul: 1.3 });
+  add(o.followUp?.n, { ids: o.followUp?.ids, id: "followUp", p: "Retention", label: "Follow up touched clinics that have not reordered", detail: `${o.followUp?.n} clinics touched this week, no order since`, per: 0.2, up: o.followUp?.up, prMul: 0.8 });
+  add(o.idle?.n, { ids: o.idle?.ids, id: "idle", p: "Retention", label: "First touch for the biggest idle clinics", detail: `${o.idle?.n} untouched clinics with no order this week`, per: 0.25, up: o.idle?.up, prMul: 0.7 });
+  add(o.gap?.n, { ids: o.gap?.ids, id: "gap", p: "Retention", label: "Close the gap: the clinics behind goal", detail: `${o.gap?.n} clinics make up most of this week's shortfall`, per: 0.3, up: o.gap?.up, prMul: 0.5 });
+  if (pgd) raw.push(...productActions(b, pgd, famName));
   const rows: ActionRow[] = raw
-    .map(a => {
-      const exp = a.up * a.pr;
+    .map(({ prMul, ...a }) => {
+      const pr = Math.min(0.9, tr.pr * prMul);
+      const exp = a.up * pr;
       const w = plan.weighted ? WEIGHT[st[a.p] ?? "good"] ?? 1 : 1;
-      return { ...a, exp, score: (exp / a.hrs) * w };
+      return { ...a, pr, exp, score: (exp / a.hrs) * w };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b2) => b2.score - a.score);
   let used = 0;
   for (const r of rows) if (plan.pins[r.id] === "in") { used += r.hrs; r.inPlan = true; }
   for (const r of rows) if (!r.inPlan && plan.pins[r.id] !== "out" && used + r.hrs <= plan.sellHours) { used += r.hrs; r.inPlan = true; }
   return rows;
+}
+
+/** One ranking for the Today strip and the plan page. */
+function usePlanRows(b: Book | null, fams: Wins, plan: PlanState, sales: string, periodId: string): ActionRow[] {
+  const pgd = usePG(sales, periodId);
+  const famName = useMemo(() => {
+    const t = new Map<string, number>();
+    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
+    const names = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+    return names.find(f => /hormone\s*zoomer/i.test(f)) ?? names[0] ?? "Hormone Zoomer";
+  }, [pgd.data]);
+  return useMemo(() => (b ? rankActions(b, fams, plan, pgd, famName) : []), [b, fams, plan, pgd, famName]);
 }
 
 function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => void }) {
@@ -3595,12 +3678,15 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
 }
 
 function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; periodId: string; b: Book; fams: Wins; plan: PlanState; onPlan: (p: PlanState) => void }) {
-  const rows = rankActions(b, fams, plan);
+  const rows = usePlanRows(b, fams, plan, sales, periodId);
   const st = pillarStatus(b, fams);
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   const openIds = (ids: string[] | undefined, label: string) =>
     ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
+  const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const gp = paceQ?.ready ? paceQ : null;
+  const tr = touchRate(b);
   const inPlan = rows.filter(r => r.inPlan);
   const used = inPlan.reduce((s, r) => s + r.hrs, 0);
   const expTotal = inPlan.reduce((s, r) => s + r.exp, 0);
@@ -3652,6 +3738,32 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
           <div className="rv-wp-ks2">Behind pillars score x1.5, watch x1.15. Turn off to rank on revenue per hour alone.</div>
         </button>
       </div>
+      {gp && gp.plan > 0 ? (() => {
+        const gap = Math.max(0, gp.plan - gp.heading);
+        const exNew = Math.max(0, (gp.newPlan ?? 0) - (gp.newHeading ?? 0)), exOld = Math.max(0, (gp.existingPlan ?? 0) - (gp.existingHeading ?? 0));
+        const cover = gap ? Math.min(1, expTotal / gap) : 1;
+        return (
+          <div className="rv-wp-card rv-wp-gap">
+            <div className="rv-wp-ch"><h2>Gap to goal this week<Info k="gap" /></h2></div>
+            <div className="rv-wp-gapnums">
+              <div><span>Heading</span><b>{K(gp.heading)}</b></div>
+              <div><span>Goal</span><b>{K(gp.plan)}</b></div>
+              <div><span>{gap ? "Shortfall" : "Ahead by"}</span><b className={gap ? "bad" : "good"}>{K(gap || gp.heading - gp.plan)}</b></div>
+              <div><span>Plan expects</span><b className="g">{K(expTotal)}</b></div>
+            </div>
+            {gap ? (
+              <>
+                <div className="rv-wp-pb big"><i style={{ width: `${cover * 100}%`, background: cover >= 1 ? "#16a34a" : "#3b82f6" }} /></div>
+                <p className="rv-wp-ks">
+                  {cover >= 1 ? "The plan more than covers the shortfall." : `The plan covers ${Math.round(cover * 100)}% of the shortfall.`}
+                  {gp.existingPlan != null && gp.newPlan != null ? ` Existing clinics ${gp.existingHeading >= gp.existingPlan ? `${K(gp.existingHeading - gp.existingPlan)} ahead` : `${K(exOld)} short`}, new business ${(gp.newHeading ?? 0) >= gp.newPlan ? `${K((gp.newHeading ?? 0) - gp.newPlan)} ahead` : `${K(exNew)} short`}.` : ""}
+                  {cover < 1 ? " Add hours or pin more actions in to close it." : ""}
+                </p>
+              </>
+            ) : <p className="rv-wp-ks">Pace is at or above the weekly goal; the plan is about protecting it.</p>}
+          </div>
+        );
+      })() : null}
       <div className="rv-wp-card">
         <div className="rv-wp-ch"><h2>Your 40 hours<Info k="hours" /></h2>
           <div className="rv-hours-key">
@@ -3682,7 +3794,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
           ))}
         </div>
         <div className="rv-wp-card p0">
-          <div className="rv-wp-ch pad"><div><h2>Action queue<Info k="queue" /></h2><p className="rv-wp-ks">Expected revenue = upside x likelihood. Hours and likelihoods are planning estimates.</p></div></div>
+          <div className="rv-wp-ch pad"><div><h2>Action queue<Info k="queue" /></h2><p className="rv-wp-ks">Expected revenue = upside x likelihood. {tr.own !== null ? `Likelihood starts from your own reorder rate after a touch: ${Math.round(tr.own * 100)}% of ${tr.n} clinics touched this quarter, blended toward 50% while the sample is small, then adjusted per action.` : "No touches logged this quarter, so likelihood starts at 50%."} Win-backs count half their baseline.</p></div></div>
           <div className="rv-plan-row hd"><span>#</span><span>Action</span><span>Hours</span><span>Expected</span><span>Per hour</span><span>Status</span></div>
           {rows.map((r, i) => (
             <button type="button" key={r.id} className={`rv-plan-row${r.inPlan ? " in" : ""}`} onClick={() => toggle(r.id, !!r.inPlan)}>
@@ -3694,7 +3806,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
               <span className="rv-mono st">{r.inPlan ? "In plan" : "Out"}{plan.pins[r.id] ? " 📌" : ""}</span>
             </button>
           ))}
-          <p className="rv-wp-ks pad">Click a row to pin it in or out; click the clinic count to see the clinic list. Prospect calls, product whitespace and cross-sell aren't ranked yet: they need CRM and clinic × product data.</p>
+          <p className="rv-wp-ks pad">Click a row to pin it in or out; click the clinic count to see the clinic list. Prospect calls are not ranked yet: they need CRM lead data.</p>
         </div>
       </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
@@ -3740,7 +3852,7 @@ function TourGuide({ setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 const INFO: Record<string, string> = {
   lb: "Ranks reps on % of goal for this window. Toggle my team / all reps. Team leads are excluded; other reps' clinic data stays private.",
   gauge: "Solid needle = booked so far. Dotted needle = where you're heading at current pace. End of the dial = goal. Shows this week on Today.",
-  call: "Existing clinics 5–45 days since their last order (beyond 45 = lost), ranked by $ at stake then days since order. Filter by health note or portfolio status. Click a clinic for its full card.",
+  call: "Existing clinics at least 5 days since their last order that have not churned by their own threshold (45 days, or 3 times their usual gap for slow buyers), ranked by $ at stake then days since order. Filter by health note or portfolio status. Click a clinic for its full card.",
   newc: "New clinics due for their next order, order 4 first. Use the days-between-orders filter to change the window (default 14–21 days). Shows who dropped off before the next order.",
   tree: "The gap between actual and goal for this window, split into volume vs AOV, bundles vs single panels, clinic cohorts and states. Green is ahead of goal, red is behind. Click any branch for its clinic list. The toggle switches between the simple and the detailed view.",
   funnel: "How many providers placed order 1, 2, 3… and where they dropped off. Click a stage for the clinic list.",
@@ -3754,6 +3866,7 @@ const INFO: Record<string, string> = {
   nba: "The single action with the highest expected revenue per hour this week. 'See my week' opens your full plan.",
   opp: "Your scorecard's Opportunity column as cards: count, $ upside, suggested action. Click the count for clinics, 'Add to today' to plan it, 'See in scorecard' to jump there.",
   week: "Set your selling hours; actions fill them from the top by expected revenue per hour.",
+  gap: "Where this week is heading against its goal (existing clinics plus the new-business goal), and how much of any shortfall the actions in your plan are expected to cover.",
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
   queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; click the clinic count for the list. Hours and likelihoods are estimates.",
@@ -3800,7 +3913,7 @@ function Info({ k }: { k: string }) {
 /* ── Product Growth pillar (Shyam, 2026-10-06) ─────────────────────────── */
 type PGClinic = {
   clinic: string; name: string; win: Record<string, number>; life: Record<string, number>; rev?: Record<string, number>;
-  base?: Record<string, number>; share?: number; isNew?: boolean; tests?: Array<[string, string]>;
+  base?: Record<string, number>; baseRev?: Record<string, number>; share?: number; isNew?: boolean; tests?: Array<[string, string]>;
 };
 const STATUS_RANK = ["STOPPED", "DECLINING", "RESTARTED", "NEW"];
 /** Portfolio status of a clinic for one product family. Statuses are per test and test names run longer than the family

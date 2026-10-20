@@ -17,6 +17,8 @@ import { familyOf, num, splitFamilies, TABLE } from "./powerbi";
 export type PGClinic = { clinic: string; name: string; win: Record<string, number>; life: Record<string, number>; rev?: Record<string, number>;
   /** orders per family over the baseline period */
   base?: Record<string, number>;
+  /** revenue per family over the baseline period (split evenly when an order spans families) */
+  baseRev?: Record<string, number>;
   /** the window's share of the clinic's baseline (expected orders = base x share) */
   share?: number;
   isNew?: boolean;
@@ -26,10 +28,10 @@ export type PGClinic = { clinic: string; name: string; win: Record<string, numbe
 
 export const productGrowth = scopedAction({
   args: { periodId: v.string(), sales: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ ready: boolean; start?: string; end?: string; clinics: PGClinic[] }> => {
+  handler: async (ctx, args): Promise<{ ready: boolean; start?: string; end?: string; baseWeeks?: number; clinics: PGClinic[] }> => {
     if (!args.sales) return { ready: false, clinics: [] };
     const cfgKey = viewerCfgKey(ctx);
-    const key = (cfgKey ?? "") + `pg3|${args.periodId}|${args.sales}`;
+    const key = (cfgKey ?? "") + `pg4|${args.periodId}|${args.sales}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
     if (hit) return JSON.parse(hit);
     const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, { cfgKey, periodId: args.periodId });
@@ -74,7 +76,12 @@ export const productGrowth = scopedAction({
       const c = acc.get(String(r[`${TABLE}[clinic_id]`] ?? ""));
       if (!c) continue;
       c.base ??= {};
-      for (const f of splitFamilies(familyOf(r))) c.base[f] = (c.base[f] ?? 0) + num(r, "ord");
+      const fs = splitFamilies(familyOf(r));
+      c.baseRev ??= {};
+      for (const f of fs) {
+        c.base[f] = (c.base[f] ?? 0) + num(r, "ord");
+        c.baseRev[f] = (c.baseRev[f] ?? 0) + num(r, "rev") / fs.length;
+      }
     }
     for (const c of acc.values()) {
       const m = meta.get(c.clinic);
@@ -95,7 +102,7 @@ export const productGrowth = scopedAction({
       if (!c || !st || st === "null" || !test) continue;
       (c.tests ??= []).push([test, st]);
     }
-    const out = { ready: true, start, end, clinics: [...acc.values()].filter(c => Object.keys(c.life).length || Object.keys(c.base ?? {}).length) };
+    const out = { ready: true, start, end, baseWeeks: baseDays.length / 7, clinics: [...acc.values()].filter(c => Object.keys(c.life).length || Object.keys(c.base ?? {}).length) };
     await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(out) });
     return out;
   },

@@ -318,7 +318,9 @@ export const book = scopedQuery({
         const last = since(cutoff, r.lastOrderAllTime);
         return { r, every, last };
       })
-      .filter(x => x.last !== null && x.last >= 5 && x.last < 45)
+      // Overdue = at least 5 days since the last order and not yet churned by the clinic's OWN threshold (45 days, or 3 x its
+      // usual gap for a slow buyer), so a slow-rhythm clinic stays on the list past day 45 (2026-10-19).
+      .filter(x => x.last !== null && x.last >= 5 && !isChurned(x.r))
       .filter(x => !args.health || x.r.health.includes(args.health))
       .filter(x => !args.pstatus || x.r.pstatus.includes(args.pstatus));
     // Chip counts (Shyam 2026-09-30): clinics in the 5–44 day window per tag,
@@ -493,7 +495,45 @@ export const book = scopedQuery({
     const lowUp = (r: ClinicRow) => Math.max(0, LOW_AOV - r.aov) * r.orders;
     const cfUp = (r: ClinicRow) => Math.max(0, r.expected - r.actual);
     const newAovV = newOrd ? newRev / newOrd : actual && orders ? actual / orders : 0;
+    // Action pools for My week plan (2026-10-19), all on the lifecycle rules: existing = not new with a baseline, new = first
+    // order this calendar year, churn by each clinic's own threshold. `up` is weekly dollars at stake; win-backs count half.
+    const wkBase = (r: ClinicRow) => r.baselineWeekly ?? 0;
+    const pool = (rs: ClinicRow[], up: number) => ({ n: rs.length, up, ids: rs.map(r => r.clinic) });
+    const churnedWin = existing
+      .filter(r => isChurned(r) && (since(cutoff, r.lastOrderAllTime) ?? 9999) <= 180)
+      .sort((a, b) => wkBase(b) - wkBase(a))
+      .slice(0, 25);
+    const newLive = newRows.filter(r => !isChurned(r));
+    const sinceLast = (r: ClinicRow) => since(cutoff, r.lastOrderAllTime) ?? 0;
+    const nearChurn = newLive.filter(r => sinceLast(r) >= 30);
+    const nearSet = new Set(nearChurn.map(r => r.clinic));
+    const secondOrder = newLive.filter(r => (r.ytdOrders ?? 0) === 1 && !nearSet.has(r.clinic) && sinceLast(r) >= 7);
+    const secondSet = new Set(secondOrder.map(r => r.clinic));
+    const nurtureNew = newLive.filter(r => (r.ytdOrders ?? 0) >= 2 && (r.ytdOrders ?? 0) < 4 && !nearSet.has(r.clinic) && !secondSet.has(r.clinic) && sinceLast(r) >= 14);
+    const returningNow = reactivated.filter(r => r.life === "reactivated").sort((a, b) => b.actual - a.actual).slice(0, 15);
+    const wkE = effortWin.week;
+    const rowOf = new Map(rows.map(r => [r.clinic, r]));
+    const followUpRows = wkE.touchedIds.filter((id: string) => !wkE.touchedReIds.includes(id)).map((id: string) => rowOf.get(id)).filter(Boolean) as ClinicRow[];
+    const idleRows = (wkE.idleIds as string[]).map(id => rowOf.get(id)).filter((r): r is ClinicRow => !!r && !isChurned(r)).sort((a, b) => wkBase(b) - wkBase(a)).slice(0, 15);
+    const behindRows = existing.filter(r => r.delta < 0).sort((a, b) => a.delta - b.delta);
+    const behindTotal = sum(behindRows, r => -r.delta);
+    const gapRows: ClinicRow[] = [];
+    for (const r of behindRows) { if (gapRows.length >= 12 || sum(gapRows, x => -x.delta) >= 0.6 * behindTotal) break; gapRows.push(r); }
     const opp = {
+      churned: pool(churnedWin, 0.5 * sum(churnedWin, wkBase)),
+      nearChurn: pool(nearChurn, nearChurn.length * newAovV),
+      secondOrder: pool(secondOrder, secondOrder.length * newAovV),
+      nurtureNew: pool(nurtureNew, nurtureNew.length * newAovV),
+      // Already ordering again: what is at stake is keeping that revenue, so a quarter of what they brought this tab.
+      returning: pool(returningNow, 0.25 * sum(returningNow, r => r.actual)),
+      // The plan works the biggest few of each long pool (a rep cannot call 285 clinics in a week): capped at 25 by dollars.
+      callFirstPlan: (() => { const t = [...callFirstPool].sort((a, b) => cfUp(b.r) - cfUp(a.r)).slice(0, 25); return pool(t.map(x => x.r), sum(t.map(x => x.r), cfUp)); })(),
+      atRiskPlan: (() => { const t = [...atRiskRows].sort((a, b) => -a.realChange - -b.realChange).sort((a, b) => a.realChange - b.realChange).slice(0, 25); return pool(t, sum(t, r => Math.max(0, -r.realChange))); })(),
+      growingPlan: (() => { const t = [...growing].sort((a, b) => b.realChange - a.realChange).slice(0, 15); return pool(t, sum(t, r => r.realChange)); })(),
+      lowAovPlan: (() => { const t = [...lowAov].sort((a, b) => lowUp(b) - lowUp(a)).slice(0, 25); return pool(t, sum(t, lowUp)); })(),
+      followUp: pool(followUpRows, sum(followUpRows, wkBase)),
+      idle: pool(idleRows, sum(idleRows, wkBase)),
+      gap: pool(gapRows, sum(gapRows, r => -r.delta)),
       atRisk: { n: atRiskRows.length, up: atRiskRev, names: top(atRiskRows, r => Math.max(0, -r.realChange)), ids: atRiskRows.map(r => r.clinic) },
       lowAov: { n: lowAov.length, up: sum(lowAov, lowUp), names: top(lowAov, lowUp), ids: lowAov.map(r => r.clinic) },
       callFirst: { n: callFirstPool.length, up: callFirstPool.reduce((s, x) => s + cfUp(x.r), 0), ids: callFirstPool.map(x => x.r.clinic) },
