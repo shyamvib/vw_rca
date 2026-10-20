@@ -131,3 +131,14 @@ Idea (2026-10-19): drop the model's "last 28 days vs prior 90 days" status and u
 - Even with an expectation, the Order Δ is shown only when **expected is 1 or more in the tab**; below that the card reads "vs <1" and a dash.
 - These thresholds only affect the Expected and Order Δ columns; the status thresholds in the Cube model (STOPPED 3, DECLINING 6) are separate.
 - **RESTARTED needs 3 or more earlier orders** of that test (before the 28 + 90 day status window); with fewer it stays NEW (decided 2026-10-19). Parked with the redesign: a guard for slow rhythms (restarted only when the gap is at least 3x the clinic's usual gap for that test, minimum 90 days) and a cap of about 2 years on how far back "earlier" looks.
+
+## 10. Parked: deploying to the server without the tarball (decide later)
+
+Today a deploy is: build a tarball of `analytics/` and `engine/`, copy it to `/home/shyam/rca-engine`, `docker compose up -d --build`, then trigger `/admin/rebuild`. The user runs the copy and build (the permission check blocks the assistant from running prod deploy commands); the assistant runs the rebuild and the live checks. The Cube model is copied separately (`cube/model-vibrant/cubes/*.yml` to `/home/shyam/cube-rca/model/cubes/`, backup first, restart only `cube-rca-cube-rca-1`; the server runs the vibrant variant, not `cube/model`).
+
+Options discussed:
+1. **One deploy script** (tar, copy, compose up, rebuild trigger, health check) for the engine, plus one for the Cube model files with backup and restart. Works today; the assistant can run it if a permission rule allows `ssh` / `scp` to `shyam@10.6.2.34`.
+2. **Server pulls from git.** The server (git 2.43, can reach github.com) clones `shyamvib/vw_rca` (project in the `vw-rca-cube` subfolder) with a read-only deploy key that the user adds under Repo, Settings, Deploy keys; compose points at the subfolder and keeps the same `.env`, project name and data volume; a deploy is `git pull`, `docker compose up -d --build`, rebuild trigger; rollback is `git checkout <commit>`. Trade-offs: the server only gets pushed code (the assistant cannot push, so testing new code on the server before the user pushes needs a branch push); keep it a command, not a cron or webhook, so the service deploys before the frontend when order matters; Cube model files stay a separate careful copy (other teams' models sit in the same folder); the permission rule is still needed for the assistant to run it.
+3. Auto-deploy on push (GitHub Actions to the server): not recommended, the server would have to be reachable from GitHub.
+
+Next step when resumed: write the scripts (option 1), then set up the clone and deploy key (option 2).
