@@ -828,9 +828,9 @@ export function ScorecardGuide({ onOpen }: { onOpen: Go }) {
         <div className="gd-two">
           <dl className="gd-dl">
             <dt>Baseline</dt>
-            <dd>What a clinic normally does: its average over the baseline period (by default the best 91 days of data before the analysis window, which Settings can change). Baselines add up across clinics, reps and the company.</dd>
+            <dd>What a clinic normally does: its average over the baseline period (by default the best 91 days of data before the analysis window, which the company can change). Baselines add up across clinics, reps and the company.</dd>
             <dt>Goal</dt>
-            <dd>The baseline plus a stretch, built from the annual target set in Settings. Existing clinics' goals are never below their baseline. New business has its own goal, a slice of the target.</dd>
+            <dd>The baseline plus a stretch, built from the company's annual target. Existing clinics' goals are never below their baseline. New business has its own goal, a slice of the target.</dd>
             <dt>Change vs baseline</dt>
             <dd>What actually happened compared with what the clinics normally do: actual minus baseline.</dd>
             <dt>Goal stretch</dt>

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 /**
  * FAQ drawer (2026-10-20): the dashboard's ideas and metrics in plain words, searchable, opened from the top bar next to
- * Settings. The Scorecard guide has the per-metric detail with worked examples; this page answers the "what does that
+ * the top bar. The Scorecard guide has the per-metric detail with worked examples; this page answers the "what does that
  * word mean" and "why is it like that" questions.
  */
 type QA = { q: string; a: string };
@@ -22,11 +22,11 @@ const GROUPS: Group[] = [
   {
     title: "The big ideas",
     items: [
-      { q: "What is the baseline?", a: "What a clinic normally does: its average daily revenue over a reference period, weekday by weekday. By default that period is the best 91-day stretch of the year; Settings can switch to a recent period or custom dates. Baseline is the yardstick for \"did they keep what they had\"." },
-      { q: "What is the goal?", a: "The baseline plus a stretch. The yearly target in Settings is spread across the year the way each clinic's baseline is spread across weekdays, so a clinic's goal for a window is its baseline times a factor. For existing clinics the goal is never below the baseline." },
+      { q: "What is the baseline?", a: "What a clinic normally does: its average daily revenue over a reference period, weekday by weekday. By default that period is the best 91-day stretch of the year. Baseline is the yardstick for \"did they keep what they had\"." },
+      { q: "What is the goal?", a: "The baseline plus a stretch. The company's yearly target is spread across the year the way each clinic's baseline is spread across weekdays, so a clinic's goal for a window is its baseline times a factor. For existing clinics the goal is never below the baseline." },
       { q: "What is the goal stretch, and the change vs baseline?", a: "The gap to goal has two parts. Change vs baseline is what really moved: actual minus baseline. Goal stretch is the extra the goal asks for above baseline. Add them and you get the shortfall or surplus against goal." },
       { q: "What does \"heading to\" mean?", a: "Where the window will finish if the rest of it goes like the weekdays so far, shaped by each weekday's usual weight (a Monday counts for more than a Sunday). It is a projection, not a promise." },
-      { q: "What is the new-business goal?", a: "A separate slice of the yearly target for clinics that start ordering this year. By default it equals last year's revenue from new clinics, phased by last year's monthly shape; Settings can override the number. It is shown as its own line so the existing-clinic goal stays clean." },
+      { q: "What is the new-business goal?", a: "A separate slice of the yearly target for clinics that start ordering this year. By default it equals last year's revenue from new clinics, phased by last year's monthly shape (the company can set a different number). It is shown as its own line so the existing-clinic goal stays clean." },
       { q: "What is a window?", a: "The period a number covers: this week, this month, this quarter or custom dates. Goals, baselines and \"so far\" figures all follow the window you are in." },
     ],
   },
@@ -80,9 +80,8 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: "Settings and access",
+    title: "Access",
     items: [
-      { q: "What can be changed in Settings?", a: "The analysis window, the baseline period (best 91 days, a trailing period or custom dates), the yearly target and the new-business goal. Changing the window or baseline recalculates the data; changing the targets applies straight away." },
       { q: "Who can see what?", a: "Team logins see the whole company. A rep login sees one rep's book. A manager rep-view login opens any rep's Rep view only, with no company dashboard or Business Feed." },
       { q: "How do I get a login or reset a password?", a: "Ask the dashboard admin: logins are created for your work email and tied to your salesperson name. Passwords are one-time starters; use a new one when it is reset." },
     ],

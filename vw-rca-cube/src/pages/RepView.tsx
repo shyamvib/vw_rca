@@ -782,7 +782,7 @@ function Thermo({ pace, lastPace, winLabel }: { pace: Pace | null; lastPace: Pac
         )}
       </p>
       <p className="rv-dim rv-small">
-        Goal = the Settings target spread over the year by baseline weekday weights, projected over the whole window.
+        Goal = the yearly target spread over the year by baseline weekday weights, projected over the whole window.
       </p>
     </div>
   );
@@ -1275,7 +1275,7 @@ function WindowTab({
             <div className="rv-tree-side">
               <div className="rv-eyebrow rv-dim">Goal</div>
               <div className="rv-tree-side-v">{K(b.totals.expected)}</div>
-              {b.totals.baseline !== undefined ? <div className="rv-eyebrow rv-dim" title="Mean run rate over the baseline window; the goal is the Settings target spread over the year by baseline weekday weights">Baseline {K(b.totals.baseline)}</div> : null}
+              {b.totals.baseline !== undefined ? <div className="rv-eyebrow rv-dim" title="Mean run rate over the baseline window; the goal is the yearly target spread over the year by baseline weekday weights">Baseline {K(b.totals.baseline)}</div> : null}
             </div>
             <button type="button" className="rv-tree-node" onClick={() => openFocus("", "Whole book")}>
               <div className="rv-eyebrow rv-dim">{periodLabel}</div>
@@ -1332,7 +1332,7 @@ function WindowTab({
               <div className="rca-root-side-value">{K(b.totals.expected)}</div>
               <div className="rca-eyebrow rca-dim">{b.totals.expOrders.toFixed(0)} orders</div>
               {b.totals.baseline !== undefined ? (
-                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the Settings target spread over the year by baseline weekday weights">Baseline {K(b.totals.baseline)}</div>
+                <div className="rca-eyebrow rca-dim" title="Mean run rate over the baseline window; the goal is the yearly target spread over the year by baseline weekday weights">Baseline {K(b.totals.baseline)}</div>
               ) : null}
             </div>
             <button type="button" className="rca-root-node" onClick={() => openFocus("", "Whole book")}>
@@ -3137,7 +3137,7 @@ function FocusTable({
                     <th>State</th>
                     <th>Cohort</th>
                     <th className="rca-num" title="Mean run rate over the baseline window">Baseline</th>
-                    <th className="rca-num" title="Baseline plus the stretch: the Settings target spread over the year by baseline weekday weights">Goal</th>
+                    <th className="rca-num" title="Baseline plus the stretch: the yearly target spread over the year by baseline weekday weights">Goal</th>
                     <th className="rca-num">Actual</th>
                     <th className="rca-num">Orders</th>
                     <th className="rca-num">Order Δ</th>
