@@ -45,19 +45,20 @@ let lastBuild: { ok: boolean; at: number; secs?: number; error?: string } | null
 // ---- Convex bridge (app state: rep sessions) ------------------------------------------
 const convex = process.env.CONVEX_URL ? new ConvexHttpClient(process.env.CONVEX_URL) : null;
 if (convex && process.env.CONVEX_ADMIN_KEY) (convex as any).setAdminAuth(process.env.CONVEX_ADMIN_KEY);
-const sessionCache = new Map<string, { at: number; value: { rep: string; email: string } | null }>();
+type RepSess = { rep: string; email: string; all?: boolean };
+const sessionCache = new Map<string, { at: number; value: RepSess | null }>();
 
-async function repSession(credential: string): Promise<{ rep: string; email: string } | null> {
+async function repSession(credential: string): Promise<RepSess | null> {
   const hit = sessionCache.get(credential);
   if (hit && Date.now() - hit.at < 30_000) return hit.value;
   if (!convex) return null;
-  const value = (await convex.query("repAuth:me" as any, { credential })) as { rep: string; email: string } | null;
+  const value = (await convex.query("repAuth:me" as any, { credential })) as RepSess | null;
   sessionCache.set(credential, { at: Date.now(), value });
   return value;
 }
 
 /** Mirror a verified rep session into the in-memory db so the handlers' own login check passes. */
-async function mirrorRep(l: Loaded, credential: string, s: { rep: string; email: string }) {
+async function mirrorRep(l: Loaded, credential: string, s: RepSess) {
   const db = l.host.db;
   const token = credential.slice(3);
   const sess = await db.query("repSessions").withIndex("by_token", q => q.eq("token", token)).unique();
@@ -65,8 +66,9 @@ async function mirrorRep(l: Loaded, credential: string, s: { rep: string; email:
   if (sess) await db.patch(sess._id, { lastSeen: now, rep: s.rep, email: s.email });
   else await db.insert("repSessions", { token, email: s.email, rep: s.rep, createdAt: now, lastSeen: now });
   const acct = await db.query("repAccounts").withIndex("by_email", q => q.eq("email", s.email)).unique();
-  if (acct) await db.patch(acct._id, { rep: s.rep });
-  else await db.insert("repAccounts", { email: s.email, rep: s.rep, salt: "", hash: "", createdAt: now, updatedAt: now });
+  // `all` = a rep-view-only login that may open any rep's book: the handlers read it from this mirrored account.
+  if (acct) await db.patch(acct._id, { rep: s.rep, allReps: s.all === true });
+  else await db.insert("repAccounts", { email: s.email, rep: s.rep, allReps: s.all === true, salt: "", hash: "", createdAt: now, updatedAt: now });
 }
 
 /** Refresh the user-edited app-state tables (target, window, eligibility, plans) from Convex. */
