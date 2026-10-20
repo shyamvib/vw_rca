@@ -3468,6 +3468,28 @@ const hrsFor = (n: number, per: number) => Math.max(1, Math.min(10, Math.ceil(n 
 
 type ActionRow = { est?: number; ids?: string[]; id: string; p: PKey; label: string; detail: string; hrs: number; up: number; pr: number; exp: number; score: number; inPlan?: boolean };
 
+/** What each action's upside dollars are (weekly), shown in the plan's "how expected revenue is calculated" panel. */
+const UPSIDE_BASIS: Record<string, string> = {
+  callFirst: "What these clinics are short of their goal this week (goal minus actual), top 25 by dollars",
+  atRisk: "How far below baseline these clinics are, top 25",
+  churned: "Half the weekly baseline revenue of the biggest clinics that went quiet in the last 6 months",
+  nearChurn: "One typical new-clinic order for each new clinic silent 30-44 days",
+  secondOrder: "One typical new-clinic order for each new clinic with a single order",
+  nurture: "One typical new-clinic order for each new clinic on orders 2-3",
+  returning: "A quarter of what the biggest returning clinics ordered this week (keeping them ordering)",
+  lowAov: "The gap between $400 and each clinic's average order, times its orders, top 25",
+  followUp: "Weekly baseline revenue of clinics you touched this week that have not reordered",
+  idle: "Weekly baseline revenue of the 15 biggest untouched clinics with no order this week",
+  gap: "The shortfall against goal of the few clinics that make up 60% of this week's gap",
+  stopped: "Half the weekly baseline revenue of each product the clinic STOPPED ordering",
+  declining: "A quarter of the weekly baseline revenue of each product ordered at half its usual rate",
+  famBelow: "Orders below expected for the target product, times its revenue per order",
+  famAdopt: "One order of the target product at its revenue per order, per new clinic ordering other Zoomers",
+  famRepeat: "One more order of the target product per clinic that ordered it once",
+  whitespace: "One order of the target product per clinic you marked eligible",
+  crosssell: "A quarter of each clinic's per-family spend (one more family at today's rate)",
+};
+
 /** Likelihood a touched clinic orders, from this rep's own touch record over the quarter (shrunk toward 50% when the
  * sample is small); the fixed guesses it replaces were 0.5-0.7. Returns the base rate and where it came from. */
 function touchRate(b: Book): { pr: number; n: number; own: number | null } {
@@ -3823,6 +3845,23 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
               <span className="rv-mono st">{r.inPlan ? "In plan" : "Out"}{plan.pins[r.id] ? " 📌" : ""}</span>
             </div>
           ))}
+          <details className="rv-wp-how">
+            <summary>How expected revenue is calculated</summary>
+            <div className="rv-wp-how-b">
+              <p><b>Expected revenue = upside x likelihood.</b> Per hour = expected / hours. Upside is the weekly dollars at stake if the action works; likelihood is the chance it does. Hours default to a time per clinic and you can overwrite them in the queue.</p>
+              <p><b>Likelihood</b> starts from your reorder rate after a touch this quarter{tr.own !== null ? ` (${Math.round(tr.own * 100)}% of ${tr.n} touched clinics)` : ""}, blended toward 50% (as if 20 clinics at 50% were added) so a small sample cannot swing it. It becomes {Math.round(tr.pr * 100)}% for you, then each action scales it: win-backs and idle clinics lower, calls and restarts higher, capped at 90%.</p>
+              <p><b>Pillar boost:</b> when "Favour pillars that are behind" is on, per hour is multiplied by 1.5 for a behind pillar and 1.15 for watch. That changes the order, not the expected dollars.</p>
+              <table>
+                <thead><tr><th>Action</th><th>What the upside is</th><th>Upside</th><th>Likelihood</th><th>Expected</th></tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.id}><td>{r.label}</td><td>{UPSIDE_BASIS[r.id] ?? ""}</td><td>{K(r.up)}</td><td>{Math.round(r.pr * 100)}%</td><td>{K(r.exp)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p>Prospect calls are not included: they need CRM lead data. These are planning estimates, not forecasts.</p>
+            </div>
+          </details>
           <p className="rv-wp-ks pad">Click a row to pin it in or out; type in the Hours box to set your own time for an action; click the clinic count to see the clinic list. Prospect calls are not ranked yet: they need CRM lead data.</p>
         </div>
       </div>
@@ -3860,7 +3899,8 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
       { t: "Hours I can sell", d: "Set your selling hours; the rest of the 40 go to admin, meetings and travel. Actions fill your hours from the top of the queue." },
       { t: "Gap to goal this week", d: "Where the week is heading against goal, and how much of any shortfall the planned actions are expected to cover (existing clinics and new business shown separately)." },
       { t: "Which pillar first", d: "Pillars ranked by expected revenue per hour of what is in your plan. Click one to show only its actions in the queue." },
-      { t: "Action queue", d: "Every action ranked by expected dollars per hour (upside x likelihood / hours). Click a row to pin it in or out, type in the Hours box to use your own time, click the clinic count for the list. Likelihood starts from your own reorder rate after a touch." },
+      { t: "Action queue", d: "Every action ranked by expected dollars per hour. Click a row to pin it in or out, type in the Hours box to use your own time, click the clinic count for the list." },
+      { t: "How expected revenue is calculated", d: "Expected = upside x likelihood. Upside is the weekly dollars at stake for that action (its basis is listed under the queue). Likelihood starts from your own reorder rate after a touch this quarter, blended toward 50% while the sample is small, then adjusted per action and capped at 90%. Win-backs count half their baseline. Open \"How expected revenue is calculated\" under the queue for each action's figures." },
       { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
     ],
   },

@@ -773,3 +773,10 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-tabguide-b dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 18px;margin:0 0 8px}
 .rv-tabguide-b dt{font-weight:600;font-size:13px}
 .rv-tabguide-b dd{margin:2px 0 0;font-size:13px;color:var(--vw-gray-60);line-height:1.4}
+
+.rv-wp-how{padding:10px 16px;border-top:1px solid var(--vw-gray-10);font-size:13px}
+.rv-wp-how summary{cursor:pointer;font-weight:600;color:#1d4ed8}
+.rv-wp-how-b p{margin:8px 0;color:var(--vw-gray-60);line-height:1.45}
+.rv-wp-how table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+.rv-wp-how th,.rv-wp-how td{padding:5px 6px;border-bottom:1px solid var(--vw-gray-10);text-align:left;vertical-align:top}
+.rv-wp-how th:nth-child(n+3),.rv-wp-how td:nth-child(n+3){text-align:right;white-space:nowrap}
