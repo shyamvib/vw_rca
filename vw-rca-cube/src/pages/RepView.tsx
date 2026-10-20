@@ -2319,8 +2319,9 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       const newSet = new Set<string>(b.newIds ?? []);
       const hasProd = (c: PGClinic) => famsOf(c.win).length > 0;
       const newIds = clinics.filter(c => newSet.has(c.clinic) && hasProd(c)).map(c => c.clinic);
-      const exIds = clinics.filter(c => !newSet.has(c.clinic) && (hasProd(c) || famStatus(c, family) === "NEW")).map(c => c.clinic);
+      const exIds = clinics.filter(c => !newSet.has(c.clinic) && hasProd(c)).map(c => c.clinic);
       const isNewC = (cl: string) => newSet.has(cl);
+      const addedC = (cl: string) => (pgMap.get(cl)?.win[family] ?? 0) > 0 && famStatus(pgMap.get(cl), family) === "NEW";
       return {
         universe: () => [...newIds, ...exIds],
         f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1),
@@ -2330,9 +2331,9 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         detail: cl => { const c = pgMap.get(cl); const st = famStatus(c, family); return `${isNewC(cl) ? "New clinic" : "Existing"} · ${c?.win[family] ?? 0} ${family} orders in this window${st ? ` · ${st}` : ""}`; },
         note: `New clinics ordering this window, split by whether they ordered ${family}.`,
         variants: [
-          { label: "All clinics", f: r => (isNewC(r.clinic) ? ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1) : famStatus(pgMap.get(r.clinic), family) === "NEW" ? 1 : -1), up: `Adopted ${family}`, down: `Ordering, but not ${family}`, note: `The card's percentage: new clinics that ordered ${family} plus existing clinics that added it (status NEW), out of all of them that ordered in this window.` },
+          { label: "All clinics", f: r => (isNewC(r.clinic) ? ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1) : addedC(r.clinic) ? 1 : -1), up: `Adopted ${family}`, down: `Ordering, but not ${family}`, note: `The card's percentage: new clinics that ordered ${family} plus existing clinics that ordered it in this window with status NEW, out of all of them that ordered in this window.` },
           { label: "New clinics", inScope: r => isNewC(r.clinic), f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1), up: `Ordered ${family}`, down: `Ordering, but not ${family}`, note: `New clinics (first order this year) that ordered in this window, split by whether ${family} was among their orders. Part of the adoption rate on the card.` },
-          { label: "Existing clinics", inScope: r => !isNewC(r.clinic), f: r => (famStatus(pgMap.get(r.clinic), family) === "NEW" ? 1 : -1), up: `Added ${family} (status NEW)`, down: `Ordering, but have not added ${family}`, note: `Established clinics that ordered in this window, split by whether they added ${family}: Portfolio Changes status NEW means no ${family} orders in the 90 days before the last 28, and fewer than 3 ever before (3+ earlier orders would be RESTARTED, not new to them). It looks at the last 28 days, so it does not move with the tab.` },
+          { label: "Existing clinics", inScope: r => !isNewC(r.clinic), f: r => (addedC(r.clinic) ? 1 : -1), up: `Added ${family}: ordered it in this window, status NEW`, down: `Ordering, but have not added ${family}`, note: `Established clinics that ordered in this window, split by whether they added ${family}: ordered it in this window and Portfolio Changes status is NEW, meaning no ${family} orders in the 90 days before the last 28, and fewer than 3 ever before (3+ earlier orders would be RESTARTED, not new to them). It looks at the last 28 days, so it does not move with the tab.` },
         ],
       };
     }
@@ -3846,9 +3847,9 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   const ppcRange = cnts.length ? (pct(0.25) === pct(0.75) ? String(pct(0.25)) : `${pct(0.25)}–${pct(0.75)}`) : "—";
   const adoptIds = newOrd.filter(c => (c.win[family] ?? 0) > 0).map(c => c.clinic);
   // Existing clinics that added the product: Portfolio Changes says NEW for it (no orders of it in the prior 90 days, fewer than 3 before).
-  const addedIds = clinics.filter(c => !newSet.has(c.clinic) && famStatus(c, family) === "NEW").map(c => c.clinic);
-  // Existing clinics measured: ordering a product in the window, or having added this one (status NEW, which looks at the last 28 days).
-  const exN = clinics.filter(c => !newSet.has(c.clinic) && (prod(c.win).length > 0 || famStatus(c, family) === "NEW")).length;
+  const addedIds = clinics.filter(c => !newSet.has(c.clinic) && (c.win[family] ?? 0) > 0 && famStatus(c, family) === "NEW").map(c => c.clinic);
+  // Existing clinics measured: ordering a product in the window. Added = ordered this family in the window and its status is NEW.
+  const exN = clinics.filter(c => !newSet.has(c.clinic) && prod(c.win).length > 0).length;
   const repIds = buyers.filter(c => c.win[family] >= 2).map(c => c.clinic);
   const activeIds = active.map(c => c.clinic);
   // Cross-sell: active clinics on 1–2 families (lifetime). Suggest the family most
