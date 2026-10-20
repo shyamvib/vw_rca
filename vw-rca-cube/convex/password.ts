@@ -80,6 +80,7 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
 export const ALLOWED_EMAIL_DOMAINS = [
   "vibrant-wellness.com",
   "vibrant-america.com",
+  "vibrant-wellness.co.uk",
 ];
 
 /** Normalizes and validates a work email; returns null when not allowed. */

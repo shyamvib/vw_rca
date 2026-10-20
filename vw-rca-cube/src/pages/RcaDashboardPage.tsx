@@ -3866,7 +3866,7 @@ function AccessLogCard() {
         </>
       ) : null}
       <div className="rca-control-note">
-        Only @vibrant-wellness.com and @vibrant-america.com emails can unlock.
+        Only @vibrant-wellness.com, @vibrant-america.com and @vibrant-wellness.co.uk emails can unlock.
         The email is typed by the user alongside the shared password, so treat
         this as an attribution trail rather than verified identity.
       </div>

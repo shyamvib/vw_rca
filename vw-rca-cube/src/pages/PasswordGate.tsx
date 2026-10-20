@@ -14,7 +14,7 @@ import "./rca.css";
 
 
 
-const ALLOWED = ["vibrant-wellness.com", "vibrant-america.com"];
+const ALLOWED = ["vibrant-wellness.com", "vibrant-america.com", "vibrant-wellness.co.uk"];
 
 export function PasswordGate({ children }: { children: ReactNode }) {
   const convex = useConvex();
@@ -35,7 +35,7 @@ export function PasswordGate({ children }: { children: ReactNode }) {
     const domain = clean.split("@")[1] ?? "";
     if (!ALLOWED.includes(domain)) {
       setBusy(false);
-      setError("Use your @vibrant-wellness.com or @vibrant-america.com email.");
+      setError("Use your @vibrant-wellness.com, @vibrant-america.com or @vibrant-wellness.co.uk email.");
       return;
     }
     try {

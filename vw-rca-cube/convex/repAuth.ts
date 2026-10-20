@@ -175,7 +175,7 @@ async function upsertAccount(
   args: { email: string; rep: string; password?: string },
 ): Promise<UpsertResult> {
     const email = normalizeEmail(args.email);
-    if (!email) return { ok: false, error: "Use a @vibrant-wellness.com or @vibrant-america.com email." };
+    if (!email) return { ok: false, error: "Use a @vibrant-wellness.com, @vibrant-america.com or @vibrant-wellness.co.uk email." };
     const rep = args.rep.trim();
     if (!rep) return { ok: false, error: "Pick the salesperson this login is for." };
     const existing = await ctx.db
