@@ -4002,11 +4002,19 @@ function Info({ k }: { k: string }) {
     return () => clearTimeout(t);
   }, [want, k, step]);
   const touring = want && mine && step != null;
+  // Keep the popover on screen: icons near the right edge (the tab guide's) open it to the left instead.
+  const popRef = useRef<HTMLSpanElement>(null);
+  const [flip, setFlip] = useState(false);
+  useEffect(() => {
+    if (!(o || touring) || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setFlip(r.left + 280 > window.innerWidth - 12);
+  }, [o, touring, step]);
   return (
     <span ref={ref} data-info={k} className={`rv-info${touring ? " is-tour" : ""}`} onMouseLeave={() => setO(false)}>
       <button type="button" className="rv-info-i" aria-label="About this section" onClick={e => { e.stopPropagation(); setO(v => !v); }}>i</button>
       {(o || touring) && (
-        <span className="rv-info-pop" onClick={e => e.stopPropagation()}>
+        <span ref={popRef} className={`rv-info-pop${flip ? " is-flip" : ""}`} onClick={e => e.stopPropagation()}>
           {touring ? <b className="rv-info-step">Tour {step! + 1}/{TOUR.length}</b> : null}
           {INFO[k]}
           {touring ? (

@@ -787,3 +787,4 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-howcalc-b p{margin:4px 0;color:var(--vw-gray-60,#4b5563);line-height:1.45}
 .rv-touch-sub{margin:10px 0 6px;font-size:13px;font-weight:600;color:var(--vw-gray-60,#4b5563)}
 .rv-tabguide-row{display:flex;align-items:center;padding-right:12px}.rv-tabguide-row .rv-tabguide-h{flex:1}
+.rv-info-pop.is-flip{left:auto;right:0}
