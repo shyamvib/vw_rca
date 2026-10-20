@@ -1908,8 +1908,8 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           ? {
               label: "Product adoption",
               value: P(pg.adoption),
-              sub: `${pg.adoptN} of ${pg.newN} new clinics ordered ${pg.family}`,
-              ids: pg.adoptIds, n: pg.adoption, u: "%", better: 1,
+              sub: `${pg.adoptN} of ${pg.newN} new clinics ordered ${pg.family}${pg.addedIds.length ? ` · ${pg.addedIds.length} existing added it` : ""}`,
+              ids: [...pg.adoptIds, ...pg.addedIds], n: pg.adoption, u: "%", better: 1,
               tone: pg.adoption === null ? "na" : pg.adoption >= 0.5 ? "good" : pg.adoption >= 0.3 ? "watch" : "bad",
             }
           : NA("Product adoption", "loading product mix…"),
@@ -2025,8 +2025,10 @@ type Contribution = {
   note: string;
   /** $ shown on a tile when the sign is not itself a dollar figure (churn: baseline $ of the clinics that stopped). */
   amount?: (r: ContribRow) => number;
-  /** Several ways to cut the same metric (growth decomposition: volume effect / AOV effect). */
-  variants?: Array<{ label: string; f: (r: ContribRow) => number; note: string; up: string; down: string }>;
+  /** A line under the clinic's name in the list (product lists: orders vs expected and the status). */
+  detail?: (clinic: string) => string;
+  /** Several ways to cut the same metric (growth decomposition: volume effect / AOV effect). `inScope` limits the clinics a cut counts. */
+  variants?: Array<{ label: string; f: (r: ContribRow) => number; note: string; up: string; down: string; inScope?: (r: ContribRow) => boolean }>;
 };
 const VS_BASELINE: Contribution = {
   universe: b => b.allIds ?? [], f: r => r.delta, unit: "$", up: "Above their goal", down: "Below their goal",
@@ -2076,7 +2078,7 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
   type R = NonNullable<FocusRows>[number] & ContribRow;
   const v = contrib.variants?.[variant];
   const fOf = v?.f ?? contrib.f;
-  const scored = (rows as R[]).map(r => ({ r, c: fOf(r) }));
+  const scored = (rows as R[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
   const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
   const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
   const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
@@ -2111,7 +2113,7 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
         </div>
       ) : null}
       <p className="rv-contrib-note">{v?.note ?? contrib.note} <button type="button" className="rv-explain" onClick={() => openGuide(guideIdFor(label))}>Explain this metric</button></p>
-      <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} />
+      <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} detail={contrib.detail} />
     </>
   );
 }
@@ -2293,6 +2295,46 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     if (!pg) return undefined;
     if (label === "Repeat product rate")
       return { universe: () => pg.buyerIds, f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) >= 2 ? 1 : -1), unit: "clinics", up: `Ordered ${family} 2+ times`, down: `Ordered ${family} once`, note: `Clinics that ordered ${family} in this window, split by whether they reordered it.` };
+    if (label === "Target Product Orders") {
+      const ids = (pgd.data?.clinics ?? []).filter(c => (c.win[family] ?? 0) > 0 || famExpected(c, family) >= 1 || famStatus(c, family)).map(c => c.clinic);
+      const calc = (cl: string) => {
+        const c = pgMap.get(cl);
+        const ord = c?.win[family] ?? 0, exp = famExpected(c, family), st = famStatus(c, family);
+        const down = st === "STOPPED" || st === "DECLINING" || (exp >= 1 && ord < exp);
+        const up = !down && ((exp >= 1 && ord > exp) || ((st === "NEW" || st === "RESTARTED") && ord > 0));
+        return { ord, exp, st, down, up };
+      };
+      return {
+        universe: () => ids,
+        f: r => { const x = calc(r.clinic); return x.down ? -Math.max(x.exp - x.ord, 0.01) : x.up ? Math.max(x.ord - x.exp, 0.01) : 0; },
+        unit: "clinics",
+        up: `Above expected ${family} orders, or newly on it`,
+        down: `Below expected, or stopped / declining on ${family}`,
+        detail: cl => { const x = calc(cl); return `${family}: ${x.ord} ordered${x.exp >= 1 ? ` vs ${x.exp.toFixed(1)} expected` : " · nothing expected"}${x.st ? ` · ${x.st}` : ""}`; },
+        note: `Each clinic's ${family} orders in this window against what its baseline implies (3+ baseline orders needed; clinics new this year have none). Pulling down: below expected, or Portfolio Changes says STOPPED or DECLINING on it. Pushing up: above expected, or restarted / newly on it. The status looks at the last 28 days against the 90 before, so it does not move with the tab.`,
+      };
+    }
+    if (label === "Product adoption") {
+      const clinics = pgd.data?.clinics ?? [];
+      const newSet = new Set<string>(b.newIds ?? []);
+      const hasProd = (c: PGClinic) => famsOf(c.win).length > 0;
+      const newIds = clinics.filter(c => newSet.has(c.clinic) && hasProd(c)).map(c => c.clinic);
+      const exIds = clinics.filter(c => !newSet.has(c.clinic) && (hasProd(c) || famStatus(c, family) === "NEW")).map(c => c.clinic);
+      const isNewC = (cl: string) => newSet.has(cl);
+      return {
+        universe: () => [...newIds, ...exIds],
+        f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1),
+        unit: "clinics",
+        up: `Ordered ${family}`,
+        down: `Have not ordered ${family}`,
+        detail: cl => { const c = pgMap.get(cl); const st = famStatus(c, family); return `${isNewC(cl) ? "New clinic" : "Existing"} · ${c?.win[family] ?? 0} ${family} orders in this window${st ? ` · ${st}` : ""}`; },
+        note: `New clinics ordering this window, split by whether they ordered ${family}.`,
+        variants: [
+          { label: "New clinics", inScope: r => isNewC(r.clinic), f: r => ((pgMap.get(r.clinic)?.win[family] ?? 0) > 0 ? 1 : -1), up: `Ordered ${family}`, down: `Ordering, but not ${family}`, note: `New clinics (first order this year) that ordered in this window, split by whether ${family} was among their orders. This is the adoption rate on the card.` },
+          { label: "Existing clinics", inScope: r => !isNewC(r.clinic), f: r => (famStatus(pgMap.get(r.clinic), family) === "NEW" ? 1 : -1), up: `Added ${family} (status NEW)`, down: `Ordering, but have not added ${family}`, note: `Established clinics that ordered in this window, split by whether they added ${family}: Portfolio Changes status NEW means no ${family} orders in the 90 days before the last 28, and fewer than 3 ever before (3+ earlier orders would be RESTARTED, not new to them). It looks at the last 28 days, so it does not move with the tab.` },
+        ],
+      };
+    }
     if (label === "Products per customer")
       return { universe: () => pg.activeIds, f: r => (famsOf(pgMap.get(r.clinic)?.win).length >= 2 ? 1 : -1), unit: "clinics", up: "On 2+ product families", down: "On 1 family", note: "Clinics that ordered a Zoomer product in this window, split by how many Zoomer families they bought. Non Zoomer is not counted as a family." };
     return undefined;
@@ -2356,7 +2398,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
           </>
         );
       })()}
-      {pillar === "Product Growth" && famCards.length ? (
+      {famCards.length ? (
         <>
           <div className="rv-famcards">
             {famCards.filter(f => !isNewFam(f.family)).map(f => {
@@ -2943,8 +2985,10 @@ function FocusTable({
   onClose,
   periodId,
   sales,
+  detail,
 }: {
   label: string;
+  detail?: (clinic: string) => string;
   rows: Array<{
     rank: number;
     clinic: string;
@@ -3077,6 +3121,7 @@ function FocusTable({
                         <td>{r.rank}</td>
                         <td>
                           <span className="rca-chevron">{expanded === r.clinic ? "▾" : "▸"}</span> {r.name}
+                          {detail ? <small className="rv-rowdetail">{detail(r.clinic)}</small> : null}
                         </td>
                         <td>{r.state}</td>
                         <td>{COHORT[r.cohort] ?? r.cohort}</td>
@@ -3735,8 +3780,26 @@ function Info({ k }: { k: string }) {
 
 
 /* ── Product Growth pillar (Shyam, 2026-10-06) ─────────────────────────── */
-type PGClinic = { clinic: string; name: string; win: Record<string, number>; life: Record<string, number>; rev?: Record<string, number> };
+type PGClinic = {
+  clinic: string; name: string; win: Record<string, number>; life: Record<string, number>; rev?: Record<string, number>;
+  base?: Record<string, number>; share?: number; isNew?: boolean; tests?: Array<[string, string]>;
+};
+const STATUS_RANK = ["STOPPED", "DECLINING", "RESTARTED", "NEW"];
+/** Portfolio status of a clinic for one product family. Statuses are per test and test names run longer than the family
+ * ("Hormone Zoomer 2.0" for Hormone Zoomer), so a test counts when it starts with the family name. */
+function famStatus(c: PGClinic | undefined, family: string): string {
+  const f = family.toLowerCase();
+  const hit = (c?.tests ?? []).filter(([t]) => t.toLowerCase().startsWith(f)).map(([, s2]) => s2);
+  return STATUS_RANK.find(s2 => hit.includes(s2)) ?? "";
+}
+/** Orders expected of a clinic for a family in this tab: baseline-period orders x the tab's share. Needs 3+ baseline orders;
+ * a clinic new this year has none (same rules as the clinic card). */
+function famExpected(c: PGClinic | undefined, family: string): number {
+  const base = c?.base?.[family] ?? 0;
+  return !c || c.isNew || base < 3 ? 0 : base * (c.share ?? 0);
+}
 type PGStats = {
+  addedIds: string[];
   family: string; adoption: number | null; adoptN: number; newN: number;
   repeat: number | null; repN: number; pairN: number; wsN: number; eligN: number; wsIds: string[];
   ppc: number | null; ppcRange: string; activeN: number; adoptIds: string[]; repIds: string[]; activeIds: string[]; buyerIds: string[]; xs: XSell[]; xsUp: number;
@@ -3781,6 +3844,8 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   const pct = (q: number) => cnts[Math.min(cnts.length - 1, Math.floor(q * cnts.length))];
   const ppcRange = cnts.length ? (pct(0.25) === pct(0.75) ? String(pct(0.25)) : `${pct(0.25)}–${pct(0.75)}`) : "—";
   const adoptIds = newOrd.filter(c => (c.win[family] ?? 0) > 0).map(c => c.clinic);
+  // Existing clinics that added the product: Portfolio Changes says NEW for it (no orders of it in the prior 90 days, fewer than 3 before).
+  const addedIds = clinics.filter(c => !newSet.has(c.clinic) && famStatus(c, family) === "NEW").map(c => c.clinic);
   const repIds = buyers.filter(c => c.win[family] >= 2).map(c => c.clinic);
   const activeIds = active.map(c => c.clinic);
   // Cross-sell: active clinics on 1–2 families (lifetime). Suggest the family most
@@ -3809,7 +3874,7 @@ function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; fam
   return {
     family, adoption: newOrd.length ? adoptN / newOrd.length : null, adoptN, newN: newOrd.length,
     repeat: pairN ? repN / pairN : null, repN, pairN, wsN: wsIds.length, eligN: el.length, wsIds,
-    ppc, ppcRange, activeN: active.length, adoptIds, repIds, activeIds, buyerIds: buyers.map(c => c.clinic), xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
+    ppc, ppcRange, activeN: active.length, adoptIds, addedIds, repIds, activeIds, buyerIds: buyers.map(c => c.clinic), xs, xsUp: xs.reduce((t, x) => t + x.up, 0),
   };
 }
 function WhitespacePlanner({ sales, clinics, elig, family, famList, setFamily }: {

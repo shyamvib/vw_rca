@@ -286,8 +286,12 @@ const SECTIONS: Section[] = [
           "Expected is what the same clinics ordered of that family in the baseline period, scaled to the window's length.",
         ],
         who: "Clinics that ordered the family in the window.",
-        click: "The clinics that ordered the product.",
-        watch: ["A family that launched in the last 60 days has no baseline, so no expectation or goal yet."],
+        click: "Two lists. Pulling it down: clinics below their expected orders of the product, plus any the status model says have STOPPED or are DECLINING on it. Pushing it up: clinics above expected, or newly on it. Each line shows orders against expected and the status.",
+        watch: [
+          "A family that launched in the last 60 days has no baseline, so no expectation or goal yet.",
+          "A clinic needs 3 or more baseline orders of the product before anything is expected of it; clinics new this year have none.",
+          "The STOPPED / DECLINING status looks at the last 28 days against the 90 before, so it does not change with the tab.",
+        ],
         example: {
           story: "Hormone Zoomer: 49 orders this month against 79 expected. The cell reads 49 vs 79, a gap of 30 orders.",
           viz: <Hbars rows={[
@@ -307,8 +311,11 @@ const SECTIONS: Section[] = [
           "Divide.",
         ],
         who: "New clinics that bought at least one Zoomer product in the window.",
-        click: "The new clinics that adopted the product.",
-        watch: ["It looks at new clinics only. On a short window the group can be a handful of clinics, so a single clinic moves it a lot."],
+        click: "Two lists. New clinics: who ordered the product and who is ordering without it. Existing clinics: who added the product (status NEW: none in the 90 days before the last 28, fewer than 3 ever before) and who has not. The percentage on the card is the new-clinic list only.",
+        watch: [
+          "The percentage looks at new clinics only. On a short window the group can be a handful of clinics, so a single clinic moves it a lot.",
+          "Existing clinics that added the product are shown beside it on the card but are not part of the percentage.",
+        ],
         example: {
           story: "Five new clinics bought Zoomer tests this month. Two of them bought Hormone Zoomer. Adoption is 2 of 5, which is 40%.",
           viz: <Dots total={5} on={2} onLabel="bought Hormone Zoomer" offLabel="bought other Zoomer tests" />,
