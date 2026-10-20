@@ -234,7 +234,9 @@ function startScheduler() {
 // ---- http ------------------------------------------------------------------------------
 function cors(req: http.IncomingMessage, res: http.ServerResponse) {
   const origin = req.headers.origin ?? "";
-  if (ORIGINS.includes("*") || ORIGINS.includes(origin)) {
+  // Per-deployment Vercel URLs of this project (vw-<hash>-vbw.vercel.app) are allowed too, so a preview or an older
+  // deployment can talk to the service, not only the production alias in ALLOWED_ORIGINS (2026-10-20).
+  if (ORIGINS.includes("*") || ORIGINS.includes(origin) || /^https:\/\/vw-[a-z0-9-]+-vbw\.vercel\.app$/.test(origin)) {
     res.setHeader("Access-Control-Allow-Origin", ORIGINS.includes("*") ? "*" : origin);
     res.setHeader("Vary", "Origin");
   }
