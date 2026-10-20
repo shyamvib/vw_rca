@@ -381,6 +381,7 @@ export function RepView(props: {
       </aside>
       <main className="rv-main">
         <TourGuide tab={tab} setTab={setTab} />
+        {!searchSel && tab !== "scorecard" && !((props.clinicTerm ?? "").trim().length >= 2 || (props.provTerm ?? "").trim().length >= 2) ? <TabGuide tab={tab} /> : null}
         {searchSel ? (
           <SearchDetailPage sel={searchSel} periodId={activePeriodId} winLabel={activeLabel} sales={sales} onBack={() => setSearchSel(null)} />
         ) : ((props.clinicTerm ?? "").trim().length >= 2 || (props.provTerm ?? "").trim().length >= 2) ? (
@@ -3827,6 +3828,69 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
       </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
     </>
+  );
+}
+
+/** A short "how to use this tab" panel at the top of each tab (2026-10-20). Closed by default once opened and closed; the
+ * choice is remembered per tab. Window tabs link to the Scorecard guide, which explains every dial and cell. */
+type GuideItem = { t: string; d: string };
+const WINDOW_GUIDE: GuideItem[] = [
+  { t: "Headline and Great job", d: "Where the book stands against its goal for this window. Great job lists wins: beating goal, comebacks, new and returning clinics, bundle gainers, and how many touched clinics reordered. Click a number for the clinics." },
+  { t: "Scorecard", d: "Dials for Combined, New and Existing business, then the matrix of metrics by pillar. Click a cell for the clinics pushing it up and pulling it down; \"Explain this metric\" opens its entry in the Scorecard guide. The retention and expansion row can be cut by when clinics signed up." },
+  { t: "Product families", d: "Cards for each product family stay visible. Click one to scope the Product Growth cells to it; the lists for Target Product Orders and Product adoption use each clinic's portfolio status." },
+  { t: "Where the gap comes from", d: "The gap to goal split by volume vs AOV, bundles vs single panels, clinic cohort and state. Click a branch for its clinic list; the toggle switches between the simple and detailed view." },
+];
+const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: GuideItem[]; link?: boolean }>> = {
+  today: {
+    title: "Today's agenda",
+    lead: "What to do today. Start at the top and work down.",
+    items: [
+      { t: "Next best action", d: "The one action with the highest expected revenue per hour this week. \"See my week\" opens the full plan." },
+      { t: "Touch effort", d: "Clinics you called or met this week, how many reordered after, against clinics you did not touch, and your lift. \"Order within\" limits how soon after a touch an order counts; the Great job touch line follows it." },
+      { t: "Opportunity agenda", d: "Your scorecard's opportunity column as cards: how many clinics, the dollars at stake and the suggested action. \"Add to today\" plans it; \"See in scorecard\" jumps to the metric." },
+      { t: "Call first", d: "Existing clinics at least 5 days since their last order that have not churned by their own threshold, ranked by dollars. Filter by health note or portfolio status; click a clinic for its card." },
+      { t: "New clinics: getting to order 4", d: "This year's new clinics due for their next order. Change the days-between-orders filter to widen or narrow who shows." },
+      { t: "Left rail", d: "This week against goal, the leaderboard (my team or all reps), clinic and provider search, and your recently opened clinics." },
+    ],
+  },
+  plan: {
+    title: "My week plan",
+    lead: "Turns everything above into a plan for the hours you can sell.",
+    items: [
+      { t: "Hours I can sell", d: "Set your selling hours; the rest of the 40 go to admin, meetings and travel. Actions fill your hours from the top of the queue." },
+      { t: "Gap to goal this week", d: "Where the week is heading against goal, and how much of any shortfall the planned actions are expected to cover (existing clinics and new business shown separately)." },
+      { t: "Which pillar first", d: "Pillars ranked by expected revenue per hour of what is in your plan. Click one to show only its actions in the queue." },
+      { t: "Action queue", d: "Every action ranked by expected dollars per hour (upside x likelihood / hours). Click a row to pin it in or out, type in the Hours box to use your own time, click the clinic count for the list. Likelihood starts from your own reorder rate after a touch." },
+      { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
+    ],
+  },
+  week: { title: "This week", lead: "The week to date against its goal, with the weekly targets for your top clinics.", items: [...WINDOW_GUIDE, { t: "Weekly targets", d: "Your top clinics by baseline with their weekly dollar and order targets." }], link: true },
+  month: { title: "This month", lead: "The month to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }], link: true },
+  quarter: { title: "This quarter", lead: "The quarter to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }], link: true },
+  custom: { title: "Custom dates", lead: "The same view for the dates chosen in the date picker.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "Shown for windows of four weeks or more." }], link: true },
+};
+function TabGuide({ tab }: { tab: Tab }) {
+  const g = TAB_GUIDE[tab];
+  const key = `rv-tabguide:${tab}`;
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(key) === "1"; } catch { return false; } });
+  useEffect(() => { try { setOpen(localStorage.getItem(key) === "1"); } catch { setOpen(false); } }, [key]);
+  if (!g) return null;
+  const flip = () => setOpen(o => { try { localStorage.setItem(key, o ? "0" : "1"); } catch { /* ignore */ } return !o; });
+  return (
+    <div className={`rv-tabguide${open ? " is-open" : ""}`}>
+      <button type="button" className="rv-tabguide-h" onClick={flip} aria-expanded={open}>
+        <span>How to use this tab</span><em>{g.title}</em><i>{open ? "Hide" : "Show"}</i>
+      </button>
+      {open ? (
+        <div className="rv-tabguide-b">
+          <p>{g.lead}</p>
+          <dl>
+            {g.items.map(x => (<div key={x.t}><dt>{x.t}</dt><dd>{x.d}</dd></div>))}
+          </dl>
+          {g.link ? <button type="button" className="rv-explain" onClick={() => { guideNav.target = null; guideNav.go(""); }}>Open the Scorecard guide: every dial and metric, with examples</button> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
