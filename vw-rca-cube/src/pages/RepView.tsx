@@ -4002,19 +4002,35 @@ function Info({ k }: { k: string }) {
     return () => clearTimeout(t);
   }, [want, k, step]);
   const touring = want && mine && step != null;
-  // Keep the popover on screen: icons near the right edge (the tab guide's) open it to the left instead.
+  // The popover is positioned against the viewport (fixed), so a card with overflow hidden cannot clip it and it never runs
+  // off an edge: it sits under the icon, clamped to the screen, or above it when there is no room below.
   const popRef = useRef<HTMLSpanElement>(null);
-  const [flip, setFlip] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const place = () => {
+    const icon = ref.current?.querySelector("button");
+    if (!icon) return;
+    const r = icon.getBoundingClientRect();
+    const h = popRef.current?.offsetHeight ?? 200;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 288));
+    const below = r.bottom + 6;
+    const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : below;
+    setPos({ top, left });
+  };
   useEffect(() => {
-    if (!(o || touring) || !ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    setFlip(r.left + 280 > window.innerWidth - 12);
+    if (!(o || touring)) { setPos(null); return; }
+    place();
+    const again = () => place();
+    window.addEventListener("scroll", again, true);
+    window.addEventListener("resize", again);
+    const t = setTimeout(place, 50);
+    return () => { window.removeEventListener("scroll", again, true); window.removeEventListener("resize", again); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [o, touring, step]);
   return (
     <span ref={ref} data-info={k} className={`rv-info${touring ? " is-tour" : ""}`} onMouseLeave={() => setO(false)}>
       <button type="button" className="rv-info-i" aria-label="About this section" onClick={e => { e.stopPropagation(); setO(v => !v); }}>i</button>
       {(o || touring) && (
-        <span ref={popRef} className={`rv-info-pop${flip ? " is-flip" : ""}`} onClick={e => e.stopPropagation()}>
+        <span ref={popRef} className="rv-info-pop" style={pos ? { position: "fixed", top: pos.top, left: pos.left } : { visibility: "hidden" }} onClick={e => e.stopPropagation()}>
           {touring ? <b className="rv-info-step">Tour {step! + 1}/{TOUR.length}</b> : null}
           {INFO[k]}
           {touring ? (
