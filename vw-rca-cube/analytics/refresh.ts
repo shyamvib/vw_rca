@@ -186,8 +186,12 @@ export const refreshData = internalAction({
       // Bundle flags now come from the line-level test table, which has no lag,
       // so we only trim today's partial day. DEFAULTS.lagDays is the floor so a
       // stale stored config cannot hold the window back. (Shyam, 2026-08-31)
+      // Only a latest order date that is today (Pacific) can be a partial day, so only then is it trimmed; when the latest
+      // date is yesterday or older it has fully landed and the window runs through it (2026-10-20; before, one day was
+      // always dropped, so a complete Oct 19 showed as "data to Oct 18").
       const lagDays = Math.min(cfg.lagDays, DEFAULTS.lagDays);
-      const latest = addDays(maxDate, -lagDays);
+      const todayPT = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+      const latest = maxDate >= todayPT ? addDays(maxDate, -lagDays) : maxDate;
       // Main window always rolls forward to the latest data (Shyam, 2026-10-04):
       // the admin UI no longer edits the shared window, so a fixed end froze reps.
       const currentEnd = true

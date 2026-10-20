@@ -220,10 +220,14 @@ function startScheduler() {
     if (d.getUTCDay() === 1 && hm >= 13 * 60 + 45) once(`weekly|${day}`, () => void runCadence("weekly"));
     if (d.getUTCDate() === 1 && hm >= 14 * 60) once(`monthly|${day}`, () => void runCadence("monthly"));
   };
-  // A snapshot older than a day (service was down at 13:00, first start) is rebuilt right away.
-  if (!current || Date.now() - current.builtAt > 26 * 3600_000) void rebuild();
-  // Mark today's daily slot as handled when a fresh snapshot is already loaded, so a restart after 13:00 doesn't rebuild twice.
-  if (current && Date.now() - current.builtAt < 26 * 3600_000) fired.add(`daily|${new Date().toISOString().slice(0, 10)}`);
+  // The most recent 13:00 UTC slot. A snapshot built before it missed that refresh (service down or restarted around
+  // 13:00, first start), so it is rebuilt right away; one built after it has today's refresh and is left alone.
+  // (Before 2026-10-20 any snapshot under 26h old counted, so restarts after 13:00 hid a missed daily refresh.)
+  const now = new Date();
+  const slot = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 13);
+  const lastSlot = Date.now() >= slot ? slot : slot - 24 * 3600_000;
+  if (!current || current.builtAt < lastSlot) void rebuild();
+  else if (Date.now() >= slot) fired.add(`daily|${now.toISOString().slice(0, 10)}`);
   setInterval(tick, 60_000);
 }
 
