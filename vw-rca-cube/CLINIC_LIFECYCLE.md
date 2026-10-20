@@ -142,3 +142,12 @@ Options discussed:
 3. Auto-deploy on push (GitHub Actions to the server): not recommended, the server would have to be reachable from GitHub.
 
 Next step when resumed: write the scripts (option 1), then set up the clone and deploy key (option 2).
+
+## 11. Product Growth lists (2026-10-19)
+
+- The product family cards are always visible on the scorecard, not only when the Product Growth pillar is clicked.
+- **Target Product Orders** list (selected family): pulling down = below expected orders for that family, or Portfolio Changes STOPPED / DECLINING on it; pushing up = above expected, or RESTARTED / NEW with orders. Each line shows orders vs expected and the status. Expected = baseline-period family orders x the tab's share, same thresholds as the clinic card (3+ baseline orders, new clinics none).
+- **Product adoption** = (new clinics that ordered the family + existing clinics that added it) / (new clinics ordering + existing clinics ordering in the window). Subtext shows the split (new a/b, existing added c/d). Lists: All / New / Existing.
+- **Existing clinic "added" the product** = ordered it in the selected window **and** status NEW. A NEW status alone is not enough: the status looks at the last 28 days and ignores the tab, so a clinic could show as adding a product with 0 orders in "this month" (found with Newu Hydration Lounge, Total Tox). Existing clinics with no orders in the window are not measured.
+- Statuses are per test; a test counts for a family when its name starts with the family name ("Hormone Zoomer 2.0" for Hormone Zoomer).
+- Open: the card colour thresholds (50% / 30%) were set for new clinics only and read low for the blended rate; re-derive or tie colour to the new-clinic rate. Lines still show window orders only, not the clinic's recent-28-day orders.
