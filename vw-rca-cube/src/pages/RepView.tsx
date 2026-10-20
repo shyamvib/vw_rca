@@ -401,7 +401,6 @@ export function RepView(props: {
           ) : (
             <>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
-            <TouchKpis sales={sales} w="week" src={kpiSrc} />
             <TodayTab
               agenda={wb ? (
                 <OppAgenda
@@ -429,6 +428,7 @@ export function RepView(props: {
               onOpenClinic={setClinicSel}
               onScorecard={() => openScorecard()}
             />
+            <TouchKpis sales={sales} w="week" src={kpiSrc} />
             </>
           )
         ) : tab === "plan" ? (
@@ -442,7 +442,6 @@ export function RepView(props: {
             <div className="rv-loading">Loading {sales}'s week…</div>
           ) : (
             <>
-            <TouchKpis sales={sales} w="week" src={kpiSrc} />
             <WindowTab
               b={wb}
               sales={sales}
@@ -455,6 +454,7 @@ export function RepView(props: {
               prev={prevFor(thisWeek.id)}
               scFocus={scFocus}
             />
+            <TouchKpis sales={sales} w="week" src={kpiSrc} />
             </>
           )
         ) : tab === "month" ? (
@@ -462,7 +462,6 @@ export function RepView(props: {
             <div className="rv-loading">Loading {sales}'s month…</div>
           ) : (
             <>
-            <TouchKpis sales={sales} w="month" src={kpiSrc} />
             <WindowTab
               b={mb}
               sales={sales}
@@ -474,6 +473,7 @@ export function RepView(props: {
               planBeat={planBeat}
               prev={prevFor(thisMonth.id)}
             />
+            <TouchKpis sales={sales} w="month" src={kpiSrc} />
             </>
           )
         ) : tab === "quarter" ? (
@@ -481,7 +481,6 @@ export function RepView(props: {
             <div className="rv-loading">Loading {sales}'s quarter…</div>
           ) : (
             <>
-            <TouchKpis sales={sales} w="quarter" src={kpiSrc} />
             <WindowTab
               b={qb}
               sales={sales}
@@ -493,6 +492,7 @@ export function RepView(props: {
               planBeat={planBeat}
               prev={prevFor(thisQuarter.id)}
             />
+            <TouchKpis sales={sales} w="quarter" src={kpiSrc} />
             </>
           )
         ) : tab === "custom" ? (
@@ -3414,10 +3414,55 @@ function useTouchDays(): [number, (n: number) => void] {
 }
 /** Today KPI strip (Shyam, 2026-09-30): touch effort for this week / month /
  * quarter, picked with chips. Each card opens the standard clinic list. */
+/** One row of touch-effort cards for one group of clinics (existing, or new business). */
+function TouchRow({ label, e0, pool, cur, sales, xd, WL, open }: {
+  label: string; e0: EffortWin | undefined; pool: "existing" | "new";
+  cur: { periodId: string } | null; sales: string; xd: number; WL: string; open: (ids: string[], label: string) => void;
+}) {
+  const e = e0 && xd && e0.touchGaps ? (() => {
+    const re = e0.touchedIds.filter((_, i) => { const g = e0.touchGaps![i]; return g != null && g <= xd; });
+    return { ...e0, touchedRe: re.length, touchedReIds: re };
+  })() : e0;
+  const teamQ = useRcaQuery(
+    api.repView.teamEffort,
+    sales && cur && e0 ? { password: pw(), periodId: cur.periodId, sales, start: e0.start, within: xd || undefined, pool } : "skip",
+  );
+  const tm = teamQ?.ready && teamQ.lead ? teamQ : null;
+  const vs = (mine: number, team: number | undefined, fmt: (x: number) => string, higherGood = true) =>
+    team == null ? null : (
+      <span className={`rv-kpi-team ${(mine >= team) === higherGood ? "good" : "bad"}`}>team avg {fmt(team)}</span>
+    );
+  const tr = e && e.touched ? e.touchedRe / e.touched : 0;
+  const ur = e && e.untouched ? e.untouchedRe / e.untouched : 0;
+  const lift = (tr - ur) * 100;
+  const Card = ({ v, l, sub, ids, cls, team }: { v: string; l: string; sub: string; ids?: string[]; cls?: string; team?: React.ReactNode }) => (
+    <button type="button" className={`rv-kpi ${cls ?? ""}`} disabled={!ids?.length} onClick={() => ids && open(ids, `${l} · ${label} · ${WL}`)}>
+      <span className="rv-kpi-l">{l}</span>
+      <b className="rv-kpi-v">{v}</b>
+      <span className="rv-kpi-s">{sub}</span>
+      {team}
+    </button>
+  );
+  return (
+    <>
+      <div className="rv-touch-sub">{label}{tm ? ` · vs ${tm.lead}'s team avg (${tm.reps} reps)` : ""}</div>
+      {!e ? <p className="rv-dim">Loading…</p> : (
+        <div className="rv-kpis">
+          <Card l="Touched" v={String(e.touched)} sub="clinics with a call/meeting" ids={e.touchedIds} team={vs(e.touched, tm?.touched, x => x.toFixed(0))} />
+          <Card l="Touched reorder" v={P(tr, 0)} sub={`${e.touchedRe} reordered ${xd ? `within ${xd}d of` : "after"} the touch`} ids={e.touchedReIds} cls={tr >= ur ? "good" : ""} team={vs(tr, tm?.tr, x => P(x, 0))} />
+          <Card l="Untouched" v={String(e.untouched)} sub={`${P(ur, 0)} reordered anyway`} ids={e.untouchedIds} team={vs(e.untouched, tm?.untouched, x => x.toFixed(0), false)} />
+          <Card l="Lift" v={`${lift >= 0 ? "+" : ""}${lift.toFixed(0)} pts`} sub="touched vs untouched reorder rate" cls={lift >= 0 ? "good" : "bad"} team={vs(lift, tm?.lift, x => `${x >= 0 ? "+" : ""}${x.toFixed(0)} pts`)} />
+          <Card l="Idle" v={String(e.idle)} sub="no touch and no order" ids={e.idleIds} cls={e.idle ? "bad" : ""} team={vs(e.idle, tm?.idle, x => x.toFixed(0), false)} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function TouchKpis({ sales, src, w }: {
   sales: string;
   w: "week" | "month" | "quarter";
-  src: Record<"week" | "month" | "quarter", { e: EffortWin; periodId: string } | null>;
+  src: Record<"week" | "month" | "quarter", { e: EffortWin & { ex?: EffortWin; nw?: EffortWin }; periodId: string } | null>;
 }) {
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const cur = src[w];
@@ -3429,36 +3474,12 @@ function TouchKpis({ sales, src, w }: {
   const WL = { week: "This week", month: "This month", quarter: "This quarter" }[w];
   const [xd, setXd] = useTouchDays();
   const e0 = cur?.e;
-  const e = e0 && xd && e0.touchGaps ? (() => {
-    const re = e0.touchedIds.filter((_, i) => { const g = e0.touchGaps![i]; return g != null && g <= xd; });
-    return { ...e0, touchedRe: re.length, touchedReIds: re };
-  })() : e0;
-  const teamQ = useRcaQuery(
-    api.repView.teamEffort,
-    sales && cur && e0 ? { password: pw(), periodId: cur.periodId, sales, start: e0.start, within: xd || undefined } : "skip",
-  );
-  const tm = teamQ?.ready && teamQ.lead ? teamQ : null;
-  const vs = (mine: number, team: number | undefined, fmt: (x: number) => string, higherGood = true) =>
-    team == null ? null : (
-      <span className={`rv-kpi-team ${(mine >= team) === higherGood ? "good" : "bad"}`}>team avg {fmt(team)}</span>
-    );
-  const tr = e && e.touched ? e.touchedRe / e.touched : 0;
-  const ur = e && e.untouched ? e.untouchedRe / e.untouched : 0;
-  const lift = (tr - ur) * 100;
   const open = (ids: string[], label: string) =>
     ids.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
-  const Card = ({ v, l, sub, ids, cls, team }: { v: string; l: string; sub: string; ids?: string[]; cls?: string; team?: React.ReactNode }) => (
-    <button type="button" className={`rv-kpi ${cls ?? ""}`} disabled={!ids?.length} onClick={() => ids && open(ids, `${l} · ${WL}`)}>
-      <span className="rv-kpi-l">{l}</span>
-      <b className="rv-kpi-v">{v}</b>
-      <span className="rv-kpi-s">{sub}</span>
-      {team}
-    </button>
-  );
   return (
     <div className="rv-kpis-wrap">
       <div className="rv-sec-head" style={{ marginTop: 0 }}>
-        <div className="rv-eyebrow">Touch effort · {WL}{e ? ` (since ${fmtD(e.start)})` : ""}{tm ? ` · vs ${tm.lead}'s team avg (${tm.reps} reps)` : ""}<Info k="touch" /></div>
+        <div className="rv-eyebrow">Touch effort · {WL}{e0 ? ` (since ${fmtD(e0.start)})` : ""}<Info k="touch" /></div>
         <label className="rv-dim" style={{ marginLeft: 12 }}>Order within{" "}
           <select value={xd} onChange={ev => { setXd(Number(ev.target.value)); setFocus(null); }}>
             {[0, 7, 14, 21, 30, 45, 60].map(d => <option key={d} value={d}>{d ? `${d} days` : "any time"}</option>)}
@@ -3466,17 +3487,14 @@ function TouchKpis({ sales, src, w }: {
         </label>
       </div>
       <HowCalc>
-        <p><b>Touched:</b> existing, new and returning clinics with a call or meeting on or after the window's start. <b>Touched reorder:</b> those that ordered on or after the touch ("Order within" counts only orders inside that many days). <b>Untouched reorder:</b> clinics with no touch that ordered in the window anyway. <b>Idle:</b> no touch and no order. <b>Lift:</b> touched rate minus untouched rate.</p>
-        <p>The team average is the same figures for every rep under the same team lead, averaged rep by rep.</p>
+        <p>The same five figures twice: for existing clinics (not new, with a baseline), and for new business (this year's new clinics plus returning ones). <b>Touched:</b> clinics with a call or meeting on or after the window's start. <b>Touched reorder:</b> those that ordered on or after the touch ("Order within" counts only orders inside that many days). <b>Untouched:</b> clinics with no touch, and the share that ordered in the window anyway. <b>Idle:</b> no touch and no order. <b>Lift:</b> touched rate minus untouched rate.</p>
+        <p>The team average is the same figures for every rep under the same team lead, averaged rep by rep, for the same group of clinics.</p>
       </HowCalc>
-      {!e ? <p className="rv-dim">Loading {WL.toLowerCase()}…</p> : (
-        <div className="rv-kpis">
-          <Card l="Touched" v={String(e.touched)} sub="clinics with a call/meeting" ids={e.touchedIds} team={vs(e.touched, tm?.touched, x => x.toFixed(0))} />
-          <Card l="Touched reorder" v={P(tr, 0)} sub={`${e.touchedRe} reordered ${xd ? `within ${xd}d of` : "after"} the touch`} ids={e.touchedReIds} cls={tr >= ur ? "good" : ""} team={vs(tr, tm?.tr, x => P(x, 0))} />
-          <Card l="Untouched" v={String(e.untouched)} sub={`${P(ur, 0)} reordered anyway`} ids={e.untouchedIds} team={vs(e.untouched, tm?.untouched, x => x.toFixed(0), false)} />
-          <Card l="Lift" v={`${lift >= 0 ? "+" : ""}${lift.toFixed(0)} pts`} sub="touched vs untouched reorder rate" cls={lift >= 0 ? "good" : "bad"} team={vs(lift, tm?.lift, x => `${x >= 0 ? "+" : ""}${x.toFixed(0)} pts`)} />
-          <Card l="Idle" v={String(e.idle)} sub="no touch and no order" ids={e.idleIds} cls={e.idle ? "bad" : ""} team={vs(e.idle, tm?.idle, x => x.toFixed(0), false)} />
-        </div>
+      {!e0 ? <p className="rv-dim">Loading {WL.toLowerCase()}…</p> : (
+        <>
+          <TouchRow label="Existing clinics" pool="existing" e0={e0.ex} cur={cur} sales={sales} xd={xd} WL={WL} open={open} />
+          <TouchRow label="New clinics (this year's new and returning)" pool="new" e0={e0.nw} cur={cur} sales={sales} xd={xd} WL={WL} open={open} />
+        </>
       )}
       {focus ? (
         <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={cur?.periodId ?? ""} sales={sales} />
@@ -3923,16 +3941,17 @@ const WINDOW_GUIDE: GuideItem[] = [
   { t: "Product families", d: "Cards for each product family stay visible. Click one to scope the Product Growth cells to it; the lists for Target Product Orders and Product adoption use each clinic's portfolio status." },
   { t: "Where the gap comes from", d: "The gap to goal split by volume vs AOV, bundles vs single panels, clinic cohort and state. Click a branch for its clinic list; the toggle switches between the simple and detailed view." },
 ];
+const TOUCH_GUIDE: GuideItem = { t: "Touch effort (bottom of the tab)", d: "Clinics you called or met in this window, how many reordered after, against clinics you did not touch, and your lift, in two rows: existing clinics and new business, each with the team average. \"Order within\" limits how soon after a touch an order counts." };
 const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: GuideItem[]; link?: boolean }>> = {
   today: {
     title: "Today's agenda",
     lead: "What to do today. Start at the top and work down.",
     items: [
       { t: "Next best action", d: "The one action with the highest expected revenue per hour this week. \"See my week\" opens the full plan." },
-      { t: "Touch effort", d: "Clinics you called or met this week, how many reordered after, against clinics you did not touch, and your lift. \"Order within\" limits how soon after a touch an order counts; the Great job touch line follows it." },
       { t: "Opportunity agenda", d: "Your scorecard's opportunity column as cards: how many clinics, the dollars at stake and the suggested action. \"Add to today\" plans it; \"See in scorecard\" jumps to the metric." },
       { t: "Call first", d: "Existing clinics at least 5 days since their last order that have not churned by their own threshold, ranked by dollars. Filter by health note or portfolio status; click a clinic for its card." },
       { t: "New clinics: getting to order 4", d: "This year's new clinics due for their next order. Change the days-between-orders filter to widen or narrow who shows." },
+      { t: "Touch effort", d: "At the bottom. Clinics you called or met this week, how many reordered after, against clinics you did not touch, and your lift, in two rows: existing clinics and new business. \"Order within\" limits how soon after a touch an order counts; the Great job touch line follows it." },
       { t: "Left rail", d: "This week against goal, the leaderboard (my team or all reps), clinic and provider search, and your recently opened clinics." },
     ],
   },
@@ -3948,9 +3967,9 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
       { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
     ],
   },
-  week: { title: "This week", lead: "The week to date against its goal, with the weekly targets for your top clinics.", items: [...WINDOW_GUIDE, { t: "Weekly targets", d: "Your top clinics by baseline with their weekly dollar and order targets." }], link: true },
-  month: { title: "This month", lead: "The month to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }], link: true },
-  quarter: { title: "This quarter", lead: "The quarter to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }], link: true },
+  week: { title: "This week", lead: "The week to date against its goal, with the weekly targets for your top clinics.", items: [...WINDOW_GUIDE, { t: "Weekly targets", d: "Your top clinics by baseline with their weekly dollar and order targets." }, TOUCH_GUIDE], link: true },
+  month: { title: "This month", lead: "The month to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
+  quarter: { title: "This quarter", lead: "The quarter to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
   custom: { title: "Custom dates", lead: "The same view for the dates chosen in the date picker.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "Shown for windows of four weeks or more." }], link: true },
 };
 function TabGuide({ tab }: { tab: Tab }) {

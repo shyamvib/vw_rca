@@ -371,10 +371,10 @@ export const book = scopedQuery({
     // reorder = ordered on/after that touch; untouched = no call/meeting in
     // window; untouched reorder = ordered in window anyway; idle = untouched
     // and no order in window; lift = touched rate − untouched rate.
-    const effortFor = (start: string) => {
-      const t = withOrders.filter(r => r.lastTouchDate && r.lastTouchDate >= start);
+    const effortOf = (pool: ClinicRow[], start: string) => {
+      const t = pool.filter(r => r.lastTouchDate && r.lastTouchDate >= start);
       const tRe = t.filter(r => r.lastOrderAllTime && r.lastOrderAllTime >= (r.lastTouchDate as string));
-      const u = withOrders.filter(r => !r.lastTouchDate || r.lastTouchDate < start);
+      const u = pool.filter(r => !r.lastTouchDate || r.lastTouchDate < start);
       const uRe = u.filter(r => r.lastOrderAllTime && r.lastOrderAllTime >= start);
       const idle = u.filter(r => !r.lastOrderAllTime || r.lastOrderAllTime < start);
       return {
@@ -387,6 +387,9 @@ export const book = scopedQuery({
           ? Math.round((Date.parse(r.lastOrderAllTime) - Date.parse(r.lastTouchDate as string)) / 864e5) : null),
       };
     };
+    // The same figures for existing clinics and for new business (this year's new clinics plus returning ones), 2026-10-20.
+    const newPool = newRows.concat(reactivated);
+    const effortFor = (start: string) => ({ ...effortOf(withOrders, start), ex: effortOf(existing, start), nw: effortOf(newPool, start) });
     const mStart = `${cutoff.slice(0, 8)}01`;
     const qm = Math.floor((Number(cutoff.slice(5, 7)) - 1) / 3) * 3 + 1;
     const effortWin = {
@@ -956,7 +959,7 @@ export const rowsByFocus = scopedQuery({
  * equally). `within` = optional "ordered within X days of touch" filter.
  */
 export const teamEffort = scopedQuery({
-  args: { periodId: v.string(), sales: v.optional(v.string()), start: v.string(), within: v.optional(v.number()) },
+  args: { periodId: v.string(), sales: v.optional(v.string()), start: v.string(), within: v.optional(v.number()), pool: v.optional(v.union(v.literal("existing"), v.literal("new"))) },
   handler: async (ctx, args) => {
     if (!args.sales) return { ready: false as const };
     const mine = await drill(ctx, { periodId: args.periodId, lens: "total", unlimited: true, sales: args.sales, keepBaselined: true });
@@ -973,7 +976,9 @@ export const teamEffort = scopedQuery({
     }
     const s = args.start, W = args.within ?? 0;
     const per = [...byRep.values()].map(rows => {
-      const wo = rows.filter(r => r.isNew || (r.baselineWeekly ?? r.baseline) > 0 || r.cohort === "reactivated" || r.cohort === "churned");
+      const isEx = (r: ClinicRow) => !r.isNew && (r.baselineWeekly ?? r.baseline) > 0;
+      const isNw = (r: ClinicRow) => r.isNew || (!isEx(r) && (r.cohort === "reactivated" || r.cohort === "churned"));
+      const wo = rows.filter(r => (args.pool === "existing" ? isEx(r) : args.pool === "new" ? isNw(r) : isEx(r) || isNw(r)));
       const t = wo.filter(r => r.lastTouchDate && r.lastTouchDate >= s);
       const tRe = t.filter(r => {
         if (!r.lastOrderAllTime || r.lastOrderAllTime < (r.lastTouchDate as string)) return false;

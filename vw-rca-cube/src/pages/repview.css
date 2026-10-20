@@ -785,3 +785,4 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-howcalc summary{cursor:pointer;color:#1d4ed8;font-weight:600;width:fit-content}
 .rv-howcalc-b{margin-top:6px;padding:8px 12px;border-left:3px solid #c7d6fb;background:#f6f8fe;border-radius:0 6px 6px 0}
 .rv-howcalc-b p{margin:4px 0;color:var(--vw-gray-60,#4b5563);line-height:1.45}
+.rv-touch-sub{margin:10px 0 6px;font-size:13px;font-weight:600;color:var(--vw-gray-60,#4b5563)}
