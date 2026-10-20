@@ -2273,7 +2273,7 @@ export function RcaDashboardPage() {
         />
 
         <div className="rca-section-head">
-          <div className="rca-eyebrow">Shortfall tree</div>
+          <div className="rca-eyebrow">Where the gap comes from</div>
           <div className="rca-sub">
             {active.id === "all"
               ? `Full window · expected ${MONEY_PLAIN(active.expected)}, actual ${MONEY_PLAIN(active.actual)}`

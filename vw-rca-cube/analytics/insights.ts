@@ -82,7 +82,7 @@ const inferenceFor = (tag: string, tone: string) =>
   (INFERENCE_BY_TAG[tag] ?? (() => "Movement here is worth tracking against the next refresh."))(tone);
 
 const ACTION_BY_TAG: Record<string, string> = {
-  Headline: "Open the shortfall tree (state, cohort, product lenses) to locate the driver before setting next week's targets.",
+  Headline: "Open Where the gap comes from (state, cohort, product lenses) to locate the driver before setting next week's targets.",
   Trend: "If the gap is widening, escalate the call list this week; if narrowing, hold the current motion and recheck next refresh.",
   Calendar: "Confirm the date against the holiday calendar before flagging it as a rep or region issue.",
   "Call list": "Assign this list to the relevant reps this week; recheck against the next refresh.",

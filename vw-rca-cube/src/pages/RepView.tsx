@@ -1239,11 +1239,11 @@ function WindowTab({
       <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={scFocus} />
 
       <div className="rv-sec-head">
-        <h2>Shortfall tree<Info k="tree" /></h2>
+        <h2>Where the gap comes from<Info k="tree" /></h2>
         <div className="rv-tree-toggle">
           <span>click a branch for its clinic list</span>
           <button type="button" className="rv-toggle-btn" onClick={() => setSimplify(s => !s)}>
-            {simplify ? "Switch to exact view ↔" : "Switch to simplified view ↔"}
+            {simplify ? "Switch to detailed view ↔" : "Switch to simple view ↔"}
           </button>
         </div>
       </div>
@@ -3739,7 +3739,7 @@ const INFO: Record<string, string> = {
   gauge: "Solid needle = booked so far. Dotted needle = where you're heading at current pace. End of the dial = goal. Shows this week on Today.",
   call: "Existing clinics 5–45 days since their last order (beyond 45 = lost), ranked by $ at stake then days since order. Filter by health note or portfolio status. Click a clinic for its full card.",
   newc: "New clinics due for their next order, order 4 first. Use the days-between-orders filter to change the window (default 14–21 days). Shows who dropped off before the next order.",
-  tree: "Actual vs expected (baseline) for this window, split into volume, AOV, products, cohorts and states. Green beats baseline, red misses it. Click any branch for its clinic list. 'Simplify' switches to a lighter tree.",
+  tree: "The gap between actual and goal for this window, split into volume vs AOV, bundles vs single panels, clinic cohorts and states. Green is ahead of goal, red is behind. Click any branch for its clinic list. The toggle switches between the simple and the detailed view.",
   funnel: "How many providers placed order 1, 2, 3… and where they dropped off. Click a stage for the clinic list.",
   targets: "Your top clinics by baseline with their weekly $ and order targets.",
   sc: "Five pillars with status: green on track, amber watch, red behind. Numbers follow the window you opened it from. Click a pillar for all its KPIs.",

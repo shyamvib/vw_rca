@@ -623,7 +623,7 @@ const SECTIONS: Section[] = [
         how: [
           "Volume effect: how many orders fewer (or more) than expected, times the usual order value.",
           "Order-value effect: the change in average order value, times the orders actually placed.",
-          "Together they add up to the gap against the existing clinics' goal (the new-business goal is shown as its own line in the tree).",
+          "Together they add up to the gap against the existing clinics' goal (the new-business goal is shown as its own line in the Where the gap comes from section).",
         ],
         who: "The whole book.",
         click: "Pick volume or order value to see the clinics pulling each way.",
