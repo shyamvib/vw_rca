@@ -448,7 +448,6 @@ export function RepView(props: {
               periodId={thisWeek.id}
               wins={winsWeek}
               periodLabel={`This week · ${thisWeek?.label ?? ""}`}
-              showWeekly
               showFunnel={false}
               planBeat={planBeat}
               prev={prevFor(thisWeek.id)}
@@ -468,7 +467,6 @@ export function RepView(props: {
               periodId={thisMonth.id}
               wins={winsMonth}
               periodLabel={`This month · ${thisMonth?.label ?? ""}`}
-              showWeekly={false}
               showFunnel
               planBeat={planBeat}
               prev={prevFor(thisMonth.id)}
@@ -487,7 +485,6 @@ export function RepView(props: {
               periodId={thisQuarter.id}
               wins={winsQuarter}
               periodLabel={`This quarter · ${thisQuarter?.label ?? ""}`}
-              showWeekly={false}
               showFunnel
               planBeat={planBeat}
               prev={prevFor(thisQuarter.id)}
@@ -505,7 +502,6 @@ export function RepView(props: {
               periodId={periodId}
               wins={wins}
               periodLabel={`Custom · ${periodLabel}`}
-              showWeekly={false}
               showFunnel={b.days >= 28}
               planBeat={planBeat}
               prev={prevFor(periodId)}
@@ -1050,7 +1046,6 @@ function WindowTab({
   periodId,
   wins,
   periodLabel,
-  showWeekly,
   showFunnel,
   planBeat,
   prev,
@@ -1061,7 +1056,6 @@ function WindowTab({
   periodId: string;
   wins: Wins;
   periodLabel: string;
-  showWeekly: boolean;
   showFunnel: boolean;
   planBeat: { label: string; amount: number; pct: number } | null;
   prev?: { id: string; label: string };
@@ -1545,7 +1539,6 @@ function WindowTab({
         />
       ) : null}
 
-      {showWeekly ? <Targets b={b} /> : null}
 
     </>
   );
@@ -1705,72 +1698,6 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
         selected above: new clinics whose order 1 fell in the current month / quarter to date vs the same
         number of days into the prior month / quarter (hover a chip for the exact dates).
       </p>
-    </div>
-  );
-}
-
-function Targets({ b }: { b: Book }) {
-  const plan = useRcaQuery(api.plan.list, { password: pw() });
-  const save = useMutation(api.plan.setPlan);
-  const planBy = new Map((plan?.plans ?? []).map(p => [p.clinic, p]));
-  const [draft, setDraft] = useState<Record<string, number>>({});
-  const commit = async (c: Book, val: number) => {
-    const p = planBy.get(c.clinic);
-    try {
-      await save({
-        password: pw(),
-        clinic: c.clinic,
-        name: c.name,
-        targetRevenueWeek: Math.max(0, val),
-        targetOrdersWeek: p?.targetOrdersWeek ?? Math.round(c.baseOrdWeek),
-      });
-    } catch (err) {
-      toast.error(String(err));
-    }
-  };
-  const total = b.targetClinics.reduce(
-    (s: number, c: Book) => s + (draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? c.baseWeek),
-    0,
-  );
-  return (
-    <div className="rv-panel">
-      <div className="rv-sec-head">
-        <h2>Weekly targets<Info k="targets" /></h2>
-        <span className="rv-mono">Top 10 clinics · {K(total)}/wk</span>
-      </div>
-      <p className="rv-dim rv-small">Weekly clinic targets feed the year-end projection; they do not change the goal. Blank = baseline.</p>
-      <HowCalc>
-        <p>The ten clinics with the biggest baseline, with their baseline dollars and orders per week. If you set a target, the difference from the clinic's current weekly rate is carried over the weeks left in the year and added to the year-end projection, so you can see what your commitments do to the close.</p>
-      </HowCalc>
-      <div className="rv-targets">
-        {b.targetClinics.map((c: Book) => {
-          const cur = draft[c.clinic] ?? planBy.get(c.clinic)?.targetRevenueWeek ?? Math.round(c.baseWeek);
-          const set = (v: number) => {
-            setDraft(d => ({ ...d, [c.clinic]: v }));
-            void commit(c, v);
-          };
-          return (
-            <div className="rv-target" key={c.clinic}>
-              <div>
-                <b>{c.name}</b>
-                <span>baseline {K(c.baseWeek)}/wk</span>
-              </div>
-              <span className="rv-dim rv-mono">
-                {planBy.has(c.clinic) ? (cur >= c.baseWeek ? "above baseline" : "below baseline") : "at baseline"}
-              </span>
-              <div className="rv-step-in">
-                <button type="button" onClick={() => set(Math.max(0, cur - 100))}>−</button>
-                <input
-                  value={Math.round(cur)}
-                  onChange={e => setDraft(d => ({ ...d, [c.clinic]: Number(e.target.value) || 0 }))}
-                  onBlur={e => void commit(c, Number(e.target.value) || 0)}
-                />
-                <button type="button" onClick={() => set(cur + 100)}>+</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -2438,6 +2365,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       })()}
       {famCards.length ? (
         <>
+          <div className="rv-eyebrow" style={{ marginTop: 10 }}>Product families<Info k="fam" /></div>
           <div className="rv-famcards">
             {famCards.filter(f => !isNewFam(f.family)).map(f => {
               const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
@@ -3967,7 +3895,7 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
       { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
     ],
   },
-  week: { title: "This week", lead: "The week to date against its goal, with the weekly targets for your top clinics.", items: [...WINDOW_GUIDE, { t: "Weekly targets", d: "Your top clinics by baseline with their weekly dollar and order targets." }, TOUCH_GUIDE], link: true },
+  week: { title: "This week", lead: "The week to date against its goal.", items: [...WINDOW_GUIDE, TOUCH_GUIDE], link: true },
   month: { title: "This month", lead: "The month to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
   quarter: { title: "This quarter", lead: "The quarter to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
   custom: { title: "Custom dates", lead: "The same view for the dates chosen in the date picker.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "Shown for windows of four weeks or more." }], link: true },
@@ -3981,9 +3909,12 @@ function TabGuide({ tab }: { tab: Tab }) {
   const flip = () => setOpen(o => { try { localStorage.setItem(key, o ? "0" : "1"); } catch { /* ignore */ } return !o; });
   return (
     <div className={`rv-tabguide${open ? " is-open" : ""}`}>
-      <button type="button" className="rv-tabguide-h" onClick={flip} aria-expanded={open}>
-        <span>How to use this tab</span><em>{g.title}</em><i>{open ? "Hide" : "Show"}</i>
-      </button>
+      <div className="rv-tabguide-row">
+        <button type="button" className="rv-tabguide-h" onClick={flip} aria-expanded={open}>
+          <span>How to use this tab</span><em>{g.title}</em><i>{open ? "Hide" : "Show"}</i>
+        </button>
+        <Info k="tabguide" />
+      </div>
       {open ? (
         <div className="rv-tabguide-b">
           <p>{g.lead}</p>
@@ -3999,10 +3930,9 @@ function TabGuide({ tab }: { tab: Tab }) {
 
 /* Quick tour (Shyam, 2026-10-06): chains every section (i) guide with Next/Back. */
 const TOUR: Array<{ tab: Tab; k: string }> = [
-  ...["headline", "nba", "touch", "opp", "call", "newc"].map(k => ({ tab: "today" as Tab, k })),
-  ...["headline", "great", "tree", "funnel", "targets"].map(k => ({ tab: "week" as Tab, k })),
-  ...["week", "hours", "pillar", "queue"].map(k => ({ tab: "plan" as Tab, k })),
-  ...["sc", "fam"].map(k => ({ tab: "week" as Tab, k })),
+  ...["headline", "tabguide", "nba", "opp", "call", "newc", "touch"].map(k => ({ tab: "today" as Tab, k })),
+  ...["week", "gap", "hours", "pillar", "queue"].map(k => ({ tab: "plan" as Tab, k })),
+  ...["headline", "great", "sc", "fam", "tree", "funnel", "touch"].map(k => ({ tab: "week" as Tab, k })),
   ...["gauge", "lb", "recent"].map(k => ({ tab: "today" as Tab, k })),
 ];
 const tourStore = { step: null as number | null, dir: 1, subs: new Set<() => void>(), setTab: (_: Tab) => {} };
@@ -4039,20 +3969,20 @@ const INFO: Record<string, string> = {
   newc: "New clinics due for their next order, order 4 first. Use the days-between-orders filter to change the window (default 14–21 days). Shows who dropped off before the next order.",
   tree: "The gap between actual and goal for this window, split into volume vs AOV, bundles vs single panels, clinic cohorts and states. Green is ahead of goal, red is behind. Click any branch for its clinic list. The toggle switches between the simple and the detailed view.",
   funnel: "How many providers placed order 1, 2, 3… and where they dropped off. Click a stage for the clinic list.",
-  targets: "Your top clinics by baseline with their weekly $ and order targets.",
-  sc: "Five pillars with status: green on track, amber watch, red behind. Numbers follow the window you opened it from. Click a pillar for all its KPIs.",
-  fam: "Every product family's change vs baseline, best and worst highlighted.",
+  sc: "The scorecard: three dials (Combined, New, Existing) and a matrix of metrics by pillar, green on track, amber watch, red behind. Click a cell for the clinics pushing it up and pulling it down; \"Explain this metric\" opens its Scorecard guide entry. The retention row can be cut by when clinics signed up.",
+  fam: "One card per product family, always visible: orders against expected. Click a card to scope the Product Growth cells to that family; the Target Product Orders and Product adoption lists then use each clinic's portfolio status (NEW, RESTARTED, DECLINING, STOPPED).",
   ws: "Mark clinics that should be ordering a product but never have. Your marked list is the Product whitespace count on the scorecard; it is saved per rep.",
   search: "Live results as you type. Click one to open its full clinic/provider card.",
   recent: "Your last 10 opened clinics/providers, one click to reopen.",
-  touch: "Clinics with a call/meeting in this window, how many reordered after, vs untouched clinics, and the lift. Compared to your team's average. Click a card for clinics; 'Order within' limits how soon after the touch the order counts.",
+  touch: "Touch effort sits at the bottom of the tab: clinics you called or met in this window, how many reordered after, against clinics you did not touch, and the lift, in two rows (existing clinics, and new business) with the team average. 'Order within' limits how soon after a touch an order counts.",
   nba: "The single action with the highest expected revenue per hour this week. 'See my week' opens your full plan.",
   opp: "Your scorecard's Opportunity column as cards: count, $ upside, suggested action. Click the count for clinics, 'Add to today' to plan it, 'See in scorecard' to jump there.",
   week: "Set your selling hours; actions fill them from the top by expected revenue per hour.",
+  tabguide: "A short guide to this tab: what each section shows and how to use it. Open it any time; the FAQ button in the top bar answers the wider 'what does that word mean' questions, and the notes marked 'How this is calculated' under each section give the formulas.",
   gap: "Where this week is heading against its goal (existing clinics plus the new-business goal), and how much of any shortfall the actions in your plan are expected to cover.",
   hours: "How your 40 hours split across admin, each pillar and free time.",
-  pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
-  queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; edit the Hours box to use your own time (clear it to go back to the estimate); click the clinic count for the list. Click a pillar on the left to show only its actions.",
+  pillar: "Which pillar returns the most per hour in your plan. Click a pillar to show only its actions in the queue. Behind pillars get a boost when the toggle is on.",
+  queue: "All actions ranked by expected $/hour (upside x likelihood / hours). Click a row to pin in/out, edit the Hours box to use your own time, click the clinic count for the list. Open 'How expected revenue is calculated' under the queue for each action's figures.",
   great: "What's going right in this window. Beating goal, Comebacks and Bundle gainers look at existing clinics only, each against its own goal (new and returning clinics have none: they sit under the new-business goal). New-logo wins counts this year's new clinics plus returning ones (no baseline, ordering again) that ordered in the window. The touch line is the share of clinics you touched in the last N days that reordered since; N follows the Touch effort 'Order within' choice (14 on any time). Click a number for the clinics.",
   headline: "Booked vs goal for this window and the $/day needed for the days left.",
 };
