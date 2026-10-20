@@ -766,6 +766,7 @@ async function portfolio(
   // (whatever the tab or the baseline period), it is a restart, not a new product for the clinic (2026-10-18).
   if ([...rows, ...testStatus].some(x => x.status === "NEW")) {
     const lastBefore = new Map<string, string>();
+    const earlierDays = new Map<string, number>();
     try {
       const hist = await ordersRows({
         family: true, day: true, start: "2000-01-01", end: addDays(anchor, -118), m: { ord: "orders" },
@@ -777,6 +778,7 @@ async function portfolio(
         for (const f of splitFamilies(familyOf(r))) {
           const k = f.toLowerCase();
           if ((lastBefore.get(k) ?? "") < d) lastBefore.set(k, d);
+          earlierDays.set(k, (earlierDays.get(k) ?? 0) + 1);
         }
       }
     } catch {
@@ -784,11 +786,11 @@ async function portfolio(
     }
     for (const x of rows) {
       const lb = lastBefore.get(x.family.toLowerCase());
-      if (x.status === "NEW" && lb) { x.status = "RESTARTED"; x.lastBefore = lb; }
+      if (x.status === "NEW" && lb && (earlierDays.get(x.family.toLowerCase()) ?? 0) >= 3) { x.status = "RESTARTED"; x.lastBefore = lb; }
     }
     for (const x of testStatus) {
       const lb = lastBefore.get(x.test.toLowerCase());
-      if (x.status === "NEW" && lb) { x.status = "RESTARTED"; x.lastBefore = lb; }
+      if (x.status === "NEW" && lb && (earlierDays.get(x.test.toLowerCase()) ?? 0) >= 3) { x.status = "RESTARTED"; x.lastBefore = lb; }
     }
   }
   return {

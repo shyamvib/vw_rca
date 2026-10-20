@@ -130,3 +130,4 @@ Idea (2026-10-19): drop the model's "last 28 days vs prior 90 days" status and u
 - A family needs **3 or more orders in the baseline period** before anything is expected of it; with fewer (or for a clinic new this year) the card says "nothing expected" and shows no expected, no Order Δ.
 - Even with an expectation, the Order Δ is shown only when **expected is 1 or more in the tab**; below that the card reads "vs <1" and a dash.
 - These thresholds only affect the Expected and Order Δ columns; the status thresholds in the Cube model (STOPPED 3, DECLINING 6) are separate.
+- **RESTARTED needs 3 or more earlier orders** of that test (before the 28 + 90 day status window); with fewer it stays NEW (decided 2026-10-19). Parked with the redesign: a guard for slow rhythms (restarted only when the gap is at least 3x the clinic's usual gap for that test, minimum 90 days) and a cap of about 2 years on how far back "earlier" looks.

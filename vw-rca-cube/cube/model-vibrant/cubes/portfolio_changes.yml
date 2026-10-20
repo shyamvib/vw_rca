@@ -2,8 +2,8 @@
 # Rules INFERRED from Power BI output (Thiru's DAX not yet received), 2026-10-03:
 #   33-test whitelist (exact list from PBI), recent = last 28 days,
 #   baseline = the 90 days before (changed from 84 on 2026-10-18), Baseline 28D Average = baseline x 28 / 90.
-#   NEW = baseline 0 & recent >= 1 & never ordered before; RESTARTED = baseline 0 & recent >= 1 but ordered before the
-#   baseline window (added 2026-10-18, earlier_orders); STOPPED = baseline >= 3 & recent 0;
+#   NEW = baseline 0 & recent >= 1 & never ordered before; RESTARTED = baseline 0 & recent >= 1 and 3+ orders before the
+#   baseline window (added 2026-10-18, earlier_orders; fewer than 3 stays NEW); STOPPED = baseline >= 3 & recent 0;
 #   DECLINING = baseline >= 6 & recent >= 1 & recent <= 0.5 x average.
 # Known gap vs PBI: STOPPED 1,149 vs 1,218; NEW 1,965 vs 2,325; DECLINING 417 vs 192.
 cubes:
@@ -37,7 +37,7 @@ cubes:
       s AS (
         SELECT *, baseline_orders * 28 / 90 AS baseline_28d_avg,
           CASE
-            WHEN baseline_orders = 0 AND recent_orders >= 1 AND earlier_orders >= 1 THEN 'RESTARTED'
+            WHEN baseline_orders = 0 AND recent_orders >= 1 AND earlier_orders >= 3 THEN 'RESTARTED'
             WHEN baseline_orders = 0 AND recent_orders >= 1 THEN 'NEW'
             WHEN baseline_orders >= 3 AND recent_orders = 0 THEN 'STOPPED'
             WHEN baseline_orders >= 6 AND recent_orders >= 1 AND recent_orders <= 0.5 * baseline_orders * 28 / 90 THEN 'DECLINING'
