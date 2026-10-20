@@ -2,8 +2,6 @@ import { v } from "convex/values";
 import { drill, type ClinicRow } from "./clinics";
 import { addDays } from "./dateUtils";
 import { scopedQuery } from "./gated";
-import { loadCfg } from "./config";
-import { newClinicPace } from "./newPace";
 
 /**
  * "What's working" companion to the shortfall RCA tree. Same clinic rows
@@ -59,10 +57,12 @@ export const winsSummary = scopedQuery({
     // New clinics have ~$0 baseline, so "delta >= 0" always counted them as
     // beating. Use the same on-pace/overdue rule as the shortfall tree
     // (Shyam, 2026-09-30: "logic should be consistent across the pages").
-    const cfg = await loadCfg(ctx);
-    const isNew = (r: ClinicRow) => r.newGroups.length > 0;
-    const { onPace } = newClinicPace(rows.filter(isNew), cfg?.currentEnd ?? "");
-    const ok = (r: ClinicRow) => (isNew(r) ? onPace.has(r.clinic) : true);
+    // Lifecycle rules (2026-10-19): new = first order this calendar year; returning = not new, no baseline, ordering again.
+    // Neither has a per-clinic goal (they sit under the new-business goal), so "beating goal", momentum, bundle gainers
+    // and comebacks look at existing clinics only (not new, has a baseline). New and returning clinics get their own win.
+    const isExisting = (r: ClinicRow) => !r.isNew && (r.baselineWeekly ?? r.baseline) > 0;
+    const isReturning = (r: ClinicRow) => !r.isNew && (r.baselineWeekly ?? r.baseline) <= 0 && r.cohort === "reactivated";
+    const ok = isExisting;
     const beaters = rows.filter(r => ok(r) && r.delta >= 0);
     const beatersRevenue = beaters.reduce((s, r) => s + r.delta, 0);
 
@@ -75,11 +75,13 @@ export const winsSummary = scopedQuery({
       orderDelta: r.orders - r.expectedOrders,
     }));
 
-    const newLogos = rows.filter(r => r.newGroups.length > 0);
+    const newOnly = rows.filter(r => r.isNew && r.actual > 0);
+    const returning = rows.filter(r => isReturning(r) && r.actual > 0);
+    const newLogos = [...newOnly, ...returning];
     const newLogoRevenue = newLogos.reduce((s, r) => s + r.actual, 0);
 
     const bundleGainersAll = rows
-      .filter(r => r.bundleDelta > 0)
+      .filter(r => ok(r) && r.bundleDelta > 0)
       .sort((a, b) => b.bundleDelta - a.bundleDelta);
     const bundleGainers = bundleGainersAll.slice(0, 15).map(r => ({
       ...slim(r),
@@ -121,6 +123,8 @@ export const winsSummary = scopedQuery({
       momentumIds: momentumAll.map(r => r.clinic),
       newLogos: newLogos.map(r => ({ ...slim(r), actual: r.actual })),
       newLogoCount: newLogos.length,
+      newLogoNew: newOnly.length,
+      newLogoReturning: returning.length,
       newLogoRevenue,
       newLogoIds: newLogos.map(r => r.clinic),
       bundleGainers,

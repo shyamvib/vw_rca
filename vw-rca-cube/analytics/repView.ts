@@ -16,7 +16,6 @@ import { ACTIVE_COHORTS, calibrate } from "./lifecycle";
 import { addDays, diffDays, dow, eachDay, periodDefs, weekStart } from "./dateUtils";
 import { scopedQuery } from "./gated";
 
-const EXISTING = new Set(["retained_top20", "retained_rest", "churned"]);
 const TENURE_DATA_START = "2025-01-01";
 const LOW_AOV = 400;
 
@@ -356,7 +355,8 @@ export const book = scopedQuery({
 
     // Effort: touched in the last 14 days vs reordered after that touch.
     const t14 = addDays(cutoff, -13);
-    const withOrders = existing.concat(newRows);
+    // Same pool as the churn base: existing, new and returning clinics (2026-10-19).
+    const withOrders = existing.concat(newRows, reactivated);
     const touched = withOrders.filter(r => r.lastTouchDate && r.lastTouchDate >= t14);
     const touchedRe = touched.filter(
       r => r.lastOrderAllTime && r.lastOrderAllTime >= (r.lastTouchDate as string),
@@ -547,6 +547,12 @@ export const book = scopedQuery({
       pstatusCounts: Object.entries(pstatusCounts),
       effortWin,
       effort: {
+        // "Touched in the last N days, reordered since the touch", for the day counts the Touch effort selector offers.
+        byDays: Object.fromEntries([7, 14, 21, 30, 45, 60].map(n => {
+          const from = addDays(cutoff, -(n - 1));
+          const t = withOrders.filter(r => r.lastTouchDate && r.lastTouchDate >= from);
+          return [n, { touched: t.length, touchedRe: t.filter(r => r.lastOrderAllTime && r.lastOrderAllTime >= (r.lastTouchDate as string)).length }];
+        })),
         touched: touched.length,
         touchedRe: touchedRe.length,
         untouched: untouched.length,
@@ -914,11 +920,11 @@ export const teamEffort = scopedQuery({
   args: { periodId: v.string(), sales: v.optional(v.string()), start: v.string(), within: v.optional(v.number()) },
   handler: async (ctx, args) => {
     if (!args.sales) return { ready: false as const };
-    const mine = await drill(ctx, { periodId: args.periodId, lens: "total", unlimited: true, sales: args.sales });
+    const mine = await drill(ctx, { periodId: args.periodId, lens: "total", unlimited: true, sales: args.sales, keepBaselined: true });
     if (!mine.ready) return { ready: false as const };
     const lead = mine.rows.find(r => r.teamLead && r.teamLead !== "—")?.teamLead;
     if (!lead) return { ready: true as const, lead: null, reps: 0 };
-    const res = await drill(ctx, { periodId: args.periodId, lens: "total", unlimited: true, teamLead: lead });
+    const res = await drill(ctx, { periodId: args.periodId, lens: "total", unlimited: true, teamLead: lead, keepBaselined: true });
     if (!res.ready) return { ready: false as const };
     const byRep = new Map<string, ClinicRow[]>();
     for (const r of res.rows) {
@@ -928,7 +934,7 @@ export const teamEffort = scopedQuery({
     }
     const s = args.start, W = args.within ?? 0;
     const per = [...byRep.values()].map(rows => {
-      const wo = rows.filter(r => r.newGroups.length > 0 || (EXISTING.has(r.cohort) && r.expected > 0));
+      const wo = rows.filter(r => r.isNew || (r.baselineWeekly ?? r.baseline) > 0 || r.cohort === "reactivated" || r.cohort === "churned");
       const t = wo.filter(r => r.lastTouchDate && r.lastTouchDate >= s);
       const tRe = t.filter(r => {
         if (!r.lastOrderAllTime || r.lastOrderAllTime < (r.lastTouchDate as string)) return false;

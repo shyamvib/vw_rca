@@ -151,3 +151,9 @@ Next step when resumed: write the scripts (option 1), then set up the clone and 
 - **Existing clinic "added" the product** = ordered it in the selected window **and** status NEW. A NEW status alone is not enough: the status looks at the last 28 days and ignores the tab, so a clinic could show as adding a product with 0 orders in "this month" (found with Newu Hydration Lounge, Total Tox). Existing clinics with no orders in the window are not measured.
 - Statuses are per test; a test counts for a family when its name starts with the family name ("Hormone Zoomer 2.0" for Hormone Zoomer).
 - Open: the card colour thresholds (50% / 30%) were set for new clinics only and read low for the blended rate; re-derive or tie colour to the new-clinic rate. Lines still show window orders only, not the clinic's recent-28-day orders.
+
+## 12. Great Job section follows the lifecycle rules (2026-10-19)
+
+- **Beating goal, Momentum, Bundle gainers, Comebacks**: existing clinics only (not new, has a baseline), each against its own goal. New and returning clinics have no per-clinic goal (they sit under the new-business goal), so their whole revenue no longer counts as "beating goal". The old on-pace check for new clinics is dropped here.
+- **New-logo wins**: this year's new clinics plus returning clinics (no baseline, reactivated) that ordered in the window; the card shows the split. Membership is the calendar-year rule, not "first order inside the window".
+- **Touch effort** (Great Job line and the Touch effort cards): pool = existing + new + returning (same as the churn base); the team average uses the same pool. The Great Job line's "last N days" follows the Touch effort "Order within" choice (14 when it is "any time"); the choice is shared between the two.

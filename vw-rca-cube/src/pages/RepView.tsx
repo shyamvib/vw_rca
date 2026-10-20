@@ -1164,7 +1164,11 @@ function WindowTab({
   const lensCards = newGoalLine ? lensCardsBase.map(c => ({ ...c, rows: [...c.rows, goalRow] })) : lensCardsBase;
   const max = Math.max(1, ...lensCards.flatMap(c => c.rows.map(r => Math.abs(r.v))));
   const e = b.effort;
-  const touchedPct = e.touched ? e.touchedRe / e.touched : 0;
+  // Touched in the last N days, N = the Touch effort "Order within" choice (14 when it is "any time").
+  const [touchSel] = useTouchDays();
+  const touchN = touchSel || 14;
+  const te = e.byDays?.[touchN] ?? { touched: e.touched, touchedRe: e.touchedRe };
+  const touchedPct = te.touched ? te.touchedRe / te.touched : 0;
   const openFocus = (f: string, label: string) =>
     setFocus(cur => (cur && cur.focus === f && cur.label === label ? null : { focus: f, label }));
   return (
@@ -1181,9 +1185,9 @@ function WindowTab({
         <div>
           <div className="rv-eyebrow rv-great-job-eyebrow">🎉 Great job<Info k="great" /></div>
           <div className="rv-effort-h">
-            {e.touched
-              ? `${P(touchedPct, 0)} of clinics you touched in the last 14 days reordered since.`
-              : "No touches logged in the last 14 days yet."}
+            {te.touched
+              ? `${P(touchedPct, 0)} of clinics you touched in the last ${touchN} days reordered since.`
+              : `No touches logged in the last ${touchN} days yet.`}
           </div>
         </div>
         <div className="rv-mini">
@@ -1218,7 +1222,7 @@ function WindowTab({
             onClick={() => wins?.ready && openFocus(`ids:${wins.newLogoIds.join(",")}`, "New-logo wins")}
           >
             <b>{wins?.ready ? wins.newLogoCount : "—"}</b>
-            <span>New-logo wins<br />first orders in window</span>
+            <span>New-logo wins<br />{wins?.ready ? `${wins.newLogoNew} new · ${wins.newLogoReturning} returning, ordering` : "new and returning clinics"}</span>
           </button>
           <button
             type="button"
@@ -3367,6 +3371,15 @@ type EffortWin = {
   start: string; touched: number; touchedRe: number; untouched: number; untouchedRe: number; idle: number;
   touchedIds: string[]; touchedReIds: string[]; untouchedIds: string[]; idleIds: string[]; touchGaps?: (number | null)[];
 };
+/** The "Order within X days of touch" choice is shared: the Touch effort cards and the Great Job line read the same value. */
+const touchDays = { v: 0, subs: new Set<() => void>() };
+function useTouchDays(): [number, (n: number) => void] {
+  const v = useSyncExternalStore(
+    cb => { touchDays.subs.add(cb); return () => { touchDays.subs.delete(cb); }; },
+    () => touchDays.v,
+  );
+  return [v, n => { touchDays.v = n; for (const f of touchDays.subs) f(); }];
+}
 /** Today KPI strip (Shyam, 2026-09-30): touch effort for this week / month /
  * quarter, picked with chips. Each card opens the standard clinic list. */
 function TouchKpis({ sales, src, w }: {
@@ -3382,7 +3395,7 @@ function TouchKpis({ sales, src, w }: {
   );
   useEffect(() => setFocus(null), [w]);
   const WL = { week: "This week", month: "This month", quarter: "This quarter" }[w];
-  const [xd, setXd] = useState<number>(0);
+  const [xd, setXd] = useTouchDays();
   const e0 = cur?.e;
   const e = e0 && xd && e0.touchGaps ? (() => {
     const re = e0.touchedIds.filter((_, i) => { const g = e0.touchGaps![i]; return g != null && g <= xd; });
@@ -3741,7 +3754,7 @@ const INFO: Record<string, string> = {
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Behind pillars get a boost when the toggle is on.",
   queue: "All actions ranked by expected $/hour (upside × likelihood ÷ hours). Click a row to pin in/out; click the clinic count for the list. Hours and likelihoods are estimates.",
-  great: "What's going right in this window: clinics beating goal and extra dollars over goal. Click a number for the clinics.",
+  great: "What's going right in this window. Beating goal, Comebacks and Bundle gainers look at existing clinics only, each against its own goal (new and returning clinics have none: they sit under the new-business goal). New-logo wins counts this year's new clinics plus returning ones (no baseline, ordering again) that ordered in the window. The touch line is the share of clinics you touched in the last N days that reordered since; N follows the Touch effort 'Order within' choice (14 on any time). Click a number for the clinics.",
   headline: "Booked vs goal for this window and the $/day needed for the days left.",
 };
 function Info({ k }: { k: string }) {
