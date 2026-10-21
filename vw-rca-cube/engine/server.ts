@@ -249,14 +249,44 @@ function send(res: http.ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+/** A problem with the request itself: answered with a clean 4xx instead of a 500 carrying an internal message. */
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
 async function readBody(req: http.IncomingMessage): Promise<any> {
   let s = "";
   for await (const c of req) {
     s += c;
-    if (s.length > 2_000_000) throw new Error("body too large");
+    if (s.length > 2_000_000) throw new HttpError(413, "body too large");
   }
-  return s ? JSON.parse(s) : {};
+  try {
+    return s ? JSON.parse(s) : {};
+  } catch {
+    throw new HttpError(400, "bad request");
+  }
 }
+
+// Failed sign-ins are throttled per client (behind the tunnel the real address is in cf-connecting-ip): more than
+// MAX_FAILS refused team-password requests in a minute get a 429 for the rest of that minute (2026-10-20, resilience pass).
+const MAX_FAILS = 60;
+const fails = new Map<string, { n: number; at: number }>();
+const clientOf = (req: http.IncomingMessage) => String(req.headers["cf-connecting-ip"] ?? req.socket.remoteAddress ?? "?");
+function throttled(client: string): boolean {
+  const f = fails.get(client);
+  if (!f) return false;
+  if (Date.now() - f.at > 60_000) { fails.delete(client); return false; }
+  return f.n >= MAX_FAILS;
+}
+function noteFail(client: string) {
+  const f = fails.get(client);
+  if (!f || Date.now() - f.at > 60_000) fails.set(client, { n: 1, at: Date.now() });
+  else f.n++;
+  if (fails.size > 5000) for (const [k, v] of fails) if (Date.now() - v.at > 60_000) fails.delete(k);
+}
+const FN_NAME = /^[A-Za-z][A-Za-z0-9_]*:[A-Za-z][A-Za-z0-9_]*$/;
 
 const server = http.createServer(async (req, res) => {
   cors(req, res);
@@ -278,9 +308,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/rpc" && req.method === "POST") {
       if (!current) return send(res, 503, { error: "snapshot not ready" });
+      const client = clientOf(req);
+      if (throttled(client)) return send(res, 429, { error: "Too many failed attempts. Try again in a minute." });
       const { name, args } = await readBody(req);
-      if (typeof name !== "string" || !args || typeof args !== "object") return send(res, 400, { error: "bad request" });
-      const cred = String(args.password ?? "");
+      if (typeof name !== "string" || !FN_NAME.test(name) || !args || typeof args !== "object" || Array.isArray(args)) return send(res, 400, { error: "bad request" });
+      if (typeof args.password !== "string" || !args.password) {
+        noteFail(client);
+        return send(res, 403, { error: "Not authorized — wrong dashboard password." });
+      }
+      const cred = String(args.password);
       if (name === "refresh:refreshNow") {
         // Manual Refresh button: team only. Rebuilds the snapshot from Cube (about a minute) and reports the result.
         if (cred.startsWith("rs:") || !(await verifyPassword(cred))) return send(res, 403, { error: "Not authorized — wrong dashboard password." });
@@ -292,12 +328,26 @@ const server = http.createServer(async (req, res) => {
         const s = await repSession(cred);
         if (s) await mirrorRep(current, cred, s);
       }
-      const value = await current.host.invokeExternal(name, args);
+      let value: unknown;
+      try {
+        value = await current.host.invokeExternal(name, args);
+      } catch (e) {
+        // Only guesses at the shared team password count: rep tokens are random and unguessable, and an office of reps behind one
+        // address with expired sessions must not lock each other out.
+        if (!cred.startsWith("rs:") && e instanceof Error && e.message.startsWith("Not authorized")) noteFail(client);
+        throw e;
+      }
       return send(res, 200, { value: value === undefined ? null : value });
     }
     send(res, 404, { error: "not found" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof HttpError) return send(res, e.status, { error: e.message });
+    // A bug in a handler (TypeError and friends) is logged here and answered generically, not leaked to the client.
+    if (e instanceof TypeError || e instanceof RangeError || e instanceof ReferenceError || e instanceof SyntaxError) {
+      console.error("handler error:", url.pathname, msg.slice(0, 300));
+      return send(res, 500, { error: "Internal error" });
+    }
     send(res, msg.startsWith("Not authorized") || msg.startsWith("Not available") ? 403 : 500, { error: msg });
   }
 });
