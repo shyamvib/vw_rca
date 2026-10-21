@@ -1,0 +1,31 @@
+Subject: Your sales dashboard login is ready
+
+Hi {{first_name}},
+
+You now have access to the sales dashboard. It shows how your book of clinics is doing against its goal, which clinics to call first, and a plan for your selling week. Everything in it is built from your own clinics.
+
+YOUR SIGN-IN DETAILS
+  Link:              {{dashboard_url}}
+  Email:             {{login_email}}
+  One-time password: {{password}}
+
+YOUR FIRST FIVE MINUTES
+  1. Sign in with the email and password above. Use your work email exactly as shown.
+  2. Press "Quick tour" (top right) for a short walk through each section.
+  3. Open Today's agenda to see who to call first, then My week plan to turn that into a plan for your hours.
+
+WHERE TO FIND THINGS
+  Business feed .............. questions about your book, answered in four steps
+  This week / month / quarter  your scorecard against goal, with the clinics behind every number
+  Scorecard guide ............ every metric explained in plain words
+  FAQ and Raise a question ... the FAQ button (top bar) explains terms; "Raise a question" (left side) asks the analytics team
+
+PLEASE KEEP THIS PRIVATE
+The login shows your clinics' data and is just for you. Do not forward this email or share the password. If you stay away for two weeks you are signed out and simply sign in again. If you lose the password or suspect someone else has it, tell us and we will reset it.
+
+Questions or trouble signing in? Contact {{support_name}} at {{support_email}}.
+
+Welcome aboard,
+{{support_name}}
+
+You received this email because an account was created for {{login_email}}. Internal use only.
