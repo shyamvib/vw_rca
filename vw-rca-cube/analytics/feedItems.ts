@@ -105,6 +105,10 @@ export const ACTION_BY_TAG: Record<string, string> = {
   Channel: "Loop in the channel owner if the movement doesn't self-correct within a week.",
   Mix: "Track alongside the AOV card; the two should move together.",
 };
+/** Wording for the rep Business feed where the main feed's line is written for a manager (the main feed says "confirm with reps"). */
+export const REP_ACTION: Record<string, string> = {
+  "offset-Total Tox": "Call the clinics that dropped Total Tox without picking up Toxin Zoomer and find out why before you count it as a net loss.",
+};
 export const actionFor = (tag: string, id?: string) => (id && ITEM_TEXT[id]?.action) || ACTION_BY_TAG[tag] || "Monitor against the next refresh.";
 
 export const statusFor = (tone: string): string => {

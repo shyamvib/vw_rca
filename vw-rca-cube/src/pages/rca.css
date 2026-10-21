@@ -2270,3 +2270,16 @@ select.rca-select,
 .rca-ic-btn { background: #111827; color: #fff; border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 600; font-size: 13.5px; cursor: pointer; }
 .rca-ic-rel { margin-top: 8px; font-size: 12px; color: #4b5563; }
 @media (max-width: 700px) { .rca-ic-step { grid-template-columns: 1fr; } .rca-ic-gut::after { display: none; } .rca-ic-body { padding-left: 22px; } }
+
+/* Business Feed: two columns on wide screens (2026-10-20) */
+.rca-insights-grid { grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1300px) { .rca-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rca-ic-step { grid-template-columns: 128px minmax(0, 1fr); }
+.rca-ic-gut { padding-left: 18px; }
+.rca-ic-gut::after { left: 30px; }
+.rca-ic-chip { padding: 6px 11px; font-size: 11px; }
+.rca-ic-head { gap: 14px; padding: 16px 18px; }
+.rca-ic-kpi { font-size: 32px; min-width: 104px; }
+.rca-ic-title .rca-insight-question { font-size: 17px; }
+.rca-ic-body { padding: 12px 18px 12px 6px; font-size: 14.5px; }
+.rca-ic-meta { text-align: left; }

@@ -6,7 +6,7 @@ import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedAction, gatedQuery, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
-import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
+import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -1029,7 +1029,7 @@ export const repQuestions = scopedQuery({
       const evidence = evidenceFrom(it.detail);
       cards.push({
         id: it.id, applies, domain: m.domain, topic: m.topic, tag: it.tag, tone: it.tone, question: it.q, fact: it.a,
-        inference: inferenceFor(it.tag, it.tone, it.id), evidence, action: actionFor(it.tag, it.id), confidence: confidenceFor(it.tag, evidence.length),
+        inference: inferenceFor(it.tag, it.tone, it.id), evidence, action: REP_ACTION[it.id] ?? actionFor(it.tag, it.id), confidence: confidenceFor(it.tag, evidence.length),
         status: statusFor(it.tone), focus: it.focus, focusLabel: it.focusLabel,
       });
     };
@@ -1037,7 +1037,8 @@ export const repQuestions = scopedQuery({
     const fam = await salesFamilyRows(ctx, "all", sales);
     for (const [downName, upName] of OFFSET_PAIRS) {
       const d = fam.all.find(f => f.family === downName), u = fam.all.find(f => f.family === upName);
-      const it = d && u ? offsetFeedItem(downName, upName, d, u, baseLabelOf(cfg), (cfg.baselineMode ?? "prior_equal") === "yoy") : null;
+      // `true` drops the "switch the baseline" hint: a rep has no Settings to switch it in.
+      const it = d && u ? offsetFeedItem(downName, upName, d, u, baseLabelOf(cfg), true) : null;
       if (it) shape(it, true);
       else
         shape({

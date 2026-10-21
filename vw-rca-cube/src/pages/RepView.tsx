@@ -3882,6 +3882,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
         <em>What happened, what it means, the numbers behind it, what to do. The same questions as the main Business Feed, cut to your own clinics.</em>
       </div>
       {!q ? <p className="rv-dim">Loading…</p> : null}
+      <div className="rv-sig-grid">
       {cards.map(c => {
         const head = insightHeadline(c.fact, c.topic);
         return (
@@ -3889,8 +3890,10 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
             <header className="rv-sig-hd">
               {head ? <div className="rv-sig-kpi">{head.value}<small>{head.caption}</small></div> : null}
               <div className="rv-sig-q"><span>{c.domain} · {c.topic} · {toneLabel[c.tone] ?? c.tone}</span><h3>{c.question}</h3></div>
-              <div className="rv-sig-meta">Confidence <b>{c.confidence}</b></div>
-              <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
+              <div className="rv-sig-side">
+                <div className="rv-sig-meta">Confidence <b>{c.confidence}</b></div>
+                <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
+              </div>
             </header>
             <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-fact">Fact</span></div><div className="body">{c.fact}</div></div>
             <div className="rv-sig-step is-inf"><div className="gut"><span className="rv-sig-chip is-inf">Inference</span></div><div className="body">{c.inference}</div></div>
@@ -3909,6 +3912,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
           </article>
         );
       })}
+      </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
       <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions from the main Business Feed will be added here over time.</p>
     </div>
