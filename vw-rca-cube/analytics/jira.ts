@@ -14,6 +14,9 @@
  *   JIRA_SERVICE_DESK_ID   the service desk's id (the number in /servicedesk/customer/portal/<id> is usually it; /admin/jira-check confirms)
  *   JIRA_REQUEST_TYPE_ID   the request type the question is filed under (/admin/jira-check lists them)
  *   JIRA_RAISE_ON_BEHALF   "1" to file it as the asker (needs an agent account that may raise on behalf of customers)
+ *   JIRA_DUE_IN_DAYS       if the request type requires a due date, how many days ahead to set it (e.g. 7)
+ *   JIRA_EXTRA_FIELDS      other required fields as id=value pairs separated by ";", e.g. customfield_10869=Analytics Insight
+ *                          (custom fields are sent as select options, anything else as plain text)
  * JIRA_PROJECT_KEY is not needed in that mode. The request then shows in the portal with the portal's own workflow and SLAs.
  *
  * Auth is HTTP Basic (email:token). The token is only ever read from the environment and never logged or returned.
@@ -23,22 +26,30 @@ declare const Buffer: { from(s: string): { toString(enc: string): string } };
 
 export type JiraConfig = {
   baseUrl: string; email: string; token: string; project: string; issueType: string; labels: string[];
-  serviceDeskId: string; requestTypeId: string; onBehalf: boolean;
+  serviceDeskId: string; requestTypeId: string; onBehalf: boolean; dueInDays: number; extra: Record<string, string>;
 };
+
+/** An .env value without a trailing " # comment" (docker env files keep them), or "" when the whole value is a comment. */
+const val = (v: string | undefined) => (v ?? "").replace(/^\s*#.*$/, "").replace(/\s+#.*$/, "").trim();
 
 export function jiraConfig(): JiraConfig | null {
   const e = process.env;
-  const baseUrl = (e.JIRA_BASE_URL ?? "").trim().replace(/\/+$/, "");
-  const email = (e.JIRA_EMAIL ?? "").trim();
-  const token = (e.JIRA_API_TOKEN ?? "").trim();
-  const project = (e.JIRA_PROJECT_KEY ?? "").trim();
-  const serviceDeskId = (e.JIRA_SERVICE_DESK_ID ?? "").trim();
-  const requestTypeId = (e.JIRA_REQUEST_TYPE_ID ?? "").trim();
+  const baseUrl = val(e.JIRA_BASE_URL).replace(/\/+$/, "");
+  const email = val(e.JIRA_EMAIL);
+  const token = val(e.JIRA_API_TOKEN);
+  const project = val(e.JIRA_PROJECT_KEY);
+  const serviceDeskId = val(e.JIRA_SERVICE_DESK_ID);
+  const requestTypeId = val(e.JIRA_REQUEST_TYPE_ID);
+  const extra: Record<string, string> = {};
+  for (const pair of val(e.JIRA_EXTRA_FIELDS).split(";")) {
+    const i = pair.indexOf("=");
+    if (i > 0 && pair.slice(i + 1).trim()) extra[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  }
   if (!baseUrl || !email || !token) return null;
   // Portal mode needs the service desk (the request type can be picked from the check's list first); plain mode needs the project.
   if (serviceDeskId ? false : !project) return null;
-  const labels = (e.JIRA_LABELS ?? "rca-dashboard").split(",").map(s => s.trim().replace(/\s+/g, "-")).filter(Boolean);
-  return { baseUrl, email, token, project, issueType: (e.JIRA_ISSUE_TYPE ?? "Task").trim() || "Task", labels, serviceDeskId, requestTypeId, onBehalf: (e.JIRA_RAISE_ON_BEHALF ?? "") === "1" };
+  const labels = (val(e.JIRA_LABELS) || "rca-dashboard").split(",").map(s => s.trim().replace(/\s+/g, "-")).filter(Boolean);
+  return { baseUrl, email, token, project, issueType: val(e.JIRA_ISSUE_TYPE) || "Task", labels, serviceDeskId, requestTypeId, onBehalf: val(e.JIRA_RAISE_ON_BEHALF) === "1", dueInDays: Math.max(0, Math.round(Number(val(e.JIRA_DUE_IN_DAYS)) || 0)), extra };
 }
 
 const authHeader = (c: JiraConfig) => `Basic ${Buffer.from(`${c.email}:${c.token}`).toString("base64")}`;
@@ -116,7 +127,12 @@ export async function createJiraIssue(input: RaiseInput): Promise<{ key: string;
       body: {
         serviceDeskId: c.serviceDeskId,
         requestTypeId: c.requestTypeId,
-        requestFieldValues: { summary: `[RCA] ${summary}`.slice(0, 250), description: text },
+        requestFieldValues: {
+          summary: `[RCA] ${summary}`.slice(0, 250),
+          description: text,
+          ...(c.dueInDays ? { duedate: new Date(Date.now() + c.dueInDays * 86_400_000).toISOString().slice(0, 10) } : {}),
+          ...Object.fromEntries(Object.entries(c.extra).map(([k, v]) => [k, k.startsWith("customfield_") ? { value: v } : v])),
+        },
         ...(c.onBehalf && /^[^@\s]+@[^@\s]+$/.test(asker) ? { raiseOnBehalfOf: asker } : {}),
       },
     });
@@ -161,7 +177,8 @@ export async function checkJira(): Promise<{ ok: boolean; configured: boolean; d
         const fields = Array.isArray(f.json?.requestTypeFields) ? (f.json!.requestTypeFields as Array<{ fieldId?: string; required?: boolean }>) : [];
         required = fields.filter(x => x.required).map(x => String(x.fieldId));
       }
-      const extra = required.filter(r => r !== "summary" && r !== "description");
+      const given = new Set(["summary", "description", ...(c.dueInDays ? ["duedate"] : []), ...Object.keys(c.extra)]);
+      const extra = required.filter(r => !given.has(r));
       return {
         ok: typeOk && extra.length === 0,
         configured: true,
@@ -173,8 +190,8 @@ export async function checkJira(): Promise<{ ok: boolean; configured: boolean; d
           : !typeOk
             ? `Request type ${c.requestTypeId} is not in this service desk. Choose from: ${types.join(" | ")}.`
             : extra.length
-              ? `Request type works but also requires: ${extra.join(", ")}. Pick a request type that only needs summary and description, or ask me to add these fields.`
-              : "Credentials work, the service desk and request type exist, and only summary and description are required.",
+              ? `Request type also requires: ${extra.join(", ")}. Set JIRA_DUE_IN_DAYS for duedate and JIRA_EXTRA_FIELDS (id=value;id=value) for the others, or pick a request type that only needs summary and description.`
+              : "Credentials work, the service desk and request type exist, and every required field is covered.",
       };
     }
     const proj = await call(c, `/rest/api/3/project/${encodeURIComponent(c.project)}`);

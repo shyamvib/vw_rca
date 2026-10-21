@@ -416,6 +416,7 @@ export function AlertRail({
   const [askText, setAskText] = useState("");
   const [askState, setAskState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [askKey, setAskKey] = useState<string | null>(null);
+  const [askError, setAskError] = useState("");
 
   const all: FeedItem[] = (feed?.items ?? []) as FeedItem[];
   const tags = [...new Set(all.map(i => i.tag))];
@@ -458,7 +459,8 @@ export function AlertRail({
         setAskState("idle");
         setAskOpen(false);
       }, 2000);
-    } catch {
+    } catch (e) {
+      setAskError(String((e as Error)?.message ?? e).replace(/^.*Uncaught Error:\s*/, "").slice(0, 200));
       setAskState("error");
     }
   };
@@ -531,7 +533,7 @@ export function AlertRail({
                   {askState === "sending" ? "Sending…" : askState === "sent" ? (askKey ? `Raised as ${askKey} ✓` : "Sent ✓") : "Send to Decision Intelligence team"}
                 </button>
                 {askState === "error" ? (
-                  <span className="rca-feed-ask-error">Couldn't send — try again.</span>
+                  <span className="rca-feed-ask-error">Couldn't send{askError ? `: ${askError}` : " — try again."}</span>
                 ) : null}
                 <span className="rca-feed-ask-from">as {gateEmail() || "unknown"}</span>
               </div>
