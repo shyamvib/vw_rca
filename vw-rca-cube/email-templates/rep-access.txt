@@ -23,9 +23,6 @@ WHERE TO FIND THINGS
 PLEASE KEEP THIS PRIVATE
 The login shows your clinics' data and is just for you. Do not forward this email or share the password. If you stay away for two weeks you are signed out and simply sign in again. If you lose the password or suspect someone else has it, tell us and we will reset it.
 
-Questions or trouble signing in? Contact {{support_name}} at {{support_email}}.
-
-Welcome aboard,
-{{support_name}}
+Questions or trouble signing in? Contact Decision Intelligence at biziQ@vibrant-wellness.com
 
 You received this email because an account was created for {{login_email}}. Internal use only.
