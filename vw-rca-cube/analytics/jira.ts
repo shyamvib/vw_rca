@@ -13,7 +13,9 @@
  * Request portal (Jira Service Management) instead of a plain project: also set
  *   JIRA_SERVICE_DESK_ID   the service desk's id (the number in /servicedesk/customer/portal/<id> is usually it; /admin/jira-check confirms)
  *   JIRA_REQUEST_TYPE_ID   the request type the question is filed under (/admin/jira-check lists them)
- *   JIRA_RAISE_ON_BEHALF   "1" to file it as the asker (needs an agent account that may raise on behalf of customers)
+ *   JIRA_RAISE_ON_BEHALF   "1" to file each request as the person who asked (their login email). Needs an agent account. The asker is looked up by
+ *                          email; if they are not in Jira yet a portal customer is created for them; if filing as them is refused it falls back
+ *                          to the token's account with the asker named in the text.
  *   JIRA_DUE_IN_DAYS       if the request type requires a due date, how many days ahead to set it (e.g. 7)
  *   JIRA_EXTRA_FIELDS      other required fields as id=value pairs separated by ";", e.g. customfield_10869=Analytics Insight
  *                          (custom fields are sent as select options, anything else as plain text)
@@ -87,6 +89,26 @@ function errorText(status: number, json: Record<string, unknown> | null): string
   return `Jira returned ${status}${detail ? `: ${detail}` : ""}`;
 }
 
+/** The asker's Jira account id, so the request is filed as them: an existing account or portal customer with that email, else a new
+ * portal customer is created (an agent may do that). Cached for the life of the process. Null when it cannot be resolved. */
+const accountIds = new Map<string, string>();
+async function accountIdFor(c: JiraConfig, email: string): Promise<string | null> {
+  const key = email.toLowerCase();
+  const hit = accountIds.get(key);
+  if (hit) return hit;
+  const found = await call(c, `/rest/api/3/user/search?query=${encodeURIComponent(email)}`);
+  const users = Array.isArray(found.json) ? (found.json as unknown as Array<{ accountId?: string; emailAddress?: string; active?: boolean }>) : [];
+  const exact = users.find(u => u.accountId && (u.emailAddress ?? "").toLowerCase() === key && u.active !== false);
+  if (exact?.accountId) {
+    accountIds.set(key, exact.accountId);
+    return exact.accountId;
+  }
+  const made = await call(c, "/rest/servicedeskapi/customer", { method: "POST", body: { email, displayName: email.split("@")[0] } });
+  const id = typeof made.json?.accountId === "string" ? made.json.accountId : null;
+  if (id) accountIds.set(key, id);
+  return id;
+}
+
 const clean = (s: string, max: number) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim().slice(0, max);
 
 // Atlassian Document Format helpers (the v3 API takes the description as ADF, not plain text).
@@ -122,7 +144,8 @@ export async function createJiraIssue(input: RaiseInput): Promise<{ key: string;
     const text = [question, "", `Asked by: ${clean(input.asker, 200) || "unknown"}`, `Scope: ${clean(input.scope, 200)}`, `Raised from: ${clean(input.context, 200)}`,
       ...(input.card ? ["", `About this card: ${clean(input.card.question, 300)}`, `Fact on the card: ${clean(input.card.fact, 800)}`, `Card id: ${clean(input.card.id, 120)}`] : [])].join("\n");
     const asker = clean(input.asker, 200);
-    const r = await call(c, "/rest/servicedeskapi/request", {
+    const onBehalf = c.onBehalf && /^[^@\s]+@[^@\s]+$/.test(asker) ? await accountIdFor(c, asker).catch(() => null) : null;
+    const file = (requester: string | null) => call(c, "/rest/servicedeskapi/request", {
       method: "POST",
       body: {
         serviceDeskId: c.serviceDeskId,
@@ -133,9 +156,13 @@ export async function createJiraIssue(input: RaiseInput): Promise<{ key: string;
           ...(c.dueInDays ? { duedate: new Date(Date.now() + c.dueInDays * 86_400_000).toISOString().slice(0, 10) } : {}),
           ...Object.fromEntries(Object.entries(c.extra).map(([k, v]) => [k, k.startsWith("customfield_") ? { value: v } : v])),
         },
-        ...(c.onBehalf && /^[^@\s]+@[^@\s]+$/.test(asker) ? { raiseOnBehalfOf: asker } : {}),
+        ...(requester ? { raiseOnBehalfOf: requester } : {}),
       },
     });
+    let r = await file(onBehalf);
+    // Filing as the asker can be refused (no permission, customer creation off): file it under the token's account instead,
+    // the asker is named in the text.
+    if (onBehalf && r.status !== 201 && /behalf|customer|user/i.test(JSON.stringify(r.json ?? {}))) r = await file(null);
     if (r.status !== 201 || typeof r.json?.issueKey !== "string") throw new Error(errorText(r.status, r.json));
     const web = (r.json._links as { web?: string } | undefined)?.web;
     return { key: r.json.issueKey, url: web ?? `${c.baseUrl}/browse/${r.json.issueKey}` };

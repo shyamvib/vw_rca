@@ -94,7 +94,8 @@ person). Setup, on the server:
 desk's request types with their ids, and for the one you pick says whether it needs anything besides summary and description.
 Requests are created through the Service Management API, so they appear in the portal with its workflow and SLAs. The account
 behind the token must be able to create requests in that portal (a portal customer or an agent); `JIRA_RAISE_ON_BEHALF=1` files
-each one as the asker, which needs an agent account.
+each one as the asker (their login email), which needs an agent account: the engine looks the person up by email, creates a portal
+customer if they have none, and if filing as them is refused it files under the token account with the asker named in the text.
 
 If Jira is not configured the button falls back to the Slack relay (`RAISE_QUESTION_WEBHOOK_URL`), and to an error message if
 neither is set. When both are set, Jira gets the issue and Slack gets a copy with the issue key.
