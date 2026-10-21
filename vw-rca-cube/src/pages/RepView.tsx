@@ -19,7 +19,7 @@ import { insightHeadline } from "@/lib/insightHeadline";
 import "./repview.css";
 import { AlertRail, FamilyLevel, FamilyPanel, SwitchPanel } from "./RcaDashboardPage";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
-import { RaiseQuestion } from "./RaiseQuestion";
+import { RaiseQuestionDialog } from "./RaiseQuestion";
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -82,6 +82,7 @@ export function RepView(props: {
 }) {
   const { sales, isRep, periodId, periodLabel, weeks, months, quarters, days } = props;
   const [tab, setTab] = useState<Tab>("today");
+  const [askOpen, setAskOpen] = useState(false);
   const [searchSel, setSearchSel] = useState<SearchSel | null>(null);
   useEffect(() => setSearchSel(null), [props.clinicTerm, props.provTerm, sales]);
   const [recent, setRecent] = useState<SearchSel[]>(() => { try { return JSON.parse(localStorage.getItem("rv-recent-search") || "[]"); } catch { return []; } });
@@ -334,6 +335,7 @@ export function RepView(props: {
             </button>
           ))}
         </nav>
+        <button type="button" className="rv-ask" onClick={() => setAskOpen(true)}>Raise a question</button>
         <Thermo pace={pace} lastPace={lastPace} winLabel={thermoWin.label} />
         <div className="rv-rail-sec">
           <div className="rv-eyebrow">Leaderboard · {lbWin.label}<Info k="lb" /></div>
@@ -522,6 +524,14 @@ export function RepView(props: {
           <ScorecardGuide onOpen={t => { setScFocus(null); setTab(t); }} />
         )}
       </main>
+      {askOpen ? (
+        <RaiseQuestionDialog
+          onClose={() => setAskOpen(false)}
+          sales={sales}
+          withCards={tab === "feed"}
+          context={`Rep view · ${{ today: "Today's agenda", plan: "My week plan", feed: "Business feed", week: "This week", month: "This month", quarter: "This quarter", custom: "Custom dates", scorecard: "Scorecard guide" }[tab]}`}
+        />
+      ) : null}
       {clinicSel ? (
         <ClinicDrawer
           name={clinicSel}
@@ -3890,10 +3900,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
             id: c.id, tone: c.tone, topicLine: `${c.domain} · ${c.topic}`, question: c.question, headline: insightHeadline(c.fact, c.topic),
             fact: c.fact, inference: c.inference, evidence: c.evidence, action: c.action, last: c.confidence,
             onOpen: c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
-            ask: { id: c.id, question: c.question, fact: c.fact },
           }))}
-          askContext="Business Feed (rep view)"
-          sales={sales}
         />
       ) : null}
       <div className="rv-sig-grid" style={view === "table" ? { display: "none" } : undefined}>
@@ -3921,7 +3928,6 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
                     <button type="button" className="pri" onClick={() => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question }))}>Open the clinics</button>
                   </div>
                 ) : null}
-                <RaiseQuestion card={{ id: c.id, question: c.question, fact: c.fact }} context="Business Feed (rep view)" sales={sales} />
               </div></div>
           </article>
         );

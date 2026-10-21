@@ -843,3 +843,5 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-sig-grid .rv-sig-hd{flex-wrap:nowrap;align-items:flex-start}
 .rv-sig-grid .rv-sig-q{min-width:0}
 .rv-sig-grid .rv-sig-kpi{align-self:center}
+.rv-ask{display:block;width:100%;margin:0 0 18px;padding:11px 12px;border:1px solid #6b7280;border-radius:6px;background:transparent;color:#fff;font:600 12px/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;text-align:left;cursor:pointer}
+.rv-ask:hover{background:#1f2937}
