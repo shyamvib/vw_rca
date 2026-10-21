@@ -1058,6 +1058,29 @@ export const clinicSearch = scopedQuery({
     ),
 });
 
+/**
+ * The $400 Foundation Zoomer target list for one rep's own clinics (2026-10-20, rep Business feed): same table and
+ * thresholds as the company card ($275+ VA AOV, 3+ VA orders a week over the trailing window), cut to the rep. A rep
+ * login is pinned to its own name by the access wrapper; a manager login passes the rep it is looking at.
+ */
+export const vaTargets = scopedQuery({
+  args: { sales: v.optional(v.string()) },
+  handler: async (ctx, { sales }) => {
+    const cfg = await loadCfg(ctx);
+    const gen = cfg?.gen ?? 0;
+    const all = await ctx.db.query("vaClinicTarget").withIndex("by_gen", q => q.eq("gen", gen)).collect();
+    const mine = sales ? all.filter(r => r.sales === sales) : all;
+    const windowDays = mine[0]?.windowDays ?? all[0]?.windowDays ?? 365;
+    const weeks = windowDays / 7;
+    const MIN_AOV = 275, MIN_PER_WEEK = 3;
+    const rows = mine
+      .map(r => ({ clinic: r.clinic, name: r.name, vaOrders: r.vaOrders, vaRevenue: r.vaRevenue, vaAov: r.vaOrders ? r.vaRevenue / r.vaOrders : 0, ordersPerWeek: r.vaOrders / weeks }))
+      .filter(r => r.vaAov >= MIN_AOV && r.ordersPerWeek >= MIN_PER_WEEK)
+      .sort((a, b) => b.vaRevenue - a.vaRevenue);
+    return { windowDays, minAov: MIN_AOV, minOrdersPerWeek: MIN_PER_WEEK, rows: rows.slice(0, 300), total: rows.length, totalRevenue: rows.reduce((t, r) => t + r.vaRevenue, 0), totalOrders: rows.reduce((t, r) => t + r.vaOrders, 0) };
+  },
+});
+
 export const clinicSearchInternal = internalQuery({
   args: { term: v.string() },
   handler: async (ctx, { term }) => await searchClinics(ctx, term),
