@@ -170,3 +170,17 @@ A rep account can carry `allReps: true` (set with `adminUpsert`). It signs in li
 - The page shows "Gap to goal this week" (heading vs goal, split existing / new business) and how much of the shortfall the planned actions are expected to cover.
 - Open: Today's "Call first" list now uses the own-threshold rule while the scorecard At-risk cell keeps its 5-44 day window plus health flags; the target product for the product actions is Hormone Zoomer (the scorecard default).
 - Growing clinics are not a plan action (already above baseline, no gap; the upside was an assumption). Expansion is the second-family pitch only.
+
+## 15. Parked: resilience and exposure follow-ups before the sales rollout (2026-10-20)
+
+Done: engine hardening (clean 4xx, 503 when Cube is down, no internal messages in 500s, function-name allowlist, throttle on team-password guesses, trimmed public /health, CORS for this project's per-deployment Vercel URLs, refresh trims the latest day only when it is today in Pacific, scheduler catches a missed 13:00 UTC slot). Tested on a temporary engine copy with Cube unreachable: 29 of 30 checks passed (the one miss, GET /rpc, passes in isolation).
+
+Come back to:
+1. **Stop the Cube tunnel** `cube-rca-tunnel-rca-1` (public quick tunnel to Cube; nothing in the app uses it) and remove it from the cube-rca compose file. Blocked for the assistant by the permission check, so the user runs it.
+2. **Rotate the Cube API secret** (printed in a session by mistake): new `CUBEJS_API_SECRET` for Cube and `CUBE_API_SECRET` for the engine, restart `cube-rca-cube-rca-1` and `rca-engine`.
+3. **Deploy the engine tarball** with the hardening, the Pacific-day trim and the scheduler fix, then trigger one rebuild (data should then run through yesterday).
+4. **Named Cloudflare tunnel** for the engine instead of a quick tunnel (random address each restart, no uptime guarantee, no rate limits).
+5. **Live chaos run in a quiet window:** restart the engine and time recovery, block Cube for a few minutes, fail a rebuild halfway.
+6. **Other ports on the server** (Cube 4000-4003 and 15432, ClickHouse 18123 and 19000, 8080, 8090, 6791 listen on all interfaces): ask whoever manages the firewall whether any is reachable from outside. Other stacks, not ours.
+7. **Sign-in rate limiting** on the Convex login and admin password was not tested (Convex, not the engine).
+8. The prod Convex deploy key file in the scratchpad is gone; generate a fresh key in the Convex dashboard if the assistant needs to run Convex commands again.
