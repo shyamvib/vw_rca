@@ -88,6 +88,14 @@ person). Setup, on the server:
     # 4. Check the credentials (creates nothing; shows the account, project and issue types):
     docker exec rca-engine node -e 'fetch("http://localhost:8787/admin/jira-check",{headers:{"x-admin-secret":process.env.ADMIN_SECRET}}).then(r=>r.json()).then(console.log)'
 
+**Request portal (Jira Service Management).** To file into a portal such as
+`https://vibrantamerica.atlassian.net/servicedesk/customer/portal/39`, set `JIRA_SERVICE_DESK_ID=39` (and no
+`JIRA_PROJECT_KEY`) plus `JIRA_REQUEST_TYPE_ID`. Leave the request type empty first and run the check: it lists the service
+desk's request types with their ids, and for the one you pick says whether it needs anything besides summary and description.
+Requests are created through the Service Management API, so they appear in the portal with its workflow and SLAs. The account
+behind the token must be able to create requests in that portal (a portal customer or an agent); `JIRA_RAISE_ON_BEHALF=1` files
+each one as the asker, which needs an agent account.
+
 If Jira is not configured the button falls back to the Slack relay (`RAISE_QUESTION_WEBHOOK_URL`), and to an error message if
 neither is set. When both are set, Jira gets the issue and Slack gets a copy with the issue key.
 

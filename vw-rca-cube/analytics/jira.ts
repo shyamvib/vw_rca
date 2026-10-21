@@ -10,12 +10,21 @@
  *   JIRA_ISSUE_TYPE   optional, default "Task"
  *   JIRA_LABELS       optional, comma list added to every issue, default "rca-dashboard"
  *
+ * Request portal (Jira Service Management) instead of a plain project: also set
+ *   JIRA_SERVICE_DESK_ID   the service desk's id (the number in /servicedesk/customer/portal/<id> is usually it; /admin/jira-check confirms)
+ *   JIRA_REQUEST_TYPE_ID   the request type the question is filed under (/admin/jira-check lists them)
+ *   JIRA_RAISE_ON_BEHALF   "1" to file it as the asker (needs an agent account that may raise on behalf of customers)
+ * JIRA_PROJECT_KEY is not needed in that mode. The request then shows in the portal with the portal's own workflow and SLAs.
+ *
  * Auth is HTTP Basic (email:token). The token is only ever read from the environment and never logged or returned.
  */
 declare const process: { env: Record<string, string | undefined> };
 declare const Buffer: { from(s: string): { toString(enc: string): string } };
 
-export type JiraConfig = { baseUrl: string; email: string; token: string; project: string; issueType: string; labels: string[] };
+export type JiraConfig = {
+  baseUrl: string; email: string; token: string; project: string; issueType: string; labels: string[];
+  serviceDeskId: string; requestTypeId: string; onBehalf: boolean;
+};
 
 export function jiraConfig(): JiraConfig | null {
   const e = process.env;
@@ -23,9 +32,13 @@ export function jiraConfig(): JiraConfig | null {
   const email = (e.JIRA_EMAIL ?? "").trim();
   const token = (e.JIRA_API_TOKEN ?? "").trim();
   const project = (e.JIRA_PROJECT_KEY ?? "").trim();
-  if (!baseUrl || !email || !token || !project) return null;
+  const serviceDeskId = (e.JIRA_SERVICE_DESK_ID ?? "").trim();
+  const requestTypeId = (e.JIRA_REQUEST_TYPE_ID ?? "").trim();
+  if (!baseUrl || !email || !token) return null;
+  // Portal mode needs the service desk (the request type can be picked from the check's list first); plain mode needs the project.
+  if (serviceDeskId ? false : !project) return null;
   const labels = (e.JIRA_LABELS ?? "rca-dashboard").split(",").map(s => s.trim().replace(/\s+/g, "-")).filter(Boolean);
-  return { baseUrl, email, token, project, issueType: (e.JIRA_ISSUE_TYPE ?? "Task").trim() || "Task", labels };
+  return { baseUrl, email, token, project, issueType: (e.JIRA_ISSUE_TYPE ?? "Task").trim() || "Task", labels, serviceDeskId, requestTypeId, onBehalf: (e.JIRA_RAISE_ON_BEHALF ?? "") === "1" };
 }
 
 const authHeader = (c: JiraConfig) => `Basic ${Buffer.from(`${c.email}:${c.token}`).toString("base64")}`;
@@ -54,7 +67,7 @@ async function call(c: JiraConfig, path: string, init?: { method?: string; body?
 
 /** Jira's error body as one short line, without anything that could echo a credential. */
 function errorText(status: number, json: Record<string, unknown> | null): string {
-  const msgs = Array.isArray(json?.errorMessages) ? (json!.errorMessages as unknown[]).map(String) : [];
+  const msgs = [...(Array.isArray(json?.errorMessages) ? (json!.errorMessages as unknown[]).map(String) : []), ...(typeof json?.errorMessage === "string" ? [json.errorMessage] : []), ...(typeof json?.reason === "string" ? [json.reason] : [])];
   const fields = json?.errors && typeof json.errors === "object" ? Object.entries(json.errors as Record<string, unknown>).map(([k, v]) => `${k}: ${String(v)}`) : [];
   const detail = [...msgs, ...fields].join("; ").slice(0, 240);
   if (status === 401) return "Jira rejected the credentials (401). Check JIRA_EMAIL and JIRA_API_TOKEN.";
@@ -92,6 +105,25 @@ export async function createJiraIssue(input: RaiseInput): Promise<{ key: string;
     content.push(strong("Fact on the card:", clean(input.card.fact, 800)));
     content.push(strong("Card id:", clean(input.card.id, 120)));
   }
+  if (c.serviceDeskId) {
+    if (!c.requestTypeId) throw new Error("Pick a request type: set JIRA_REQUEST_TYPE_ID (run /admin/jira-check to list them).");
+    // Portal requests take plain text, not ADF.
+    const text = [question, "", `Asked by: ${clean(input.asker, 200) || "unknown"}`, `Scope: ${clean(input.scope, 200)}`, `Raised from: ${clean(input.context, 200)}`,
+      ...(input.card ? ["", `About this card: ${clean(input.card.question, 300)}`, `Fact on the card: ${clean(input.card.fact, 800)}`, `Card id: ${clean(input.card.id, 120)}`] : [])].join("\n");
+    const asker = clean(input.asker, 200);
+    const r = await call(c, "/rest/servicedeskapi/request", {
+      method: "POST",
+      body: {
+        serviceDeskId: c.serviceDeskId,
+        requestTypeId: c.requestTypeId,
+        requestFieldValues: { summary: `[RCA] ${summary}`.slice(0, 250), description: text },
+        ...(c.onBehalf && /^[^@\s]+@[^@\s]+$/.test(asker) ? { raiseOnBehalfOf: asker } : {}),
+      },
+    });
+    if (r.status !== 201 || typeof r.json?.issueKey !== "string") throw new Error(errorText(r.status, r.json));
+    const web = (r.json._links as { web?: string } | undefined)?.web;
+    return { key: r.json.issueKey, url: web ?? `${c.baseUrl}/browse/${r.json.issueKey}` };
+  }
   const { status, json } = await call(c, "/rest/api/3/issue", {
     method: "POST",
     body: {
@@ -115,6 +147,36 @@ export async function checkJira(): Promise<{ ok: boolean; configured: boolean; d
   try {
     const me = await call(c, "/rest/api/3/myself");
     if (me.status !== 200) return { ok: false, configured: true, detail: errorText(me.status, me.json) };
+    if (c.serviceDeskId) {
+      const sd = await call(c, `/rest/servicedeskapi/servicedesk/${encodeURIComponent(c.serviceDeskId)}`);
+      if (sd.status !== 200) return { ok: false, configured: true, user: String(me.json?.displayName ?? ""), detail: `Service desk ${c.serviceDeskId} not found or not visible to this account (${sd.status}). The id is not always the number in the portal URL; GET ${c.baseUrl}/rest/servicedeskapi/servicedesk lists them.` };
+      const rt = await call(c, `/rest/servicedeskapi/servicedesk/${encodeURIComponent(c.serviceDeskId)}/requesttype?limit=100`);
+      const values = Array.isArray(rt.json?.values) ? (rt.json!.values as Array<{ id?: string; name?: string }>) : [];
+      const types = values.map(v => `${String(v.id)}: ${String(v.name)}`);
+      let required: string[] = [];
+      let typeOk = false;
+      if (c.requestTypeId) {
+        typeOk = values.some(v => String(v.id) === c.requestTypeId);
+        const f = await call(c, `/rest/servicedeskapi/servicedesk/${encodeURIComponent(c.serviceDeskId)}/requesttype/${encodeURIComponent(c.requestTypeId)}/field`);
+        const fields = Array.isArray(f.json?.requestTypeFields) ? (f.json!.requestTypeFields as Array<{ fieldId?: string; required?: boolean }>) : [];
+        required = fields.filter(x => x.required).map(x => String(x.fieldId));
+      }
+      const extra = required.filter(r => r !== "summary" && r !== "description");
+      return {
+        ok: typeOk && extra.length === 0,
+        configured: true,
+        user: String(me.json?.displayName ?? ""),
+        project: String(sd.json?.projectName ?? c.serviceDeskId),
+        issueTypes: types,
+        detail: !c.requestTypeId
+          ? `Service desk found. Set JIRA_REQUEST_TYPE_ID to one of: ${types.join(" | ")}.`
+          : !typeOk
+            ? `Request type ${c.requestTypeId} is not in this service desk. Choose from: ${types.join(" | ")}.`
+            : extra.length
+              ? `Request type works but also requires: ${extra.join(", ")}. Pick a request type that only needs summary and description, or ask me to add these fields.`
+              : "Credentials work, the service desk and request type exist, and only summary and description are required.",
+      };
+    }
     const proj = await call(c, `/rest/api/3/project/${encodeURIComponent(c.project)}`);
     if (proj.status !== 200) return { ok: false, configured: true, user: String(me.json?.displayName ?? ""), detail: errorText(proj.status, proj.json) };
     const types = Array.isArray(proj.json?.issueTypes) ? (proj.json!.issueTypes as Array<{ name?: string }>).map(t => String(t.name ?? "")).filter(Boolean) : [];
