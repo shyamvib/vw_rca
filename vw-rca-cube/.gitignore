@@ -32,3 +32,6 @@ test-results/
 playwright-report/
 # Local Convex dev backend state (npx convex dev, anonymous mode)
 .convex/
+
+# Filled-in email drafts: they contain real one-time passwords, never commit them
+email-templates/rep_email_drafts/

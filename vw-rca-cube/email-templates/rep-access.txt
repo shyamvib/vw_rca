@@ -1,8 +1,8 @@
-Subject: Your sales dashboard login is ready
+Subject: Your Sales KPI dashboard login is ready
 
 Hi {{first_name}},
 
-You now have access to the sales dashboard. It shows how your book of clinics is doing against its goal, which clinics to call first, and a plan for your selling week. Everything in it is built from your own clinics.
+You now have access to the Sales KPI dashboard. It shows how your book of clinics is doing against its goal, which clinics to call first, and a plan for your selling week. Everything in it is built from your own clinics.
 
 YOUR SIGN-IN DETAILS
   Link:              {{dashboard_url}}
