@@ -799,7 +799,6 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-sig-filters button{border:1px solid #9ca3af;background:#fff;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
 .rv-sig-filters button.on{background:#111827;color:#fff;border-color:#111827}
 .rv-sig-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;margin-bottom:20px;overflow:hidden}
-.rv-sig-card.is-done{opacity:.55}
 .rv-sig-hd{display:flex;align-items:center;gap:22px;padding:18px 22px;border-bottom:1px solid #e5e7eb;flex-wrap:wrap;background:#f1f5fb}
 .tone-alert .rv-sig-hd{background:#fdf2f2}.tone-watch .rv-sig-hd{background:#fdf8ec}.tone-good .rv-sig-hd{background:#f1f8f2}
 .rv-sig-kpi{min-width:130px;font-size:38px;line-height:1;font-weight:800;letter-spacing:-.02em;color:#1e4f9a}
@@ -808,7 +807,6 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-sig-q{flex:1;min-width:220px}
 .rv-sig-q span{font:600 11px/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#4b5563}
 .rv-sig-q h3{margin:7px 0 0;font-size:20px;line-height:1.25;font-weight:800}
-.rv-sig-done{border:1px solid #9ca3af;background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
 .rv-sig-step{display:grid;grid-template-columns:160px minmax(0,1fr)}
 .rv-sig-step .gut{position:relative;padding:16px 0 16px 22px}
 .rv-sig-step .gut::after{content:"";position:absolute;left:34px;top:46px;bottom:-16px;width:2px;background:#d1d5db}

@@ -1288,6 +1288,8 @@ export const switchClinicsAction = scopedAction({
     down: v.string(),
     up: v.string(),
     limit: v.optional(v.number()),
+    // A rep login is pinned to its own name here by the access wrapper; a manager login passes the rep it is looking at.
+    sales: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -1304,7 +1306,7 @@ export const switchClinicsAction = scopedAction({
     };
     count: number;
   }> => {
-    const rep = ctx.viewer.kind === "rep" ? ctx.viewer.rep : null;
+    const rep = args.sales ?? (ctx.viewer.kind === "rep" ? ctx.viewer.rep : null);
     const limit = rep ? 300 : args.limit;
     const key = (viewerCfgKey(ctx) ?? "") + `switch4|${args.periodId}|${args.down}|${args.up}|${limit ?? 60}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, {
@@ -1323,7 +1325,7 @@ export const switchClinicsAction = scopedAction({
     if (!rep) return result;
     // Rep logins: the rep's clinics only, with group counts/totals re-derived
     // from those rows so every tab describes what is on screen.
-    const mine = onlyMine(ctx.viewer, result.rows);
+    const mine = result.rows.filter(r => r.sales === rep);
     const counts: Record<string, number> = {};
     const groupDelta: Record<string, number> = {};
     const totals = { downDelta: 0, upDelta: 0, downOrderDelta: 0, upOrderDelta: 0 };

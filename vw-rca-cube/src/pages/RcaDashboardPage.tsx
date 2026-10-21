@@ -11,6 +11,7 @@ import "./rca.css";
 import { RepView } from "./RepView";
 import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
+import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 
 type Row = {
   label: string;
@@ -843,6 +844,7 @@ function InsightsView({
   });
   const [domain, setDomain] = useState("all");
   const [status, setStatus] = useState("all");
+  const [feedView, setFeedView] = useFeedView();
 
   const ready = !!data?.ready;
   const items = ready ? (data!.items as Insight[]) : [];
@@ -899,6 +901,7 @@ function InsightsView({
         </div>
         <div className="rca-insights-filters">
           {cadenceTabs}
+          <ViewToggle view={feedView} onChange={setFeedView} />
           {cadence !== "daily" && dateList && dateList.length > 0 ? (
             <select value={effectiveDate ?? ""} onChange={e => setSnapDate(e.target.value)}>
               {dateList.map(d => <option key={d} value={d}>{d}</option>)}
@@ -914,16 +917,35 @@ function InsightsView({
           </select>
         </div>
       </div>
-      <div className="rca-insights-grid">
-        {shown.map(item => (
-          <InsightCard
-            key={item.insightId}
-            item={item}
-            onDrill={onDrill}
-            onHistory={cadence !== "daily" ? () => setHistoryOf(item.sourceFeedId) : undefined}
-          />
-        ))}
-      </div>
+      {feedView === "table" ? (
+        <FeedTable
+          lastLabel="Status"
+          rows={shown.map<FeedRow>(item => ({
+            id: item.insightId,
+            tone: item.tone,
+            topicLine: `${item.domain} · ${item.topic}`,
+            question: item.question ?? `${item.domain} · ${item.topic}`,
+            headline: insightHeadline(item.fact, item.topic),
+            fact: item.fact,
+            inference: item.inference,
+            evidence: item.evidence,
+            action: item.action,
+            last: item.status,
+            onOpen: item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined,
+          }))}
+        />
+      ) : (
+        <div className="rca-insights-grid">
+          {shown.map(item => (
+            <InsightCard
+              key={item.insightId}
+              item={item}
+              onDrill={onDrill}
+              onHistory={cadence !== "daily" ? () => setHistoryOf(item.sourceFeedId) : undefined}
+            />
+          ))}
+        </div>
+      )}
       {historyOf && cadence !== "daily" ? (
         <InsightHistoryPanel
           sourceFeedId={historyOf}
@@ -5556,13 +5578,14 @@ const switchTabs = (
  * Clinic list behind a substitution pair: who dropped the declining test and
  * whether the replacement picked it up, joined to Portfolio Changes status.
  */
-function SwitchPanel({
+export function SwitchPanel({
   periodId,
   periodLabel,
   pair,
   limit,
   onLimit,
   onClose,
+  sales,
 }: {
   periodId: string;
   periodLabel: string;
@@ -5570,6 +5593,8 @@ function SwitchPanel({
   limit: number;
   onLimit: (n: number) => void;
   onClose: () => void;
+  /** Rep Business feed: cut the list to this rep. */
+  sales?: string;
 }) {
   const [down, up] = pair.split(">");
   const run = useRcaAction(api.families.switchClinicsAction);
@@ -5594,7 +5619,7 @@ function SwitchPanel({
   useEffect(() => {
     let live = true;
     setState({ loading: true });
-    run({ password: pw(), periodId, down, up, limit })
+    run({ password: pw(), periodId, down, up, limit, sales })
       .then(data => {
         if (live) setState({ loading: false, data });
       })
@@ -5604,7 +5629,7 @@ function SwitchPanel({
     return () => {
       live = false;
     };
-  }, [run, periodId, down, up, limit]);
+  }, [run, periodId, down, up, limit, sales]);
 
   const data = state.data;
   const rows = (data?.rows ?? []).filter(r => r.klass === tab);
@@ -5625,7 +5650,7 @@ function SwitchPanel({
           </div>
           <div className="rca-sub">
             {state.loading
-              ? "Querying Power BI for both families…"
+              ? "Querying the data for both families…"
               : state.error
                 ? state.error
                 : `${INT(data?.counts.stayed ?? 0)} clinics dropped ${down} orders and bought no ${up} at all (${MONEY(stayedLoss)}), ${INT(data?.counts.switched ?? 0)} moved over and ${INT(data?.counts.partial ?? 0)} moved partly. Overall ${down} ${MONEY(data?.totals.downDelta ?? 0)} vs ${up} ${MONEY(data?.totals.upDelta ?? 0)}.`}

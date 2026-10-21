@@ -17,7 +17,8 @@ import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import { pw } from "./gatePw";
 import { insightHeadline } from "@/lib/insightHeadline";
 import "./repview.css";
-import { AlertRail, FamilyLevel, FamilyPanel } from "./RcaDashboardPage";
+import { AlertRail, FamilyLevel, FamilyPanel, SwitchPanel } from "./RcaDashboardPage";
+import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -3865,12 +3866,10 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
  * Foundation Zoomer panel?". Adding a question means adding it to `repQuestions` in analytics/feed.ts. */
 function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; periodId: string; weekLabel: string; clinics: number }) {
   const q = useRcaQuery(api.feed.repQuestions, sales ? { password: pw(), sales } : "skip");
-  const doneKey = `rv-feed-done:${sales}`;
-  const [done, setDone] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem(doneKey) || "{}"); } catch { return {}; } });
-  useEffect(() => { try { setDone(JSON.parse(localStorage.getItem(doneKey) || "{}")); } catch { setDone({}); } }, [doneKey]);
-  const flipDone = (id: string) => setDone(d => { const n = { ...d, [id]: !d[id] }; try { localStorage.setItem(doneKey, JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const [view, setView] = useFeedView();
+  const [limit, setLimit] = useState(60);
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
-  const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && !focus.focus.startsWith("pair:") && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   const toneLabel: Record<string, string> = { alert: "Act now", watch: "Watch", info: "Opportunity", good: "Good news" };
   const cards = q?.ready ? q.cards : [];
   return (
@@ -3880,19 +3879,29 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
       <div className="rv-sig-legend">
         <span className="rv-sig-chip is-fact">1 Fact</span><i>→</i><span className="rv-sig-chip is-inf">2 Inference</span><i>→</i><span className="rv-sig-chip is-evi">3 Evidence</span><i>→</i><span className="rv-sig-chip is-act">4 Action</span>
         <em>What happened, what it means, the numbers behind it, what to do. The same questions as the main Business Feed, cut to your own clinics.</em>
+        <span style={{ marginLeft: "auto" }}><ViewToggle view={view} onChange={setView} /></span>
       </div>
       {!q ? <p className="rv-dim">Loading…</p> : null}
-      <div className="rv-sig-grid">
+      {view === "table" && cards.length ? (
+        <FeedTable
+          lastLabel="Confidence"
+          rows={cards.map<FeedRow>(c => ({
+            id: c.id, tone: c.tone, topicLine: `${c.domain} · ${c.topic}`, question: c.question, headline: insightHeadline(c.fact, c.topic),
+            fact: c.fact, inference: c.inference, evidence: c.evidence, action: c.action, last: c.confidence,
+            onOpen: c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
+          }))}
+        />
+      ) : null}
+      <div className="rv-sig-grid" style={view === "table" ? { display: "none" } : undefined}>
       {cards.map(c => {
         const head = insightHeadline(c.fact, c.topic);
         return (
-          <article key={c.id} className={`rv-sig-card tone-${c.tone}${done[c.id] ? " is-done" : ""}`}>
+          <article key={c.id} className={`rv-sig-card tone-${c.tone}`}>
             <header className="rv-sig-hd">
               {head ? <div className="rv-sig-kpi">{head.value}<small>{head.caption}</small></div> : null}
               <div className="rv-sig-q"><span>{c.domain} · {c.topic} · {toneLabel[c.tone] ?? c.tone}</span><h3>{c.question}</h3></div>
               <div className="rv-sig-side">
                 <div className="rv-sig-meta">Confidence <b>{c.confidence}</b></div>
-                <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
               </div>
             </header>
             <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-fact">Fact</span></div><div className="body">{c.fact}</div></div>
@@ -3913,7 +3922,11 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
         );
       })}
       </div>
-      {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+      {focus && focus.focus.startsWith("pair:") ? (
+        <SwitchPanel periodId="all" periodLabel="analysis window" pair={focus.focus.slice(5)} limit={limit} onLimit={setLimit} onClose={() => setFocus(null)} sales={sales} />
+      ) : focus ? (
+        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} />
+      ) : null}
       <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions from the main Business Feed will be added here over time.</p>
     </div>
   );
