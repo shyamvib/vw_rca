@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RaiseQuestion, type AskCard } from "./RaiseQuestion";
 
 /**
  * Shared pieces of the two Business Feed views (company feed in RcaDashboardPage, rep feed in RepView): the Cards / Table
@@ -49,9 +50,10 @@ export type FeedRow = {
   last: string;
   onOpen?: () => void;
   openLabel?: string;
+  ask?: AskCard;
 };
 
-export function FeedTable({ rows, lastLabel }: { rows: FeedRow[]; lastLabel: string }) {
+export function FeedTable({ rows, lastLabel, askContext, sales }: { rows: FeedRow[]; lastLabel: string; askContext?: string; sales?: string }) {
   return (
     <div className="fv-wrap">
       <div className="fv-table" role="table">
@@ -79,6 +81,7 @@ export function FeedTable({ rows, lastLabel }: { rows: FeedRow[]; lastLabel: str
             <div className="act" role="cell">
               {r.action}
               {r.onOpen ? <button type="button" className="fv-open" onClick={r.onOpen}>{r.openLabel ?? "Open the clinics"}</button> : null}
+              {r.ask && askContext ? <RaiseQuestion card={r.ask} context={askContext} sales={sales} /> : null}
             </div>
             <div role="cell"><span className={`fv-st tone-${r.tone}`}>{r.last}</span></div>
           </div>

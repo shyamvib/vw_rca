@@ -4,10 +4,11 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { drill } from "./clinics";
 import {
   windowP75, dow, eachDay } from "./dateUtils";
-import { gatedAction, gatedQuery, scopedQuery } from "./gated";
+import { gatedQuery, scopedAction, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
 import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
+import { createJiraIssue, jiraConfig } from "./jira";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -1077,32 +1078,54 @@ export const feedInternal = internalQuery({
   handler: async (ctx, { teamLead }) => await build(ctx, { teamLead }),
 });
 
-/** "Raise a question" from the Business Feed — relays to Slack (see URL comment above). */
-export const raiseQuestion = gatedAction({
+// Raised questions per person per hour, so a stuck button cannot flood the Jira project.
+const RAISE_LIMIT = 10;
+const raised = new Map<string, number[]>();
+
+/**
+ * "Raise a question" from the Business Feed: creates a Jira issue (analytics/jira.ts) and, if RAISE_QUESTION_WEBHOOK_URL is
+ * set, also posts it to the Slack relay (see URL comment above). Open to team, rep and manager logins; the asker's email
+ * comes from the session, not from the browser. Returns the issue key and link when Jira is configured.
+ */
+export const raiseQuestion = scopedAction({
   args: {
     question: v.string(),
-    email: v.string(),
+    email: v.optional(v.string()),
     context: v.optional(v.string()),
+    card: v.optional(v.object({ id: v.string(), question: v.string(), fact: v.string() })),
+    sales: v.optional(v.string()),
   },
-  handler: async (_ctx, { question, email, context }) => {
+  handler: async (ctx, { question, email, context, card, sales }): Promise<{ ok: true; key?: string; url?: string }> => {
     const q = question.trim();
     if (!q) throw new Error("Question is empty.");
-    const who = email.trim() || "unknown (email not captured)";
-    if (!RAISE_QUESTION_WEBHOOK_URL) {
+    if (q.length > 4000) throw new Error("Question is too long (4000 characters at most).");
+    const who = (ctx.viewer.email ?? email ?? "").trim() || "unknown (email not captured)";
+    const scope =
+      ctx.viewer.kind === "rep" ? `Rep login, ${ctx.viewer.rep}'s book`
+      : ctx.viewer.kind === "lead" ? `Manager login${sales ? `, looking at ${sales}'s book` : ""}`
+      : "Team login, company-wide";
+    const now = Date.now();
+    const recent = (raised.get(who) ?? []).filter(t => now - t < 3_600_000);
+    if (recent.length >= RAISE_LIMIT) throw new Error("You have raised several questions in the last hour. Try again later.");
+    raised.set(who, [...recent, now]);
+
+    const where = context?.trim() || "vw-rca Business Feed";
+    let out: { ok: true; key?: string; url?: string } = { ok: true };
+    if (jiraConfig()) {
+      const issue = await createJiraIssue({ question: q, asker: who, scope, context: where, card });
+      out = { ok: true, key: issue.key, url: issue.url };
+    } else if (!RAISE_QUESTION_WEBHOOK_URL) {
       throw new Error("Raise Question is not configured on this deployment.");
     }
-    const res = await fetch(RAISE_QUESTION_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question: q,
-        email: who,
-        context: context?.trim() || "vw-rca Business Feed",
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Could not send the question (status ${res.status}).`);
+    if (RAISE_QUESTION_WEBHOOK_URL) {
+      const res = await fetch(RAISE_QUESTION_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q, email: who, context: `${where}${out.key ? ` · ${out.key}` : ""}` }),
+        signal: AbortSignal.timeout(15_000),
+      }).catch(() => null);
+      if (!out.key && !res?.ok) throw new Error(`Could not send the question (status ${res?.status ?? "unreachable"}).`);
     }
-    return { ok: true as const };
+    return out;
   },
 });

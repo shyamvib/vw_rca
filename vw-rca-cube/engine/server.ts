@@ -29,6 +29,7 @@ import { spawn } from "node:child_process";
 import { ConvexHttpClient } from "convex/browser";
 import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
+import { checkJira } from "../analytics/jira";
 import type { Mode } from "./builder";
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -302,6 +303,11 @@ const server = http.createServer(async (req, res) => {
         building: building && { startedAt: building.startedAt },
         lastBuild: lastBuild && (admin ? lastBuild : { ok: lastBuild.ok, at: lastBuild.at }),
       });
+    }
+    // Credential check for "Raise a question" -> Jira: who the token is, whether the project and issue type exist. Creates nothing.
+    if (url.pathname === "/admin/jira-check" && (req.method === "POST" || req.method === "GET")) {
+      if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
+      return send(res, 200, await checkJira());
     }
     if (url.pathname === "/admin/rebuild" && req.method === "POST") {
       if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });

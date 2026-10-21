@@ -74,6 +74,23 @@ URL instead (named tunnel), build the frontend with `VITE_RCA_API_URL=https://..
 
 The DASHBOARD_/ADMIN_PASSWORD_SHA256 values in the service `.env` must equal the Convex ones.
 
+### Raise a question -> Jira (optional)
+The Business Feed "Raise a question" button creates a Jira issue through the engine (`analytics/jira.ts`), with the asker, their
+scope and, from a card, the card's question and fact attached. Open to team, rep and manager logins (10 questions an hour per
+person). Setup, on the server:
+
+    # 1. In Jira: pick the project; the account below needs "Create issues" there. That account creates its own API token at
+    #    https://id.atlassian.com/manage-profile/security/api-tokens (any project member can; no Jira admin needed unless your
+    #    organization has blocked API tokens). Do not paste the token anywhere except the server .env.
+    # 2. Add to /home/shyam/rca-engine/.env (see engine/deploy/env.example): JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN,
+    #    JIRA_PROJECT_KEY (optional JIRA_ISSUE_TYPE, default Task, and JIRA_LABELS).
+    # 3. Restart: cd /home/shyam/rca-engine && docker compose up -d --build
+    # 4. Check the credentials (creates nothing; shows the account, project and issue types):
+    docker exec rca-engine node -e 'fetch("http://localhost:8787/admin/jira-check",{headers:{"x-admin-secret":process.env.ADMIN_SECRET}}).then(r=>r.json()).then(console.log)'
+
+If Jira is not configured the button falls back to the Slack relay (`RAISE_QUESTION_WEBHOOK_URL`), and to an error message if
+neither is set. When both are set, Jira gets the issue and Slack gets a copy with the issue key.
+
 ## 3. Vercel
 Project settings: Framework Vite, Install `npm install --no-package-lock`,
 Build `npx convex deploy --cmd 'npm run build'` (needs CONVEX_DEPLOY_KEY), Output `dist`.

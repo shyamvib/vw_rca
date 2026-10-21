@@ -2308,3 +2308,17 @@ select.rca-select,
 .fv-st { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 5px 10px; background: #e5e7eb; color: #1f2937; }
 .fv-st.tone-alert, .fv-st.tone-watch { background: #fef3c7; color: #78350f; } .fv-st.tone-good { background: #dcfce7; color: #14532d; }
 .fv-open { display: block; margin-top: 10px; background: #111827; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
+
+/* Raise a question (Business Feed cards) */
+.rq { margin-top: 10px; font-size: 13px; }
+.rq-open { background: #fff; border: 1px solid #9ca3af; color: #111827; border-radius: 8px; padding: 8px 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.rq-form { display: block; max-width: 520px; }
+.rq-l { display: block; font: 700 11px/1 var(--font-mono, ui-monospace, monospace); letter-spacing: 0.08em; text-transform: uppercase; color: #4b5563; margin-bottom: 6px; }
+.rq-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #9ca3af; border-radius: 8px; padding: 8px 10px; font: inherit; resize: vertical; }
+.rq-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+.rq-send { background: #1d4ed8; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
+.rq-send:disabled { opacity: 0.5; cursor: default; }
+.rq-link { background: none; border: 0; color: #1d4ed8; text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+.rq-err { color: #991b1b; font-size: 12.5px; }
+.rq-done { color: #166534; }
+.rq-done a { color: #166534; font-weight: 700; }

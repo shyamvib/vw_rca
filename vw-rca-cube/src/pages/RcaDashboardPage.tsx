@@ -12,6 +12,7 @@ import { RepView } from "./RepView";
 import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
+import { RaiseQuestion } from "./RaiseQuestion";
 
 type Row = {
   label: string;
@@ -414,6 +415,7 @@ export function AlertRail({
   const [askOpen, setAskOpen] = useState(false);
   const [askText, setAskText] = useState("");
   const [askState, setAskState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [askKey, setAskKey] = useState<string | null>(null);
 
   const all: FeedItem[] = (feed?.items ?? []) as FeedItem[];
   const tags = [...new Set(all.map(i => i.tag))];
@@ -443,12 +445,13 @@ export function AlertRail({
     if (!q) return;
     setAskState("sending");
     try {
-      await raiseQuestion({
+      const r = await raiseQuestion({
         password: pw(),
         question: q,
         email: gateEmail(),
         context: "Business feed",
       });
+      setAskKey(r?.key ?? null);
       setAskState("sent");
       setAskText("");
       setTimeout(() => {
@@ -525,7 +528,7 @@ export function AlertRail({
                   disabled={!askText.trim() || askState === "sending"}
                   onClick={submitQuestion}
                 >
-                  {askState === "sending" ? "Sending…" : askState === "sent" ? "Sent ✓" : "Send to Decision Intelligence team"}
+                  {askState === "sending" ? "Sending…" : askState === "sent" ? (askKey ? `Raised as ${askKey} ✓` : "Sent ✓") : "Send to Decision Intelligence team"}
                 </button>
                 {askState === "error" ? (
                   <span className="rca-feed-ask-error">Couldn't send — try again.</span>
@@ -797,6 +800,7 @@ export function InsightCard({
                 </div>
               ) : null}
               {item.relatedInsightIds.length ? <div className="rca-ic-rel">Related: {item.relatedInsightIds.join(", ")}</div> : null}
+              <RaiseQuestion card={{ id: item.insightId, question: item.question ?? `${item.domain} · ${item.topic}`, fact: item.fact }} context="Business Feed (company)" />
             </div>
           </div>
         </div>
@@ -932,7 +936,9 @@ function InsightsView({
             action: item.action,
             last: item.status,
             onOpen: item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined,
+            ask: { id: item.insightId, question: item.question ?? `${item.domain} · ${item.topic}`, fact: item.fact },
           }))}
+          askContext="Business Feed (company)"
         />
       ) : (
         <div className="rca-insights-grid">
