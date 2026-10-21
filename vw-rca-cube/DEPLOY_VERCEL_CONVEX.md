@@ -100,3 +100,7 @@ Local Convex (`CONVEX_AGENT_MODE=anonymous npx convex dev`), then the service wi
 - The cube-rca stack has its own quick tunnel container (`cube-rca-tunnel-rca-1`) that exposes the Cube API;
   nothing in this app uses it. See `CLINIC_LIFECYCLE.md` section 15 for the open follow-ups (stop it, rotate
   the Cube secret, named tunnel, live chaos run, server ports).
+
+## Proposals (not built)
+- `PROPOSAL_DIGITALOCEAN_HOSTING.md`: host Cube and the analytics engine on one DigitalOcean Droplet behind Caddy, with only 443 open.
+- `PROPOSAL_CUBE_FIRST_REFACTOR.md`: move the dashboard logic into the warehouse and Cube so the engine can be retired (phased, with parity gates).
