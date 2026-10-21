@@ -10,6 +10,7 @@ import {
   quarterKey,
 } from "./dateUtils";
 import { gatedQuery, scopedQuery } from "./gated";
+import type { QueryCtx } from "./_generated/server";
 
 /**
  * Product-family level-2 lists for one team lead.
@@ -149,17 +150,12 @@ export const leadFamilies = gatedQuery({
  * differently, so a rep's totals always reconcile into their lead's totals.
  * Added 2026-09-04 so the product-mix panel re-scopes to a picked rep.
  */
-export const salesFamilies = scopedQuery({
-  args: { periodId: v.string(), sales: v.string() },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    ready: boolean;
-    all: FamilyRow[];
-    bundle: FamilyRow[];
-    nonbundle: FamilyRow[];
-  }> => {
+/** Family rows for one rep over a period (shared by the product-mix panel and the rep Business feed). */
+export async function salesFamilyRows(
+  ctx: QueryCtx,
+  periodId: string,
+  sales: string,
+): Promise<{ ready: boolean; all: FamilyRow[]; bundle: FamilyRow[]; nonbundle: FamilyRow[] }> {
     const empty = { ready: false, all: [], bundle: [], nonbundle: [] };
     const cfg = await loadCfg(ctx);
     if (!cfg) return empty;
@@ -167,18 +163,18 @@ export const salesFamilies = scopedQuery({
     const series = await ctx.db
       .query("familySalesSeries")
       .withIndex("by_gen_sales", q =>
-        q.eq("gen", gen).eq("sales", args.sales),
+        q.eq("gen", gen).eq("sales", sales),
       )
       .collect();
     if (series.length === 0) return empty;
 
     const { days, kind } = daysOf(
-      args.periodId,
+      periodId,
       cfg.currentStart,
       cfg.currentEnd,
     );
     const dayset = new Set(days);
-    const gf = await goalFactors(ctx, cfg, args.periodId);
+    const gf = await goalFactors(ctx, cfg, periodId);
     const p75f: P75Factors | null =
       cfg.baselineMode === "p75"
         ? ((cfg.p75 as P75Factors | undefined) ?? null)
@@ -224,5 +220,9 @@ export const salesFamilies = scopedQuery({
       bundle: byScope.bundle,
       nonbundle: byScope.nonbundle,
     };
-  },
+}
+
+export const salesFamilies = scopedQuery({
+  args: { periodId: v.string(), sales: v.string() },
+  handler: async (ctx, args) => await salesFamilyRows(ctx, args.periodId, args.sales),
 });

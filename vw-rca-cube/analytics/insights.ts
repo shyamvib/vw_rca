@@ -16,112 +16,7 @@ import { build, type FeedItem } from "./feed";
  * (same generator, pass teamLead through) once this shape is approved.
  */
 
-type Mapping = { domain: string; topic: string; prefix: string };
-
-const TAG_MAP: Record<string, Mapping> = {
-  Headline: { domain: "Revenue", topic: "Overview", prefix: "REV" },
-  Trend: { domain: "Revenue", topic: "Momentum", prefix: "REV" },
-  Calendar: { domain: "Revenue", topic: "Calendar", prefix: "REV" },
-  "Call list": { domain: "Coverage", topic: "Call List", prefix: "COV" },
-  "Churn risk": { domain: "Retention", topic: "Silent Clinics", prefix: "RET" },
-  Price: { domain: "Revenue", topic: "AOV", prefix: "REV" },
-  "Bright spots": { domain: "Revenue", topic: "Growth", prefix: "REV" },
-  "Health notes": { domain: "Retention", topic: "Health Flags", prefix: "RET" },
-  "Target list": { domain: "Coverage", topic: "Target List", prefix: "COV" },
-  "Save list": { domain: "Retention", topic: "Intervention", prefix: "RET" },
-  People: { domain: "Coverage", topic: "Sales Coverage", prefix: "COV" },
-  Portfolio: { domain: "Product", topic: "Portfolio", prefix: "PRD" },
-  Product: { domain: "Product", topic: "Family Mix", prefix: "PRD" },
-  Substitution: { domain: "Product", topic: "Substitution", prefix: "PRD" },
-  Geography: { domain: "Revenue", topic: "Geography", prefix: "REV" },
-  Channel: { domain: "Revenue", topic: "Channel", prefix: "REV" },
-  Mix: { domain: "Revenue", topic: "Bundle Mix", prefix: "REV" },
-};
-const DEFAULT_MAP: Mapping = { domain: "Revenue", topic: "General", prefix: "REV" };
-const mappingFor = (tag: string): Mapping => TAG_MAP[tag] ?? DEFAULT_MAP;
-
-const INFERENCE_BY_TAG: Record<string, (tone: string) => string> = {
-  Headline: tone =>
-    tone === "good"
-      ? "Revenue is running ahead of the baseline run rate."
-      : "Revenue is trailing the baseline run rate — this needs a lever, not a wait-and-see.",
-  Trend: () =>
-    "Whether the last 14 days ran better or worse than the 14 before them shows if recent effort is closing the gap or the slide is still active.",
-  Calendar: () =>
-    "A single bad day usually means a holiday or weekend, not a demand problem — confirm before reading it as a rep issue.",
-  "Call list": () =>
-    "These clinics carry the largest dollar gap and are the highest-leverage calls available this week.",
-  "Churn risk": () =>
-    "These accounts placed zero orders after actively ordering in the baseline — this is a win-back motion, not a nudge.",
-  Price: () =>
-    "Ticket size is falling while these clinics keep ordering, pointing to a mix/pricing shift rather than a demand drop.",
-  "Bright spots": () =>
-    "These clinics are the clearest proof that outreach or positioning is working right now — worth understanding what changed.",
-  "Health notes": () =>
-    "This flag concentrates a large share of the shortfall in a small number of clinics.",
-  "Target list": () =>
-    "The top 20% of flagged clinics by dollar drag account for a disproportionate share of the total gap.",
-  "Save list": () =>
-    "These accounts are decaying but have not broken rhythm yet — a call now can still hold them before they do.",
-  People: () =>
-    "Shortfall is unevenly distributed across owners; the largest book is worth a direct coaching conversation.",
-  Portfolio: () =>
-    "Stopped test lines behind these clinics may be a lab-ops issue rather than a sales/relationship one — worth checking before acting.",
-  Product: () =>
-    "This family's movement is large enough to matter at the whole-book level, not just clinic noise.",
-  Substitution: () =>
-    "One product's decline may be offset by growth in a related one — the net, not the gross drop, is the real signal.",
-  Geography: () =>
-    "A state flipping from growth to decline usually points to something local — a rep, a clinic, or a seasonal factor — not a company-wide shift.",
-  Channel: () =>
-    "A named ordering channel moving independently of the rest of the book points to a channel-specific cause.",
-  Mix: () =>
-    "Bundle share moves together with AOV — track the two side by side rather than in isolation.",
-};
-const inferenceFor = (tag: string, tone: string) =>
-  (INFERENCE_BY_TAG[tag] ?? (() => "Movement here is worth tracking against the next refresh."))(tone);
-
-const ACTION_BY_TAG: Record<string, string> = {
-  Headline: "Open Where the gap comes from (state, cohort, product lenses) to locate the driver before setting next week's targets.",
-  Trend: "If the gap is widening, escalate the call list this week; if narrowing, hold the current motion and recheck next refresh.",
-  Calendar: "Confirm the date against the holiday calendar before flagging it as a rep or region issue.",
-  "Call list": "Assign this list to the relevant reps this week; recheck against the next refresh.",
-  "Churn risk": "Route each silent clinic to its owner for a win-back call within the week.",
-  Price: "Have reps confirm whether patients self-selected a single test or were downsold, and reinforce bundle positioning.",
-  "Bright spots": "Capture what changed at these clinics (offer, cadence, rep motion) and try to replicate it elsewhere.",
-  "Health notes": "Work this flag top-down — clearing the largest-dollar clinics first removes the most shortfall per call.",
-  "Target list": "Lead the weekly target list with this slice; it returns the most dollars per call made.",
-  "Save list": "Call these accounts this week, before the slide becomes a full broken-rhythm case.",
-  People: "Discuss the shortfall with the owner directly; compare their % of book against peers before assuming it's a book-size issue.",
-  Portfolio: "Check which test lines went STOPPED and confirm with lab ops whether it's operational or a real portfolio loss.",
-  Product: "Confirm this family's movement against the substitution card before writing it into messaging.",
-  Substitution: "Confirm the substitution story with reps before treating the decline as a net loss.",
-  Geography: "Check state-specific factors (rep coverage, local competitor, seasonal effects) before treating this as company-wide.",
-  Channel: "Loop in the channel owner if the movement doesn't self-correct within a week.",
-  Mix: "Track alongside the AOV card; the two should move together.",
-};
-const actionFor = (tag: string) => ACTION_BY_TAG[tag] ?? "Monitor against the next refresh.";
-
-const statusFor = (tone: string): string => {
-  if (tone === "good") return "On Track";
-  if (tone === "info") return "Informational";
-  return "Monitoring"; // alert | watch
-};
-
-const confidenceFor = (tag: string, evidenceCount: number): string => {
-  const HIGH_TAGS = new Set(["Headline", "Trend", "Channel"]);
-  if (HIGH_TAGS.has(tag)) return "High";
-  if (evidenceCount === 0) return "Low";
-  return "Medium";
-};
-
-const evidenceFrom = (detail?: string): string[] => {
-  if (!detail) return [];
-  return detail
-    .split("|")
-    .map(s => s.trim())
-    .filter(Boolean);
-};
+import { mappingFor, inferenceFor, actionFor, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 
 /**
  * Build/refresh a cadence's insight rows from a feed computation.
@@ -185,10 +80,10 @@ export async function generateInsights(
       focus: item.focus,
       focusLabel: item.focusLabel,
       fact: item.a,
-      inference: inferenceFor(item.tag, item.tone),
+      inference: inferenceFor(item.tag, item.tone, item.id),
       evidence,
       confidence: confidenceFor(item.tag, evidence.length),
-      action: actionFor(item.tag),
+      action: actionFor(item.tag, item.id),
       status: statusFor(item.tone),
       tone: item.tone,
       relatedInsightIds: related,

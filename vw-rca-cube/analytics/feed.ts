@@ -6,6 +6,8 @@ import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedAction, gatedQuery, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
+import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
+import { salesFamilyRows } from "./leadFamilies";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -38,14 +40,6 @@ export type FeedItem = {
   focusLabel?: string;
 };
 
-const MONEY = (n: number) => {
-  const a = Math.abs(n);
-  const s = n < 0 ? "-" : "+";
-  if (a >= 1_000_000) return `${s}$${(a / 1_000_000).toFixed(2)}M`;
-  if (a >= 1_000) return `${s}$${Math.round(a / 1_000)}K`;
-  return `${s}$${Math.round(a)}`;
-};
-const INT = (n: number) => Math.round(n).toLocaleString("en-US");
 const PLAIN = (n: number) => {
   const a = Math.abs(n);
   if (a >= 1_000_000) return `$${(a / 1_000_000).toFixed(2)}M`;
@@ -412,8 +406,6 @@ export async function build(
       : vaAll;
     const vaWindowDays = vaScoped[0]?.windowDays ?? vaAll[0]?.windowDays ?? 365;
     const vaWeeks = vaWindowDays / 7;
-    const VA_MIN_AOV = 275;
-    const VA_MIN_ORDERS_PER_WEEK = 3;
     const vaQualified = vaScoped
       .map(r => ({
         clinic: r.clinic,
@@ -427,26 +419,8 @@ export async function build(
         r => r.vaAov >= VA_MIN_AOV && r.ordersPerWeek >= VA_MIN_ORDERS_PER_WEEK,
       )
       .sort((a, b) => b.vaRevenue - a.vaRevenue);
-    if (vaQualified.length > 0) {
-      const vaRevSum = vaQualified.reduce((s, r) => s + r.vaRevenue, 0);
-      const vaOrdSum = vaQualified.reduce((s, r) => s + r.vaOrders, 0);
-      items.push({
-        id: "va-target",
-        tag: "Target list",
-        tone: "info",
-        focus: `ids:${vaQualified
-          .slice(0, 300)
-          .map(r => r.clinic)
-          .join(",")}`,
-        focusLabel: "VA $275+ clinics ready for the $400 Foundation Zoomer launch",
-        q: "Which clinics are ready for the $400 Foundation Zoomer panel?",
-        a: `${INT(vaQualified.length)} clinics already run VA-only orders at $275+ AOV and 3+ orders/week (trailing 52 weeks) — ${MONEY(vaRevSum)} combined VA revenue, ${INT(vaOrdSum)} VA orders. Led by ${vaQualified
-          .slice(0, 3)
-          .map(r => r.name)
-          .join(", ")}.`,
-        detail: `Filter: VA-only orders (no VW line), AOV ≥ $${VA_MIN_AOV}, ≥${VA_MIN_ORDERS_PER_WEEK} orders/week, trailing ${INT(vaWindowDays)} days.`,
-      });
-    }
+    const vaItem = vaFeedItem(vaQualified, vaWindowDays);
+    if (vaItem) items.push(vaItem);
 
     // Broken buying rhythm: still alive, but ordering far below their own
     // expected order count (expected orders come from the clinic's baseline).
@@ -742,38 +716,14 @@ export async function build(
     // Substitution watch: is a growing family absorbing a shrinking one?
     // Pairs are products that compete for the same order, so a drop in one is
     // only a real loss if the other is not picking it up.
-    const OFFSET_PAIRS: Array<[string, string]> = [
-      ["Total Tox", "Toxin Zoomer"],
-    ];
-    const baseLabel =
-      (cfg.baselineMode ?? "prior_equal") === "yoy"
-        ? "the same period last year"
-        : (cfg.baselineMode ?? "prior_equal") === "trailing_13w"
-          ? "the trailing 13-week same-weekday baseline"
-          : (cfg.baselineMode ?? "prior_equal") === "prior_3m"
-            ? "the prior 3-month run rate"
-            : `the ${cfg.baselineStart} – ${cfg.baselineEnd} run rate`;
+    const baseLabel = baseLabelOf(cfg);
     const famBy = new Map(fam.map(f => [f.family, f]));
     for (const [downName, upName] of OFFSET_PAIRS) {
       const d = famBy.get(downName);
       const u = famBy.get(upName);
-      if (!d || !u || d.delta >= 0) continue;
-      const revCover = u.delta / -d.delta; // share of the loss covered
-      const ordCover = d.orderDelta ? u.orderDelta / -d.orderDelta : 0;
-      const full = u.delta + d.delta >= 0;
-      items.push({
-        id: `offset-${downName}`,
-        tag: "Substitution",
-        tone: full ? "good" : u.delta > 0 ? "watch" : "alert",
-        q: `Is ${upName} offsetting the ${downName} downfall?`,
-        a:
-          u.delta > 0
-            ? `${upName} is ${MONEY(u.delta)} / ${INT(u.orderDelta)} orders above baseline against ${downName} at ${MONEY(d.delta)} / ${INT(d.orderDelta)} orders — ${full ? "it more than covers the loss" : `it covers ${Math.round(Math.max(0, revCover) * 100)}% of the revenue and ${Math.round(Math.max(0, ordCover) * 100)}% of the orders`}. Net ${MONEY(u.delta + d.delta)}. Measured against ${baseLabel}. Open the list to see which clinics dropped ${downName} without picking up ${upName}.${(cfg.baselineMode ?? "prior_equal") === "yoy" ? "" : " Switch the baseline to “same period last year” to judge the launch year-over-year instead."}`
-            : `No — ${upName} is also below baseline (${MONEY(u.delta)} / ${INT(u.orderDelta)} orders), so the ${MONEY(d.delta)} ${downName} drop is a real loss, not a switch. Net ${MONEY(u.delta + d.delta)}, measured against ${baseLabel}.${(cfg.baselineMode ?? "prior_equal") === "yoy" ? "" : " Switch the baseline to “same period last year” to judge the launch year-over-year instead."}`,
-        focus: `pair:${downName}>${upName}`,
-        focusLabel: `${downName} → ${upName} switchers`,
-        detail: `${downName}: ${MONEY(d.delta)} · ${INT(d.orderDelta)} ord | ${upName}: ${MONEY(u.delta)} · ${INT(u.orderDelta)} ord | net ${MONEY(u.delta + d.delta)} · ${INT(u.orderDelta + d.orderDelta)} ord.`,
-      });
+      if (!d || !u) continue;
+      const it = offsetFeedItem(downName, upName, d, u, baseLabel, (cfg.baselineMode ?? "prior_equal") === "yoy");
+      if (it) items.push(it);
     }
   }
 
@@ -1059,25 +1009,60 @@ export const clinicSearch = scopedQuery({
 });
 
 /**
- * The $400 Foundation Zoomer target list for one rep's own clinics (2026-10-20, rep Business feed): same table and
- * thresholds as the company card ($275+ VA AOV, 3+ VA orders a week over the trailing window), cut to the rep. A rep
- * login is pinned to its own name by the access wrapper; a manager login passes the rep it is looking at.
+ * The rep Business feed (2026-10-20): the same cards as the main feed, built by the same functions (feedItems.ts), for one
+ * rep's own clinics: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
+ * Foundation Zoomer panel?". A rep login is pinned to its own name by the access wrapper; a manager login passes the rep
+ * it is looking at. A question that does not apply to the rep right now still comes back, with `applies: false`.
  */
-export const vaTargets = scopedQuery({
+export const repQuestions = scopedQuery({
   args: { sales: v.optional(v.string()) },
   handler: async (ctx, { sales }) => {
     const cfg = await loadCfg(ctx);
-    const gen = cfg?.gen ?? 0;
+    if (!cfg || !sales) return { ready: false as const, cards: [] };
+    const gen = cfg.gen ?? 0;
+    const cards: Array<{
+      id: string; applies: boolean; domain: string; topic: string; tag: string; tone: string; question: string; fact: string; inference: string;
+      evidence: string[]; action: string; confidence: string; status: string; focus?: string; focusLabel?: string;
+    }> = [];
+    const shape = (it: FeedItem, applies: boolean) => {
+      const m = mappingFor(it.tag);
+      const evidence = evidenceFrom(it.detail);
+      cards.push({
+        id: it.id, applies, domain: m.domain, topic: m.topic, tag: it.tag, tone: it.tone, question: it.q, fact: it.a,
+        inference: inferenceFor(it.tag, it.tone, it.id), evidence, action: actionFor(it.tag, it.id), confidence: confidenceFor(it.tag, evidence.length),
+        status: statusFor(it.tone), focus: it.focus, focusLabel: it.focusLabel,
+      });
+    };
+    // Substitution
+    const fam = await salesFamilyRows(ctx, "all", sales);
+    for (const [downName, upName] of OFFSET_PAIRS) {
+      const d = fam.all.find(f => f.family === downName), u = fam.all.find(f => f.family === upName);
+      const it = d && u ? offsetFeedItem(downName, upName, d, u, baseLabelOf(cfg), (cfg.baselineMode ?? "prior_equal") === "yoy") : null;
+      if (it) shape(it, true);
+      else
+        shape({
+          id: `offset-${downName}`, tag: "Substitution", tone: "good", q: `Is ${upName} offsetting the ${downName} downfall?`,
+          a: d ? `${downName} is not below baseline for your clinics (${MONEY(d.delta)} / ${INT(d.orderDelta)} orders), so there is no decline for ${upName} to offset.` : `${downName} has no orders in your book in this window.`,
+          detail: d ? `${downName}: ${MONEY(d.delta)} · ${INT(d.orderDelta)} ord${u ? ` | ${upName}: ${MONEY(u.delta)} · ${INT(u.orderDelta)} ord` : ""}.` : undefined,
+        }, false);
+    }
+    // $400 Foundation Zoomer panel
     const all = await ctx.db.query("vaClinicTarget").withIndex("by_gen", q => q.eq("gen", gen)).collect();
-    const mine = sales ? all.filter(r => r.sales === sales) : all;
+    const mine = all.filter(r => r.sales === sales);
     const windowDays = mine[0]?.windowDays ?? all[0]?.windowDays ?? 365;
     const weeks = windowDays / 7;
-    const MIN_AOV = 275, MIN_PER_WEEK = 3;
-    const rows = mine
-      .map(r => ({ clinic: r.clinic, name: r.name, vaOrders: r.vaOrders, vaRevenue: r.vaRevenue, vaAov: r.vaOrders ? r.vaRevenue / r.vaOrders : 0, ordersPerWeek: r.vaOrders / weeks }))
-      .filter(r => r.vaAov >= MIN_AOV && r.ordersPerWeek >= MIN_PER_WEEK)
-      .sort((a, b) => b.vaRevenue - a.vaRevenue);
-    return { windowDays, minAov: MIN_AOV, minOrdersPerWeek: MIN_PER_WEEK, rows: rows.slice(0, 300), total: rows.length, totalRevenue: rows.reduce((t, r) => t + r.vaRevenue, 0), totalOrders: rows.reduce((t, r) => t + r.vaOrders, 0) };
+    const qualified = mine
+      .filter(r => (r.vaOrders ? r.vaRevenue / r.vaOrders : 0) >= VA_MIN_AOV && r.vaOrders / weeks >= VA_MIN_ORDERS_PER_WEEK)
+      .sort((a, b) => b.vaRevenue - a.vaRevenue)
+      .map(r => ({ clinic: r.clinic, name: r.name, vaOrders: r.vaOrders, vaRevenue: r.vaRevenue }));
+    const va = vaFeedItem(qualified, windowDays);
+    if (va) shape(va, true);
+    else
+      shape({
+        id: "va-target", tag: "Target list", tone: "info", q: "Which clinics are ready for the $400 Foundation Zoomer panel?",
+        a: `None of your clinics currently meet both bars (VA-only orders at $${VA_MIN_AOV}+ AOV and ${VA_MIN_ORDERS_PER_WEEK}+ orders/week).`,
+      }, false);
+    return { ready: true as const, cards };
   },
 });
 

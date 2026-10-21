@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import { pw } from "./gatePw";
+import { insightHeadline } from "@/lib/insightHeadline";
 import "./repview.css";
 import { AlertRail, FamilyLevel, FamilyPanel } from "./RcaDashboardPage";
 
@@ -3858,110 +3859,58 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   );
 }
 
-/** Business feed tab (2026-10-20): a short list of reasoned questions about the rep's own book, each as a card
- * Fact -> Inference -> Evidence -> Action with the headline number on top. For now two questions: whether Toxin Zoomer
- * offsets the Total Tox decline, and which clinics are ready for the $400 Foundation Zoomer panel. Adding a question means
- * pushing another entry into `cards` below. Everything is cut to the rep (or the rep a manager login is looking at). */
-type FeedCard = { id: string; tone: "alert" | "watch" | "good" | "info"; tag: string; question: string; value: string; caption: string; fact: string; inference: string; evidence: string[]; action: string; focus?: { focus: string; label: string; n?: number } };
-const OFFSET_PAIR: [string, string] = ["Total Tox", "Toxin Zoomer"];
-
+/** Business feed tab (2026-10-20): the main Business Feed's own questions, cut to the rep's book. The cards are built on the
+ * server by the same functions as the company feed (`feed:repQuestions`), so the wording matches; only the scope changes.
+ * Shortlisted so far: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
+ * Foundation Zoomer panel?". Adding a question means adding it to `repQuestions` in analytics/feed.ts. */
 function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; periodId: string; weekLabel: string; clinics: number }) {
-  // The analysis window (like the company card), not the week: product switches are too noisy over seven days.
-  const famQ = useRcaQuery(api.leadFamilies.salesFamilies, sales ? { password: pw(), periodId: "all", sales } : "skip");
-  const vaQ = useRcaQuery(api.feed.vaTargets, sales ? { password: pw(), sales } : "skip");
+  const q = useRcaQuery(api.feed.repQuestions, sales ? { password: pw(), sales } : "skip");
   const doneKey = `rv-feed-done:${sales}`;
   const [done, setDone] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem(doneKey) || "{}"); } catch { return {}; } });
   useEffect(() => { try { setDone(JSON.parse(localStorage.getItem(doneKey) || "{}")); } catch { setDone({}); } }, [doneKey]);
   const flipDone = (id: string) => setDone(d => { const n = { ...d, [id]: !d[id] }; try { localStorage.setItem(doneKey, JSON.stringify(n)); } catch { /* ignore */ } return n; });
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
-  const SM = (n: number) => `${n >= 0 ? "+" : "−"}${K(Math.abs(n))}`;
-  const INT = (n: number) => Math.round(n).toLocaleString("en-US");
-
-  const cards: FeedCard[] = [];
-  // 1. Is Toxin Zoomer offsetting the Total Tox downfall?
-  if (famQ?.ready) {
-    const fam = famQ.all as Fam[];
-    const [downName, upName] = OFFSET_PAIR;
-    const d = fam.find(f => f.family === downName), u = fam.find(f => f.family === upName);
-    const question = `Is ${upName} offsetting the ${downName} downfall?`;
-    const label = `${downName} → ${upName} switchers`;
-    if (d && u && d.delta < 0) {
-      const net = u.delta + d.delta;
-      const revCover = Math.max(0, u.delta / -d.delta), ordCover = d.orderDelta ? Math.max(0, u.orderDelta / -d.orderDelta) : 0;
-      const full = net >= 0;
-      cards.push({
-        id: "subst", tone: full ? "good" : u.delta > 0 ? "watch" : "alert", tag: "Product · substitution", question,
-        value: SM(net), caption: "net of both products",
-        fact: u.delta > 0
-          ? `${upName} is ${SM(u.delta)} / ${INT(u.orderDelta)} orders above expected against ${downName} at ${SM(d.delta)} / ${INT(d.orderDelta)} orders. ${full ? "It more than covers the loss." : `It covers ${Math.round(revCover * 100)}% of the revenue and ${Math.round(ordCover * 100)}% of the orders.`}`
-          : `No. ${upName} is also below expected (${SM(u.delta)} / ${INT(u.orderDelta)} orders), so the ${SM(d.delta)} ${downName} drop is a real loss, not a switch.`,
-        inference: u.delta > 0 ? "One product's decline can be offset by growth in a related one. The net, not the gross drop, is the real signal." : "Nothing is picking up the drop, so it is worth treating as a loss and finding out why those clinics stopped.",
-        evidence: [`${downName} ${SM(d.delta)} · ${INT(d.orderDelta)} orders`, `${upName} ${SM(u.delta)} · ${INT(u.orderDelta)} orders`, `Net ${SM(net)} · ${INT(u.orderDelta + d.orderDelta)} orders`, "Your clinics, since the start of the window"],
-        action: `Open the clinics that dropped ${downName} without picking up ${upName}, and confirm with them before counting it as a net loss.`,
-        focus: { focus: `pair:${downName}>${upName}`, label },
-      });
-    } else {
-      cards.push({
-        id: "subst", tone: "good", tag: "Product · substitution", question,
-        value: d ? SM(d.delta) : "—", caption: `${downName} vs expected`,
-        fact: d ? `${downName} is not below expected for your clinics (${SM(d.delta)} / ${INT(d.orderDelta)} orders), so there is no decline for ${upName} to offset.` : `${downName} has no orders in your book in this window.`,
-        inference: "Nothing to offset: the question only matters when the product is falling.",
-        evidence: d ? [`${downName} ${SM(d.delta)} · ${INT(d.orderDelta)} orders`, ...(u ? [`${upName} ${SM(u.delta)} · ${INT(u.orderDelta)} orders`] : [])] : [],
-        action: "Nothing to do now; this card turns into an alert if the product starts to fall.",
-      });
-    }
-  }
-  // 2. Which clinics are ready for the $400 Foundation Zoomer panel?
-  if (vaQ) {
-    const top = vaQ.rows.slice(0, 3).map(r => r.name).join(", ");
-    cards.push({
-      id: "va", tone: "info", tag: "Product · $400 Foundation Zoomer", question: "Which clinics are ready for the $400 Foundation Zoomer panel?",
-      value: INT(vaQ.total), caption: vaQ.total === 1 ? "clinic ready" : "clinics ready",
-      fact: vaQ.total
-        ? `${INT(vaQ.total)} of your clinics already run VA-only orders at $${vaQ.minAov}+ average order value and ${vaQ.minOrdersPerWeek}+ orders a week (trailing ${Math.round(vaQ.windowDays / 7)} weeks): ${K(vaQ.totalRevenue)} of VA revenue across ${INT(vaQ.totalOrders)} orders. Led by ${top}.`
-        : `None of your clinics currently meet both bars ($${vaQ.minAov}+ average VA order and ${vaQ.minOrdersPerWeek}+ VA orders a week).`,
-      inference: vaQ.total ? "These clinics already pay premium prices on VA panels and order often, so they are the likeliest to take the $400 Foundation Zoomer." : "Without clinics at that price point and cadence, the launch is not yet a fit for your book.",
-      evidence: [`${INT(vaQ.total)} clinics qualify`, `VA average order of $${vaQ.minAov} or more`, `${vaQ.minOrdersPerWeek}+ VA orders a week`, `Trailing ${INT(vaQ.windowDays)} days`],
-      action: vaQ.total ? "Lead the outreach with the top ten by VA revenue and share the $400 panel offer." : "Nothing to do now.",
-      focus: vaQ.total ? { focus: `ids:${vaQ.rows.map(r => r.clinic).join(",")}`, label: "VA $275+ clinics ready for the $400 Foundation Zoomer launch", n: vaQ.rows.length } : undefined,
-    });
-  }
-  const toneLabel = { alert: "Act now", watch: "Watch", info: "Opportunity", good: "Good news" } as const;
+  const toneLabel: Record<string, string> = { alert: "Act now", watch: "Watch", info: "Opportunity", good: "Good news" };
+  const cards = q?.ready ? q.cards : [];
   return (
     <div className="rv-sig">
       <div className="rv-eyebrow">Business feed · your book<Info k="signals" /></div>
-      <h1 className="rv-h1">Two questions about your {clinics} clinics</h1>
+      <h1 className="rv-h1">{cards.length ? `${cards.length === 2 ? "Two" : cards.length} questions about your ${clinics} clinics` : "Business feed"}</h1>
       <div className="rv-sig-legend">
         <span className="rv-sig-chip is-fact">1 Fact</span><i>→</i><span className="rv-sig-chip is-inf">2 Inference</span><i>→</i><span className="rv-sig-chip is-evi">3 Evidence</span><i>→</i><span className="rv-sig-chip is-act">4 Action</span>
-        <em>What happened, what it means, the numbers behind it, what to do. Built from your own clinics only.</em>
+        <em>What happened, what it means, the numbers behind it, what to do. The same questions as the main Business Feed, cut to your own clinics.</em>
       </div>
-      {!famQ || !vaQ ? <p className="rv-dim">Loading…</p> : null}
-      {cards.map(c => (
-        <article key={c.id} className={`rv-sig-card tone-${c.tone}${done[c.id] ? " is-done" : ""}`}>
-          <header className="rv-sig-hd">
-            <div className="rv-sig-kpi">{c.value}<small>{c.caption}</small></div>
-            <div className="rv-sig-q"><span>{c.tag} · {toneLabel[c.tone]}</span><h3>{c.question}</h3></div>
-            <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
-          </header>
-          <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-fact">Fact</span></div><div className="body">{c.fact}</div></div>
-          <div className="rv-sig-step is-inf"><div className="gut"><span className="rv-sig-chip is-inf">Inference</span></div><div className="body">{c.inference}</div></div>
-          {c.evidence.length ? (
-            <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-evi">Evidence</span></div>
-              <div className="body"><div className="rv-sig-evi">{c.evidence.map(e => <span key={e}>{e}</span>)}</div></div></div>
-          ) : null}
-          <div className="rv-sig-step is-act"><div className="gut"><span className="rv-sig-chip is-act">Action</span></div>
-            <div className="body">{c.action}
-              {c.focus ? (
-                <div className="rv-sig-btns">
-                  <button type="button" className="pri" onClick={() => setFocus(f => (f?.label === c.focus!.label ? null : { focus: c.focus!.focus, label: c.focus!.label }))}>{c.focus.n ? `Open the ${c.focus.n} clinics` : "Open the clinics"}</button>
-                </div>
-              ) : null}
-            </div></div>
-        </article>
-      ))}
+      {!q ? <p className="rv-dim">Loading…</p> : null}
+      {cards.map(c => {
+        const head = insightHeadline(c.fact, c.topic);
+        return (
+          <article key={c.id} className={`rv-sig-card tone-${c.tone}${done[c.id] ? " is-done" : ""}`}>
+            <header className="rv-sig-hd">
+              {head ? <div className="rv-sig-kpi">{head.value}<small>{head.caption}</small></div> : null}
+              <div className="rv-sig-q"><span>{c.domain} · {c.topic} · {toneLabel[c.tone] ?? c.tone}</span><h3>{c.question}</h3></div>
+              <div className="rv-sig-meta">Confidence <b>{c.confidence}</b></div>
+              <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
+            </header>
+            <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-fact">Fact</span></div><div className="body">{c.fact}</div></div>
+            <div className="rv-sig-step is-inf"><div className="gut"><span className="rv-sig-chip is-inf">Inference</span></div><div className="body">{c.inference}</div></div>
+            {c.evidence.length ? (
+              <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-evi">Evidence</span></div>
+                <div className="body"><div className="rv-sig-evi">{c.evidence.map(e => <span key={e}>{e}</span>)}</div></div></div>
+            ) : null}
+            <div className="rv-sig-step is-act"><div className="gut"><span className="rv-sig-chip is-act">Action</span></div>
+              <div className="body">{c.action}
+                {c.focus && c.applies ? (
+                  <div className="rv-sig-btns">
+                    <button type="button" className="pri" onClick={() => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question }))}>Open the clinics</button>
+                  </div>
+                ) : null}
+              </div></div>
+          </article>
+        );
+      })}
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
-      <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions will be added here over time.</p>
+      <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions from the main Business Feed will be added here over time.</p>
     </div>
   );
 }
@@ -4013,12 +3962,12 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
   },
   feed: {
     title: "Business feed",
-    lead: "A short list of questions about your own book, each answered in four steps.",
+    lead: "Questions from the main Business Feed, answered for your own clinics.",
     items: [
       { t: "Fact, Inference, Evidence, Action", d: "Every card reads in the same order: what happened (blue), what it means (violet), the numbers behind it (teal), and what to do (amber). The big number at the top is the answer in one figure." },
-      { t: "Is Toxin Zoomer offsetting the Total Tox downfall?", d: "Compares your clinics' Total Tox orders and revenue against expected with Toxin Zoomer, over the analysis window. The net tells you whether the drop is a loss or a switch." },
+      { t: "Is Toxin Zoomer offsetting the Total Tox downfall?", d: "Compares your clinics' Total Tox and Toxin Zoomer against baseline over the analysis window. The net tells you whether the drop is a loss or a switch; the action opens the clinics that dropped Total Tox without picking up Toxin Zoomer." },
       { t: "Which clinics are ready for the $400 Foundation Zoomer panel?", d: "Your clinics that already run VA-only orders at $275 or more and 3 or more orders a week over the trailing year. Open the list to see them." },
-      { t: "Only your clinics", d: "Everything here is cut to your own book. More questions will be added over time." },
+      { t: "Same wording as the main feed", d: "The cards are built by the same code as the company-wide Business Feed, so they read the same; only the scope changes. More questions will be added over time." },
     ],
   },
   week: { title: "This week", lead: "The week to date against its goal.", items: [...WINDOW_GUIDE, TOUCH_GUIDE], link: true },
@@ -4106,7 +4055,7 @@ const INFO: Record<string, string> = {
   opp: "Your scorecard's Opportunity column as cards: count, $ upside, suggested action. Click the count for clinics, 'Add to today' to plan it, 'See in scorecard' to jump there.",
   week: "Set your selling hours; actions fill them from the top by expected revenue per hour.",
   tabguide: "A short guide to this tab: what each section shows and how to use it. Open it any time; the FAQ button in the top bar answers the wider 'what does that word mean' questions, and the notes marked 'How this is calculated' under each section give the formulas.",
-  signals: "Your Business feed: a short list of questions about your own clinics. Each card leads with the answer as one number, then reads Fact (what happened), Inference (what it means), Evidence (the numbers) and Action (what to do).",
+  signals: "Your Business feed: the main Business Feed's questions, answered for your own clinics. Each card leads with the answer as one number, then reads Fact (what happened), Inference (what it means), Evidence (the numbers) and Action (what to do).",
   gap: "Where this week is heading against its goal (existing clinics plus the new-business goal), and how much of any shortfall the actions in your plan are expected to cover.",
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Click a pillar to show only its actions in the queue. Behind pillars get a boost when the toggle is on.",

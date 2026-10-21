@@ -826,3 +826,4 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-sig-btns .est{font:600 13px/1.4 'Roboto Mono',ui-monospace,monospace;color:#166534}
 @media (max-width:700px){.rv-sig-step{grid-template-columns:1fr}.rv-sig-step .gut::after{display:none}.rv-sig-step .body{padding-left:22px}}
 .rv-sig-more{border:1px solid #9ca3af;background:#fff;border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer;margin:0 0 24px}
+.rv-sig-meta{font-size:12px;line-height:1.6;color:#4b5563;white-space:nowrap}
