@@ -294,11 +294,13 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   try {
     if (url.pathname === "/health") {
+      // Public: just enough for the page to notice a new snapshot. Row counts and build errors are admin-only.
+      const admin = !!ADMIN_SECRET && req.headers["x-admin-secret"] === ADMIN_SECRET;
       return send(res, 200, {
         ok: !!current,
-        snapshot: current && { builtAt: current.builtAt, dataThrough: current.dataThrough, rows: current.rows },
+        snapshot: current && (admin ? { builtAt: current.builtAt, dataThrough: current.dataThrough, rows: current.rows } : { builtAt: current.builtAt, dataThrough: current.dataThrough }),
         building: building && { startedAt: building.startedAt },
-        lastBuild,
+        lastBuild: lastBuild && (admin ? lastBuild : { ok: lastBuild.ok, at: lastBuild.at }),
       });
     }
     if (url.pathname === "/admin/rebuild" && req.method === "POST") {
@@ -311,7 +313,7 @@ const server = http.createServer(async (req, res) => {
       const client = clientOf(req);
       if (throttled(client)) return send(res, 429, { error: "Too many failed attempts. Try again in a minute." });
       const { name, args } = await readBody(req);
-      if (typeof name !== "string" || !FN_NAME.test(name) || !args || typeof args !== "object" || Array.isArray(args)) return send(res, 400, { error: "bad request" });
+      if (typeof name !== "string" || name.length > 80 || !FN_NAME.test(name) || !args || typeof args !== "object" || Array.isArray(args)) return send(res, 400, { error: "bad request" });
       if (typeof args.password !== "string" || !args.password) {
         noteFail(client);
         return send(res, 403, { error: "Not authorized — wrong dashboard password." });
@@ -343,6 +345,12 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (e instanceof HttpError) return send(res, e.status, { error: e.message });
+    if (msg.startsWith("unknown function")) return send(res, 404, { error: "unknown function" });
+    // Cube (or Convex) unreachable: say so plainly instead of a generic internal error, and keep serving everything else.
+    if (msg === "fetch failed" || /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|UND_ERR/.test(String((e as { cause?: unknown })?.cause ?? ""))) {
+      console.error("upstream unavailable:", url.pathname, msg.slice(0, 200));
+      return send(res, 503, { error: "The data source is temporarily unavailable. Try again in a minute." });
+    }
     // A bug in a handler (TypeError and friends) is logged here and answered generically, not leaked to the client.
     if (e instanceof TypeError || e instanceof RangeError || e instanceof ReferenceError || e instanceof SyntaxError) {
       console.error("handler error:", url.pathname, msg.slice(0, 300));
