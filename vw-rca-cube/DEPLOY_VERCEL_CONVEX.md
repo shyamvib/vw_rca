@@ -14,6 +14,42 @@ analytics service (`engine/server.ts`, handlers in `analytics/`) against an in-m
 snapshot it rebuilds from Cube: nightly 13:00 UTC, on the Refresh button, and (insight
 snapshots only) Monday 13:45 / the 1st 14:00 UTC.
 
+## How the analytics service works (no database of its own)
+
+```
+ browser ──/rpc──► Cloudflare quick tunnel ──► rca-engine (one Node process)
+                                                 │ in-memory tables (MemDb), read-only
+                                                 │ same handler code that used to run in Convex
+                                                 │ every 60 s: settings pulled from Convex
+                                                 │ per rep request: session checked against Convex
+                                                 ▼
+                                        /data/snapshot  (Docker volume, ~33 MB)
+                                        one folder per table, documents.jsonl
+
+ Rebuild (daily 13:00 UTC, the Refresh button, POST /admin/rebuild):
+   builder child process ──► Cube ──► BigQuery
+   runs the refresh logic, writes a NEW snapshot folder, swaps it in only on success, reloads memory
+```
+
+- **The snapshot** is a folder of JSON-lines files, one per table (`clinicMeta` about 7,000 clinics,
+  `clinicPeriod` about 82,000 rows). On start the engine loads it into `engine/memdb.ts`, an in-memory
+  stand-in for Convex's `ctx.db`, so the existing query handlers run unchanged. The service only reads;
+  there are no per-request writes.
+- **Where things live:** orders and everything computed from them are in the snapshot (source of truth:
+  Cube / BigQuery). Logins, sessions, the access log, settings (target, new-business goal, window), clinic
+  plans, product-eligible marks and insights are in Convex.
+- **Convex bridge:** every 60 s the engine copies the yearly target, the new-business goal, the
+  product-eligible marks and the clinic plans from Convex into memory. Window or baseline changes only take
+  effect at the next rebuild. A rep session (`rs:` token) is checked against Convex on each request (cached
+  30 s) and mirrored into memory, including the all-reps flag (`allReps`) for rep-view-only logins.
+- **Restarts and failures:** the engine starts from the volume in seconds and needs neither Cube nor Convex
+  to start. If Cube is down, snapshot pages keep working and Cube-backed calls answer 503; a failed rebuild
+  keeps the old snapshot. A snapshot older than the last 13:00 UTC slot is rebuilt on start, so a restart
+  cannot hide a missed daily refresh. The rebuild trims the latest order date only when it is today
+  (Pacific); otherwise data runs through yesterday.
+- **Limits:** one process on one server (3 GB memory limit), no replica. If the volume were lost, a
+  rebuild from Cube (about a minute) restores it.
+
 ## 1. Convex (production)
     export CONVEX_DEPLOY_KEY='prod:...'                 # production key
     npx convex env set VIKTOR_SPACES_ACCESS_MODE public
@@ -49,3 +85,18 @@ Local Convex (`CONVEX_AGENT_MODE=anonymous npx convex dev`), then the service wi
 `CONVEX_URL`, `CONVEX_ADMIN_KEY` (from `.convex/local/default/config.json`), `CUBE_API_URL`,
 `CUBE_API_SECRET`, `DASHBOARD_PASSWORD_SHA256`, `DATA_DIR`; `POST /admin/rebuild`;
 `node engine/scripts/ui-smoke.mjs <app-url> <out-dir> <email> <password>` drives the real UI.
+
+## Exposure and hardening
+- Public by design: the Vercel frontend, Convex cloud, and the engine through its quick tunnel. Everything
+  on the engine needs a password or rep token in `args.password`; `/admin/rebuild` needs `x-admin-secret`.
+- The engine answers clean 4xx for bad requests, never leaks handler error text, allows only
+  `module:function` names, throttles guesses at the team password (60 refusals a minute per client address,
+  then 429; rep tokens are not counted), and `/health` shows only build time and data-through date
+  (row counts and build errors need the admin secret).
+- CORS allows `ALLOWED_ORIGINS` plus this project's per-deployment Vercel addresses
+  (`vw-<hash>-vbw.vercel.app`).
+- Quick tunnels get a new address on every restart (the frontend re-resolves it and retries once). A named
+  tunnel with a fixed address is the proper fix for production.
+- The cube-rca stack has its own quick tunnel container (`cube-rca-tunnel-rca-1`) that exposes the Cube API;
+  nothing in this app uses it. See `CLINIC_LIFECYCLE.md` section 15 for the open follow-ups (stop it, rotate
+  the Cube secret, named tunnel, live chaos run, server ports).
