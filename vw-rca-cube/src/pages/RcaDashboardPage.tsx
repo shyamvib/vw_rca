@@ -9,6 +9,7 @@ import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
+import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
 
 type Row = {
@@ -662,7 +663,7 @@ function InsightTimelineStrip({ sourceFeedId, cadence }: { sourceFeedId: string;
   );
 }
 
-function InsightCard({
+export function InsightCard({
   item,
   onDrill,
   onHistory,
@@ -708,11 +709,18 @@ function InsightCard({
     }
   };
 
+  const headline = insightHeadline(item.fact, item.topic);
   return (
-    <div className={`rca-insight-card rca-insight-${item.tone}`}>
-      <div className="rca-insight-head">
-        <div>
-          <div className="rca-insight-id">{item.insightId}</div>
+    <div className={`rca-insight-card rca-ic rca-insight-${item.tone}`}>
+      <div className="rca-insight-head rca-ic-head">
+        {headline ? (
+          <div className="rca-ic-kpi">
+            {headline.value}
+            <small>{headline.caption}</small>
+          </div>
+        ) : null}
+        <div className="rca-ic-title">
+          <div className="rca-ic-tag">{item.domain} · {item.topic}</div>
           <div
             className={`rca-insight-question${item.focus && onDrill ? " rca-insight-question-clickable" : ""}`}
             onClick={() => {
@@ -721,12 +729,14 @@ function InsightCard({
           >
             {item.question ?? `${item.domain} · ${item.topic}`}
           </div>
-          <div className="rca-rail-sub">
-            {item.date} · {item.domain} · {item.topic}
-          </div>
           {item.cadence && item.cadence !== "daily" ? (
             <InsightTimelineStrip sourceFeedId={item.sourceFeedId} cadence={item.cadence} />
           ) : null}
+        </div>
+        <div className="rca-ic-meta">
+          Confidence <b>{item.confidence}{edited.has("confidence") ? " (edited)" : ""}</b>
+          <br />Status <b>{item.status}{edited.has("status") ? " (edited)" : ""}</b>
+          <br />{item.date} · {item.insightId}
         </div>
         <div className="rca-insight-head-actions">
           {onHistory ? (
@@ -759,25 +769,36 @@ function InsightCard({
           </div>
         </div>
       ) : (
-        <>
-          <div className="rca-insight-row"><span>FACT</span><p>{item.fact}</p></div>
-          <div className="rca-insight-row"><span>INFERENCE</span><p>{item.inference}</p></div>
+        <div className="rca-ic-rail">
+          <div className="rca-ic-step">
+            <div className="rca-ic-gut"><span className="rca-ic-chip is-fact">Fact</span></div>
+            <div className="rca-ic-body">{item.fact}</div>
+          </div>
+          <div className="rca-ic-step is-inf">
+            <div className="rca-ic-gut"><span className="rca-ic-chip is-inf">Inference</span></div>
+            <div className="rca-ic-body">{item.inference}</div>
+          </div>
           {item.evidence.length ? (
-            <div className="rca-insight-row">
-              <span>EVIDENCE</span>
-              <ul>{item.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul>
+            <div className="rca-ic-step">
+              <div className="rca-ic-gut"><span className="rca-ic-chip is-evi">Evidence</span></div>
+              <div className="rca-ic-body">
+                <div className="rca-ic-evi">{item.evidence.map((e, i) => <span className="rca-ic-pill" key={i}>{e}</span>)}</div>
+              </div>
             </div>
           ) : null}
-          <div className="rca-insight-row"><span>CONFIDENCE</span><p>{item.confidence}{edited.has("confidence") ? " (edited)" : ""}</p></div>
-          {item.relatedInsightIds.length ? (
-            <div className="rca-insight-row">
-              <span>RELATED</span>
-              <p>{item.relatedInsightIds.join(", ")}</p>
+          <div className="rca-ic-step is-act">
+            <div className="rca-ic-gut"><span className="rca-ic-chip is-act">Action</span></div>
+            <div className="rca-ic-body">
+              {item.action}{edited.has("action") ? " (edited)" : ""}
+              {item.focus && onDrill ? (
+                <div className="rca-ic-btns">
+                  <button type="button" className="rca-ic-btn" onClick={() => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic)}>Open the clinics</button>
+                </div>
+              ) : null}
+              {item.relatedInsightIds.length ? <div className="rca-ic-rel">Related: {item.relatedInsightIds.join(", ")}</div> : null}
             </div>
-          ) : null}
-          <div className="rca-insight-row"><span>ACTION</span><p>{item.action}{edited.has("action") ? " (edited)" : ""}</p></div>
-          <div className="rca-insight-row"><span>STATUS</span><p>{item.status}{edited.has("status") ? " (edited)" : ""}</p></div>
-        </>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -787,3 +787,42 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-howcalc-b p{margin:4px 0;color:var(--vw-gray-60,#4b5563);line-height:1.45}
 .rv-touch-sub{margin:10px 0 6px;font-size:13px;font-weight:600;color:var(--vw-gray-60,#4b5563)}
 .rv-tabguide-row{display:flex;align-items:center;padding-right:12px}.rv-tabguide-row .rv-tabguide-h{flex:1}
+
+/* Business feed tab (2026-10-20) */
+.rv-sig{max-width:1040px}
+.rv-sig-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 14px}
+.rv-sig-legend i{font-style:normal;color:#9ca3af}
+.rv-sig-legend em{font-style:normal;font-size:13px;color:#4b5563;margin-left:8px}
+.rv-sig-chip{display:inline-flex;align-items:center;border-radius:999px;padding:7px 14px;font:700 12px/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#fff}
+.rv-sig-chip.is-fact{background:#1d4ed8}.rv-sig-chip.is-inf{background:#6d28d9}.rv-sig-chip.is-evi{background:#0f766e}.rv-sig-chip.is-act{background:#b45309}
+.rv-sig-filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.rv-sig-filters button{border:1px solid #9ca3af;background:#fff;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.rv-sig-filters button.on{background:#111827;color:#fff;border-color:#111827}
+.rv-sig-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;margin-bottom:20px;overflow:hidden}
+.rv-sig-card.is-done{opacity:.55}
+.rv-sig-hd{display:flex;align-items:center;gap:22px;padding:18px 22px;border-bottom:1px solid #e5e7eb;flex-wrap:wrap;background:#f1f5fb}
+.tone-alert .rv-sig-hd{background:#fdf2f2}.tone-watch .rv-sig-hd{background:#fdf8ec}.tone-good .rv-sig-hd{background:#f1f8f2}
+.rv-sig-kpi{min-width:130px;font-size:38px;line-height:1;font-weight:800;letter-spacing:-.02em;color:#1e4f9a}
+.tone-alert .rv-sig-kpi{color:#8f2d2d}.tone-watch .rv-sig-kpi{color:#855a12}.tone-good .rv-sig-kpi{color:#256a3a}
+.rv-sig-kpi small{display:block;margin-top:7px;font:600 10px/1.3 'Roboto Mono',ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#4b5563}
+.rv-sig-q{flex:1;min-width:220px}
+.rv-sig-q span{font:600 11px/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#4b5563}
+.rv-sig-q h3{margin:7px 0 0;font-size:20px;line-height:1.25;font-weight:800}
+.rv-sig-done{border:1px solid #9ca3af;background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.rv-sig-step{display:grid;grid-template-columns:160px minmax(0,1fr)}
+.rv-sig-step .gut{position:relative;padding:16px 0 16px 22px}
+.rv-sig-step .gut::after{content:"";position:absolute;left:34px;top:46px;bottom:-16px;width:2px;background:#d1d5db}
+.rv-sig-step:last-child .gut::after{display:none}
+.rv-sig-step .body{padding:14px 22px 14px 8px;font-size:15px;line-height:1.55}
+.rv-sig-step.is-inf .gut,.rv-sig-step.is-inf .body{background:#f7f5ff}
+.rv-sig-step.is-act .gut,.rv-sig-step.is-act .body{background:#fffbf0}
+.rv-sig-evi{display:flex;flex-wrap:wrap;gap:8px}
+.rv-sig-evi span{border:1px solid #99f6e4;background:#f0fdfa;color:#134e4a;border-radius:8px;padding:6px 10px;font-size:13px}
+.rv-sig-basis{margin:8px 0 0;font-size:12.5px;color:#4b5563}
+.rv-sig-btns{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.rv-sig-btns button{border:1px solid #9ca3af;background:#fff;border-radius:8px;padding:10px 14px;font-weight:700;font-size:14px;cursor:pointer}
+.rv-sig-btns button.pri{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+.rv-sig-btns button.pri.in{background:#166534;border-color:#166534}
+.rv-sig-btns .est{font:600 13px/1.4 'Roboto Mono',ui-monospace,monospace;color:#166534}
+@media (max-width:700px){.rv-sig-step{grid-template-columns:1fr}.rv-sig-step .gut::after{display:none}.rv-sig-step .body{padding-left:22px}}
+.rv-sig-more{border:1px solid #9ca3af;background:#fff;border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer;margin:0 0 24px}

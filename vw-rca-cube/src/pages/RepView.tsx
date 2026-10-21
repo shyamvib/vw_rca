@@ -18,7 +18,7 @@ import { pw } from "./gatePw";
 import "./repview.css";
 import { AlertRail, FamilyLevel, FamilyPanel } from "./RcaDashboardPage";
 
-type Tab = "today" | "plan" | "week" | "month" | "quarter" | "custom" | "scorecard";
+type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
 
 const K = (n: number) => {
@@ -306,7 +306,7 @@ export function RepView(props: {
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
         <nav className="rv-nav">
-          {(["today", "plan", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
+          {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
             <button
               key={t}
               type="button"
@@ -317,6 +317,8 @@ export function RepView(props: {
                 ? "Today's agenda"
                 : t === "plan"
                   ? "My week plan"
+                : t === "feed"
+                  ? "Business feed"
                 : t === "week"
                   ? "This week"
                   : t === "month"
@@ -436,6 +438,12 @@ export function RepView(props: {
             <div className="rv-loading">Loading {sales}'s week…</div>
           ) : (
             <WeekPlan b={wb} fams={weekFams} plan={plan} onPlan={savePlan} sales={sales} periodId={thisWeek?.id ?? ""} />
+          )
+        ) : tab === "feed" ? (
+          !wb ? (
+            <div className="rv-loading">Loading {sales}'s week…</div>
+          ) : (
+            <SignalsFeed b={wb} rows={planRows} wins={winsWeek} plan={plan} onPlan={savePlan} sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} fams={weekFams} />
           )
         ) : tab === "week" ? (
           !wb ? (
@@ -3850,6 +3858,133 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   );
 }
 
+/** Business feed tab (2026-10-20): the plan's actions and this week's wins as reasoned cards, Fact -> Inference -> Evidence -> Action.
+ * Headline number = the weekly dollars at stake. Same numbers as My week plan, so the two never disagree. */
+type SignalMeta = { tag: string; tone: "alert" | "watch" | "good" | "info"; caption: string; inference: string; action: string };
+const SIGNAL_META: Record<string, SignalMeta> = {
+  callFirst: { tag: "Retention", tone: "alert", caption: "short of goal, biggest clinics", inference: "They are late, not lost. A call now can still hold most of them; later it becomes a win-back.", action: "Call them this week, biggest first." },
+  atRisk: { tag: "Retention", tone: "alert", caption: "below baseline", inference: "These accounts are decaying but have not broken rhythm yet. A call now can still hold most of them.", action: "Check in on the biggest ones this week and recheck at the next refresh." },
+  churned: { tag: "Retention", tone: "watch", caption: "baseline at stake, half counted", inference: "Most clinics that go quiet do not come back in full, so only half their baseline counts as upside.", action: "Reach out to the biggest ones with a reason to restart." },
+  nearChurn: { tag: "New business", tone: "watch", caption: "one order each", inference: "Each is one missed order from being counted as churned.", action: "Call this week and offer the next order." },
+  secondOrder: { tag: "New business", tone: "watch", caption: "one order each", inference: "A second order is the step that turns a first order into a clinic that keeps ordering.", action: "Follow up on how the first order went and book the next." },
+  nurture: { tag: "New business", tone: "info", caption: "one order each", inference: "Getting a new clinic to its fourth order is when it usually becomes a regular.", action: "Nudge each one toward the next order." },
+  returning: { tag: "New business", tone: "good", caption: "keeping them ordering", inference: "They came back after a long gap. A quick check-in makes the restart stick.", action: "Thank them and confirm what they need." },
+  lowAov: { tag: "Bundle growth", tone: "watch", caption: "gap to a $400 order", inference: "Their average order is under $400; a bundle suggestion on the next order is the cheapest lift.", action: "Suggest a bundle on the next order." },
+  followUp: { tag: "Retention", tone: "watch", caption: "baseline of touched clinics", inference: "You reached them and they have not reordered yet; a second touch is more likely to land than a first.", action: "Follow up with a specific reason to order." },
+  idle: { tag: "Retention", tone: "watch", caption: "baseline of big idle clinics", inference: "Big clinics with no touch and no order this week are the cheapest first calls.", action: "Make a first touch with the biggest ones." },
+  gap: { tag: "Goal", tone: "alert", caption: "short of goal, these clinics", inference: "A few clinics make up most of this week's gap, so closing it starts with them.", action: "Work these clinics first." },
+  stopped: { tag: "Product", tone: "alert", caption: "baseline of stopped products", inference: "A stopped test line may be a lab-operations issue rather than a relationship one. Check before calling.", action: "Confirm with lab ops, then win back the real losses." },
+  declining: { tag: "Product", tone: "watch", caption: "baseline of fading products", inference: "They are still ordering the product, at half the usual pace: a conversation now can restore it.", action: "Ask what changed in their testing." },
+  famBelow: { tag: "Product", tone: "watch", caption: "orders below expected", inference: "These clinics usually order this product more often than they did this week.", action: "Remind them of the product on the next call." },
+  famAdopt: { tag: "Product", tone: "info", caption: "one order each", inference: "New clinics buying other Zoomers are the likeliest to try this one.", action: "Introduce the product to them." },
+  famRepeat: { tag: "Product", tone: "info", caption: "one more order each", inference: "A second order of a product is the sign it is working for the clinic.", action: "Ask for the repeat." },
+  whitespace: { tag: "Product", tone: "info", caption: "one order each", inference: "You marked these clinics as a fit for the product and they have never ordered it.", action: "Introduce the product." },
+  crosssell: { tag: "Expansion", tone: "info", caption: "a second family", inference: "Clinics on one or two families are the likeliest to add another.", action: "Pitch the family similar clinics already buy." },
+};
+
+function SignalsFeed({ b, rows, wins, plan, onPlan, sales, periodId, weekLabel, fams }: {
+  b: Book; rows: ActionRow[]; wins: Wins; plan: PlanState; onPlan: (p: PlanState) => void; sales: string; periodId: string; weekLabel: string; fams: Wins;
+}) {
+  const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const gp = paceQ?.ready ? paceQ : null;
+  const [filter, setFilter] = useState<"all" | "alert" | "watch" | "good">("all");
+  const doneKey = `rv-feed-done:${sales}:${periodId}`;
+  const [done, setDone] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem(doneKey) || "{}"); } catch { return {}; } });
+  useEffect(() => { try { setDone(JSON.parse(localStorage.getItem(doneKey) || "{}")); } catch { setDone({}); } }, [doneKey]);
+  const flipDone = (id: string) => setDone(d => { const n = { ...d, [id]: !d[id] }; try { localStorage.setItem(doneKey, JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
+  const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
+  const openIds = (ids: string[] | undefined, label: string) => ids?.length && setFocus(f => (f?.label === label ? null : { focus: `ids:${ids.join(",")}`, label }));
+  const st = pillarStatus(b, fams);
+  const toggle = (id: string, isIn: boolean) => onPlan({ ...plan, pins: { ...plan.pins, [id]: isIn ? "out" : "in" } });
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+  type Card = { id: string; tone: "alert" | "watch" | "good" | "info"; tag: string; question: string; value: string; caption: string; fact: string; inference: string; evidence: string[]; basis?: string; action: string; ids?: string[]; row?: ActionRow };
+  const cards: Card[] = [];
+  if (gp && gp.plan > 0) {
+    const gap = gp.plan - gp.heading;
+    const exOld = (gp.existingHeading ?? 0) - (gp.existingPlan ?? 0), exNew = (gp.newHeading ?? 0) - (gp.newPlan ?? 0);
+    cards.push({
+      id: "pace", tone: gap > 0 ? "alert" : "good", tag: "Goal", question: gap > 0 ? "Is the week on pace for its goal?" : "Is the week ahead of its goal?",
+      value: gap > 0 ? `−${K(gap)}` : `+${K(-gap)}`, caption: gap > 0 ? "heading short of goal" : "heading ahead of goal",
+      fact: `The week is heading to ${K(gp.heading)} against a goal of ${K(gp.plan)}.`,
+      inference: gp.existingPlan != null && gp.newPlan != null ? `Existing clinics are ${exOld >= 0 ? `${K(exOld)} ahead` : `${K(-exOld)} short`} and new business is ${exNew >= 0 ? `${K(exNew)} ahead` : `${K(-exNew)} short`}.` : "Existing clinics and new business together make up the goal.",
+      evidence: [`Heading ${K(gp.heading)}`, `Goal ${K(gp.plan)}`, ...(gp.existingPlan != null ? [`Existing ${exOld >= 0 ? "+" : "−"}${K(Math.abs(exOld))}`, `New business ${exNew >= 0 ? "+" : "−"}${K(Math.abs(exNew))}`] : [])],
+      action: gap > 0 ? "Work the clinics that make up most of the gap." : "Protect the pace: keep the overdue calls going.",
+    });
+  }
+  for (const r of rows) {
+    const m = SIGNAL_META[r.id];
+    if (!m) continue;
+    const pillarTone = st[r.p] === "behind" && m.tone === "watch" ? "alert" : m.tone;
+    cards.push({
+      id: r.id, tone: pillarTone, tag: m.tag, question: r.label, value: K(r.up), caption: m.caption,
+      fact: r.detail.includes("$") ? `${cap(r.detail)}.` : `${cap(r.detail)}: ${K(r.up)} ${m.caption}.`, inference: m.inference,
+      evidence: [`${r.ids?.length ?? 0} clinics listed`, `Upside ${K(r.up)} a week`, `Likelihood ${Math.round(r.pr * 100)}%`, `Expected ${K(r.exp)}`],
+      basis: UPSIDE_BASIS[r.id], action: m.action, ids: r.ids, row: r,
+    });
+  }
+  if (wins?.ready && wins.beatersCount) {
+    cards.push({
+      id: "wins", tone: "good", tag: "Bright spots", question: "Where are you beating your goal?", value: SK(wins.beatersRevenue), caption: "over goal, combined",
+      fact: `${wins.beatersCount} of your existing clinics are at or above their own goal this week, ${SK(wins.beatersRevenue)} combined.`,
+      inference: "Wins are concentrated in a few clinics. Finding out what changed there is the cheapest way to repeat them.",
+      evidence: [`${wins.beatersCount} clinics beating goal`, `${wins.newLogoCount} new-logo wins (${wins.newLogoNew} new, ${wins.newLogoReturning} returning)`, `${wins.bundleGainerIds?.length ?? 0} clinics with bundle dollars above goal`, `${wins.comeback?.length ?? 0} comebacks`],
+      action: "Thank the owners of the five biggest wins and ask what changed.", ids: wins.beatersIds,
+    });
+  }
+  const order = { alert: 0, watch: 1, info: 2, good: 3 } as const;
+  const shown = cards.filter(c => filter === "all" || (filter === "watch" ? c.tone === "watch" || c.tone === "info" : c.tone === filter));
+  const sortedAll = [...shown].sort((a, c) => (done[a.id] ? 1 : 0) - (done[c.id] ? 1 : 0) || (a.id === "pace" ? -1 : 0) - (c.id === "pace" ? -1 : 0) || order[a.tone] - order[c.tone] || (c.row?.exp ?? 0) - (a.row?.exp ?? 0));
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 8;
+  const sorted = showAll || filter !== "all" ? sortedAll : sortedAll.slice(0, LIMIT);
+  const count = (t: string) => cards.filter(c => c.tone === t).length;
+  const toneLabel = { alert: "Act this week", watch: "Watch", info: "Opportunity", good: "Good news" } as const;
+  return (
+    <div className="rv-sig">
+      <div className="rv-eyebrow">Business feed · {weekLabel || "this week"} · your book<Info k="signals" /></div>
+      <h1 className="rv-h1">{Math.min(cards.length, 8)} signals worth your attention first</h1>
+      <div className="rv-sig-legend">
+        <span className="rv-sig-chip is-fact">1 Fact</span><i>→</i><span className="rv-sig-chip is-inf">2 Inference</span><i>→</i><span className="rv-sig-chip is-evi">3 Evidence</span><i>→</i><span className="rv-sig-chip is-act">4 Action</span>
+        <em>What happened, what it means, the numbers behind it, what to do. Built from your own {b.clinics} clinics.</em>
+      </div>
+      <div className="rv-sig-filters">
+        {([["all", `All ${cards.length}`], ["alert", `Act this week ${count("alert")}`], ["watch", `Watch ${count("watch") + count("info")}`], ["good", `Good news ${count("good")}`]] as const).map(([k, l]) => (
+          <button type="button" key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>{l}</button>
+        ))}
+      </div>
+      {sorted.map(c => {
+        const inPlan = c.row && (c.row.inPlan || plan.pins[c.id] === "in");
+        return (
+          <article key={c.id} className={`rv-sig-card tone-${c.tone}${done[c.id] ? " is-done" : ""}`}>
+            <header className="rv-sig-hd">
+              <div className="rv-sig-kpi">{c.value}<small>{c.caption}</small></div>
+              <div className="rv-sig-q"><span>{c.tag} · {toneLabel[c.tone]}</span><h3>{c.question}</h3></div>
+              <button type="button" className="rv-sig-done" onClick={() => flipDone(c.id)}>{done[c.id] ? "✓ Done" : "Mark done"}</button>
+            </header>
+            <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-fact">Fact</span></div><div className="body">{c.fact}</div></div>
+            <div className="rv-sig-step is-inf"><div className="gut"><span className="rv-sig-chip is-inf">Inference</span></div><div className="body">{c.inference}</div></div>
+            <div className="rv-sig-step"><div className="gut"><span className="rv-sig-chip is-evi">Evidence</span></div>
+              <div className="body"><div className="rv-sig-evi">{c.evidence.map(e => <span key={e}>{e}</span>)}</div>{c.basis ? <p className="rv-sig-basis">How the upside is counted: {c.basis}.</p> : null}</div></div>
+            <div className="rv-sig-step is-act"><div className="gut"><span className="rv-sig-chip is-act">Action</span></div>
+              <div className="body">{c.action}
+                <div className="rv-sig-btns">
+                  {c.row ? <button type="button" className={`pri${inPlan ? " in" : ""}`} onClick={() => toggle(c.id, !!inPlan)}>{inPlan ? "✓ In My week plan" : "Add to My week plan"}</button> : null}
+                  {c.ids?.length ? <button type="button" onClick={() => openIds(c.ids, `${c.question} · ${weekLabel || "this week"}`)}>Open the {c.ids.length} clinics</button> : null}
+                  {c.row ? <span className="est">{c.row.hrs}h · {K(c.row.exp)} expected</span> : null}
+                </div>
+              </div></div>
+          </article>
+        );
+      })}
+      {!sorted.length ? <p className="rv-dim">Nothing in this filter this week.</p> : null}
+      {filter === "all" && !showAll && sortedAll.length > LIMIT ? <button type="button" className="rv-sig-more" onClick={() => setShowAll(true)}>Show the other {sortedAll.length - LIMIT} signals</button> : null}
+      {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+    </div>
+  );
+}
+
 /** A collapsed "how is this calculated" note under a section heading (2026-10-20). */
 function HowCalc({ title = "How this is calculated", children }: { title?: string; children: React.ReactNode }) {
   return (
@@ -3895,6 +4030,17 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
       { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
     ],
   },
+  feed: {
+    title: "Business feed",
+    lead: "The few signals worth acting on this week, each one reasoned out in four steps.",
+    items: [
+      { t: "Fact, Inference, Evidence, Action", d: "Every card reads in the same order: what happened (blue), what it means (violet), the numbers behind it (teal), and what to do (amber). The big number at the top is the dollars at stake." },
+      { t: "Add to My week plan", d: "The Action step has a button that puts the action in your plan with its hours and expected dollars, the same numbers as the plan page." },
+      { t: "Open the clinics", d: "Opens the exact clinic list behind the card, so you can start calling from it." },
+      { t: "Filters and Done", d: "Filter by Act this week, Watch or Good news. Mark a card Done once you have acted on it; the mark is kept for this week." },
+      { t: "Only your clinics", d: "Everything here is built from your own book, with the same rules as the scorecard (existing, new and returning clinics, churn by each clinic's own threshold)." },
+    ],
+  },
   week: { title: "This week", lead: "The week to date against its goal.", items: [...WINDOW_GUIDE, TOUCH_GUIDE], link: true },
   month: { title: "This month", lead: "The month to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
   quarter: { title: "This quarter", lead: "The quarter to date against its goal.", items: [...WINDOW_GUIDE, { t: "Provider retention funnel", d: "How many providers placed order 1, 2, 3 and so on, and where they dropped off. Click a stage for the clinics." }, TOUCH_GUIDE], link: true },
@@ -3932,6 +4078,7 @@ function TabGuide({ tab }: { tab: Tab }) {
 const TOUR: Array<{ tab: Tab; k: string }> = [
   ...["headline", "tabguide", "nba", "opp", "call", "newc", "touch"].map(k => ({ tab: "today" as Tab, k })),
   ...["week", "gap", "hours", "pillar", "queue"].map(k => ({ tab: "plan" as Tab, k })),
+  ...["signals"].map(k => ({ tab: "feed" as Tab, k })),
   ...["headline", "great", "sc", "fam", "tree", "funnel", "touch"].map(k => ({ tab: "week" as Tab, k })),
   ...["gauge", "lb", "recent"].map(k => ({ tab: "today" as Tab, k })),
 ];
@@ -3979,6 +4126,7 @@ const INFO: Record<string, string> = {
   opp: "Your scorecard's Opportunity column as cards: count, $ upside, suggested action. Click the count for clinics, 'Add to today' to plan it, 'See in scorecard' to jump there.",
   week: "Set your selling hours; actions fill them from the top by expected revenue per hour.",
   tabguide: "A short guide to this tab: what each section shows and how to use it. Open it any time; the FAQ button in the top bar answers the wider 'what does that word mean' questions, and the notes marked 'How this is calculated' under each section give the formulas.",
+  signals: "Your Business feed: each card leads with the dollars at stake, then reads Fact (what happened), Inference (what it means), Evidence (the numbers) and Action (what to do, with a button to add it to My week plan). Built from your own clinics only.",
   gap: "Where this week is heading against its goal (existing clinics plus the new-business goal), and how much of any shortfall the actions in your plan are expected to cover.",
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Click a pillar to show only its actions in the queue. Behind pillars get a boost when the toggle is on.",
