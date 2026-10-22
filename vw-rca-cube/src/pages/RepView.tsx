@@ -10,7 +10,7 @@ import { Logo } from "@/components/Logo";
 import { ScorecardGuide, guideIdFor, guideNav, openGuide } from "./ScorecardGuide";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
-import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
+import React, { Fragment, startTransition, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
@@ -20,6 +20,8 @@ import "./repview.css";
 import { AlertRail, FamilyLevel, FamilyPanel, SwitchPanel } from "./RcaDashboardPage";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 import { RaiseQuestionDialog } from "./RaiseQuestion";
+import { MetricMap } from "./MetricMap";
+import { geoKeyOf } from "../../analytics/geoKey";
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -68,6 +70,8 @@ export function RepView(props: {
   isRep: boolean;
   /** A rep-view-only login that may open any rep: shows a way back to the rep list. */
   canSwitchRep?: boolean;
+  /** A VP of sales: the lead's own name, which names the "All reps (my team)" scope. */
+  teamName?: string;
   periodId: string;
   periodLabel: string;
   weeks: RepViewPeriod[];
@@ -250,7 +254,14 @@ export function RepView(props: {
   // Leaderboard scope toggle (Shyam, 2026-09-30): "My team" = reps under the
   // same team lead, re-ranked among themselves; "All reps" = company-wide.
   const [lbScope, setLbScope] = useState<"team" | "all">("team");
-  const myLead = (boardLbQ ?? []).find(r => r.name === sales)?.teamLead;
+  // "team:<lead>" = a VP of sales looking at the lead plus every rep under them as one combined book.
+  const teamLeadName = sales.startsWith("team:") ? sales.slice(5) : null;
+  const who = teamLeadName ? `${teamLeadName}'s team` : `${sales}'s`;
+  const teamRows = teamLeadName ? (boardLbQ ?? []).filter(r => r.teamLead === teamLeadName) : [];
+  const teamMe = teamLeadName && teamRows.length
+    ? (() => { const a = teamRows.reduce((t, r) => t + r.actual, 0), e = teamRows.reduce((t, r) => t + r.expected, 0); return { pct: e ? (a - e) / e : 0, reps: teamRows.length }; })()
+    : null;
+  const myLead = teamLeadName ?? (boardLbQ ?? []).find(r => r.name === sales)?.teamLead;
   const scopeLead = lbScope === "team" && myLead && myLead !== "—" ? myLead : null;
   const board = useMemo(() => rankBoard(boardLbQ ?? [], scopeLead), [boardLbQ, scopeLead]);
   const boardPrev = useMemo(() => rankBoard(boardLbPrevQ ?? [], scopeLead), [boardLbPrevQ, scopeLead]);
@@ -263,7 +274,12 @@ export function RepView(props: {
     return (
       <div className="rv-pick">
         <h2>Sales rep view</h2>
-        <p>Pick a rep to open their day, week and scorecard.</p>
+        <p>Pick a rep to open their day, week and scorecard{props.teamName ? ", or open your whole team as one book" : ""}.</p>
+        {props.teamName ? (
+          <div className="rv-pick-team">
+            <button type="button" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps · my team ({props.teamName} and every rep under them)</button>
+          </div>
+        ) : null}
         <div className="rv-pick-list">
           {props.reps.map(r => (
             <button key={r} type="button" onClick={() => props.onPickRep(r)}>
@@ -304,8 +320,13 @@ export function RepView(props: {
     <div className="rv-shell">
       <aside className="rv-rail">
         <div className="rv-brand"><Logo tone="white" height={18} /></div>
-        <div className="rv-rep">{sales}</div>
-        {props.canSwitchRep ? <button type="button" className="rv-explain" onClick={() => props.onPickRep("")}>Switch rep</button> : null}
+        <div className="rv-rep">{teamLeadName ? `${teamLeadName}'s team` : sales}</div>
+        {props.canSwitchRep ? (
+          <div className="rv-switch">
+            <button type="button" className="rv-explain" onClick={() => props.onPickRep("")}>Switch rep</button>
+            {props.teamName && !teamLeadName ? <button type="button" className="rv-explain" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps (my team)</button> : null}
+          </div>
+        ) : null}
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
@@ -345,7 +366,11 @@ export function RepView(props: {
             </button>
             <button type="button" className={lbScope === "all" ? "is-on" : ""} onClick={() => setLbScope("all")}>All reps</button>
           </div>
-          {me && !isRep ? (
+          {teamMe ? (
+            <p>
+              <b>{SP(teamMe.pct)}</b> vs goal this period for the {teamMe.reps} reps in {teamLeadName}'s team, combined. The board below ranks them.
+            </p>
+          ) : me && !isRep ? (
             <>
               <div className="rv-rank">
                 {me.rank}
@@ -404,7 +429,7 @@ export function RepView(props: {
           </div>
         ) : tab === "today" ? (
           !tb ? (
-            <div className="rv-loading">Loading {sales}'s day…</div>
+            <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
@@ -440,19 +465,19 @@ export function RepView(props: {
           )
         ) : tab === "plan" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <WeekPlan b={wb} fams={weekFams} plan={plan} onPlan={savePlan} sales={sales} periodId={thisWeek?.id ?? ""} />
           )
         ) : tab === "feed" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} />
           )
         ) : tab === "week" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <>
             <WindowTab
@@ -471,7 +496,7 @@ export function RepView(props: {
           )
         ) : tab === "month" ? (
           !mb ? (
-            <div className="rv-loading">Loading {sales}'s month…</div>
+            <div className="rv-loading">Loading {who} month…</div>
           ) : (
             <>
             <WindowTab
@@ -489,7 +514,7 @@ export function RepView(props: {
           )
         ) : tab === "quarter" ? (
           !qb ? (
-            <div className="rv-loading">Loading {sales}'s quarter…</div>
+            <div className="rv-loading">Loading {who} quarter…</div>
           ) : (
             <>
             <WindowTab
@@ -507,7 +532,7 @@ export function RepView(props: {
           )
         ) : tab === "custom" ? (
           !b ? (
-            <div className="rv-loading">Loading {sales}'s book…</div>
+            <div className="rv-loading">Loading {who} book…</div>
           ) : (
             <WindowTab
               b={b}
@@ -2054,11 +2079,18 @@ type FocusRows = React.ComponentProps<typeof FocusTable>["rows"];
 function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales }: { label: string; tone: Tone; contrib?: Contribution; rows: FocusRows; onClose: () => void; periodId: string; sales: string }) {
   const [tab, setTab] = useState<"up" | "down" | "all">(tone === "bad" || tone === "watch" ? "down" : "up");
   const [variant, setVariant] = useState(0);
+  const [rsm, setRsm] = useState<string | null>(null);
+  const [stateSel, setStateSel] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(true);
   if (!contrib || !rows) return <FocusTable label={label} rows={rows} onClose={onClose} periodId={periodId} sales={sales} />;
   type R = NonNullable<FocusRows>[number] & ContribRow;
   const v = contrib.variants?.[variant];
   const fOf = v?.f ?? contrib.f;
-  const scored = (rows as R[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
+  const everyone = (rows as (R & { state?: string; country?: string; sales?: string })[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
+  // The map and the RSM table are cut from everyone measured; the tabs and the clinic list below follow the RSM / state picked.
+  const scored = everyone.filter(x => (!rsm || x.r.sales === rsm) && (!stateSel || geoKeyOf({ state: x.r.state ?? "", country: x.r.country ?? "" }).label === stateSel));
+  const money$ = !!contrib.amount || contrib.unit === "$";
+  const points = everyone.map(x => ({ clinic: x.r.clinic, state: x.r.state ?? "", country: x.r.country, sales: x.r.sales, c: x.c, amount: contrib.amount ? contrib.amount(x.r) : contrib.unit === "$" ? x.c : Math.sign(x.c) }));
   const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
   const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
   const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
@@ -2092,6 +2124,11 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
           ))}
         </div>
       ) : null}
+      <div className="rv-contrib-var">
+        <button type="button" className={showMap ? "on" : ""} onClick={() => setShowMap(true)}>Map + RSMs</button>
+        <button type="button" className={!showMap ? "on" : ""} onClick={() => setShowMap(false)}>List only</button>
+      </div>
+      {showMap ? <MetricMap points={points} money={money$} rsm={rsm} state={stateSel} onRsm={setRsm} onState={setStateSel} /> : null}
       <p className="rv-contrib-note">{v?.note ?? contrib.note} <button type="button" className="rv-explain" onClick={() => openGuide(guideIdFor(label))}>Explain this metric</button></p>
       <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} detail={contrib.detail} />
     </>
@@ -2253,7 +2290,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
     const contrib = tenureSel === "cur" && c.label === "Revenue Retention" ? CONTRIB["Customer churn"] : listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
     const ids = contrib ? contrib.universe(b) : c.ids!;
-    setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
+    startTransition(() => setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib })));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
   };
   /** "Where to act" lists: the clinics in the cell are the ones the metric is about (down); everyone else measured is the contrast (up). */
@@ -2517,7 +2554,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       </div>
       {pillar === "Product Growth" ? (
         <>
-          <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />
+          {(sales ?? "").startsWith("team:") ? <p className="rv-dim rv-small">Product whitespace is marked rep by rep. Pick a rep to mark or review their clinics.</p> : <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />}
         </>
       ) : null}
       {pillar === "Expansion" || pillar === EXISTING ? <CrossSellList pg={pg} /> : null}
@@ -3886,7 +3923,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
   return (
     <div className="rv-sig">
       <div className="rv-eyebrow">Business feed · your book<Info k="signals" /></div>
-      <h1 className="rv-h1">{cards.length ? `${cards.length === 2 ? "Two" : cards.length} questions about your ${clinics} clinics` : "Business feed"}</h1>
+      <h1 className="rv-h1">{cards.length ? `${cards.length === 2 ? "Two" : cards.length} questions about ${sales.startsWith("team:") ? "your team's" : "your"} ${clinics} clinics` : "Business feed"}</h1>
       <div className="rv-sig-legend">
         <span className="rv-sig-chip is-fact">1 Fact</span><i>→</i><span className="rv-sig-chip is-inf">2 Inference</span><i>→</i><span className="rv-sig-chip is-evi">3 Evidence</span><i>→</i><span className="rv-sig-chip is-act">4 Action</span>
         <em>What happened, what it means, the numbers behind it, what to do. The same questions as the main Business Feed, cut to your own clinics.</em>

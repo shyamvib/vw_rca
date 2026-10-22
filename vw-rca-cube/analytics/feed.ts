@@ -9,6 +9,7 @@ import { loadStops } from "./familyStops";
 import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
+import { isTeamScope, teamOf } from "./scope";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -1050,7 +1051,7 @@ export const repQuestions = scopedQuery({
     }
     // $400 Foundation Zoomer panel
     const all = await ctx.db.query("vaClinicTarget").withIndex("by_gen", q => q.eq("gen", gen)).collect();
-    const mine = all.filter(r => r.sales === sales);
+    const mine = all.filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales));
     const windowDays = mine[0]?.windowDays ?? all[0]?.windowDays ?? 365;
     const weeks = windowDays / 7;
     const qualified = mine
@@ -1102,7 +1103,7 @@ export const raiseQuestion = scopedAction({
     const who = (ctx.viewer.email ?? email ?? "").trim() || "unknown (email not captured)";
     const scope =
       ctx.viewer.kind === "rep" ? `Rep login, ${ctx.viewer.rep}'s book`
-      : ctx.viewer.kind === "lead" ? `Manager login${sales ? `, looking at ${sales}'s book` : ""}`
+      : ctx.viewer.kind === "lead" ? `Manager login${sales ? (isTeamScope(sales) ? `, looking at ${teamOf(sales)}'s whole team` : `, looking at ${sales}'s book`) : ""}`
       : "Team login, company-wide";
     const now = Date.now();
     const recent = (raised.get(who) ?? []).filter(t => now - t < 3_600_000);

@@ -27,6 +27,7 @@ export function newClinicFunnelGroups(
   return groups;
 }
 
+import { scopeMatcher, repsInScope } from "./scope";
 import { v } from "convex/values";
 import { addDays, diffDays, monthKey, prevMonthKey, quarterKey, prevQuarterKey, quarterStart } from "./dateUtils";
 import { scopedQuery } from "./gated";
@@ -58,14 +59,15 @@ export function stageClinicCounts(
     touchDates?: string[];
     clinicalTouchDates?: string[];
   }>,
-  sales: string,
+  sales: string | ((s: string) => boolean),
   start: string,
   end: string,
   touchFilter: string | undefined,
   clinicalFilter: string | undefined,
 ): number[] {
+  const mine = typeof sales === "function" ? sales : (s: string) => s === sales;
   let cohort = seqRows.filter(
-    r => r.sales === sales && r.firstOrder >= start && r.firstOrder <= end,
+    r => mine(r.sales) && r.firstOrder >= start && r.firstOrder <= end,
   );
   const wasTouchedBeforeOrder1 = (
     r: (typeof cohort)[number],
@@ -122,8 +124,11 @@ export const orderRetentionFunnel = scopedQuery({
       .query("newClinicOrderSeq")
       .withIndex("by_gen", q => q.eq("gen", gen))
       .collect();
+    // One rep, or a whole team (a VP of sales' rep view): the cohort is every new clinic under the scope's reps.
+    const inScope = await scopeMatcher(ctx, gen, args.sales);
+    const scopeReps = await repsInScope(ctx, gen, args.sales);
     let cohort = seqRows.filter(
-      r => r.sales === args.sales && r.firstOrder >= start && r.firstOrder <= end,
+      r => inScope(r.sales) && r.firstOrder >= start && r.firstOrder <= end,
     );
     const wasTouchedBeforeOrder1 = (
       r: (typeof cohort)[number],
@@ -169,18 +174,16 @@ export const orderRetentionFunnel = scopedQuery({
       };
     });
 
-    const signupRows = await ctx.db
-      .query("signupDaily")
-      .withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", args.sales))
-      .collect();
+    const signupRows = (
+      await Promise.all(scopeReps.map(rep => ctx.db.query("signupDaily").withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", rep)).collect()))
+    ).flat();
     const signups = signupRows
       .filter(r => r.date >= start && r.date <= end)
       .reduce((s, r) => s + r.count, 0);
     // Signups in the window with no order by window end (Shyam, 2026-10-13).
-    const noOrderLeads = (await ctx.db
-      .query("signupLead")
-      .withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", args.sales))
-      .collect())
+    const noOrderLeads = (
+      await Promise.all(scopeReps.map(rep => ctx.db.query("signupLead").withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", rep)).collect()))
+    ).flat()
       .filter(r => r.date >= start && r.date <= end && (!r.firstOrder || r.firstOrder > end))
       .map(r => ({ id: r.customerId, name: r.name, date: r.date, state: r.state ?? null, practice: r.practice ?? null }))
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -227,7 +230,7 @@ export const orderRetentionFunnel = scopedQuery({
     const pmEnd = capEnd(pmStart, mElapsed, mStart);
     const pqEnd = capEnd(pqStart, qElapsed, qStart);
     const cnt = (s0: string, e0: string) =>
-      stageClinicCounts(tRows, args.sales, s0, e0, args.touchFilter, args.clinicalFilter);
+      stageClinicCounts(tRows, inScope, s0, e0, args.touchFilter, args.clinicalFilter);
     const curMCounts = cnt(mStart, anchor);
     const curQCounts = cnt(qStart, anchor);
     const prevMCounts = pmStart >= coverFrom ? cnt(pmStart, pmEnd) : null;

@@ -1856,7 +1856,7 @@ export function RcaDashboardPage() {
           {isRep ? (
             <>
               <span className="rca-rep-badge">
-                {isLead ? (salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
+                {isLead ? (salesRep.startsWith("team:") ? <>Viewing <strong>{salesRep.slice(5)}</strong>'s whole team</> : salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
               </span>
               <input
                 className="rca-search-input"
@@ -2018,6 +2018,7 @@ export function RcaDashboardPage() {
             sales={salesRep}
             isRep={isRep}
             canSwitchRep={isLead}
+            teamName={isLead ? repLogin!.rep : undefined}
             periodId={periodIdSafe}
             periodLabel={
               periodIdSafe === "all"

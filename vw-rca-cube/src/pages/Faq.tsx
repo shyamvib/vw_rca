@@ -83,7 +83,7 @@ const GROUPS: Group[] = [
   {
     title: "Access",
     items: [
-      { q: "Who can see what?", a: "Team logins see the whole company. A rep login sees one rep's book. A manager rep-view login opens any rep's Rep view only, with no company dashboard or Business Feed." },
+      { q: "Who can see what?", a: "Team logins see the whole company. A rep login sees one rep's book. A manager rep-view login (the VPs of sales) opens any rep's Rep view only, with no company dashboard or Business Feed, and can choose \"All reps (my team)\" to see their whole team as one combined book." },
       { q: "How do I get a login or reset a password?", a: "Ask the dashboard admin: logins are created for your work email and tied to your salesperson name. Passwords are one-time starters; use a new one when it is reset." },
     ],
   },
