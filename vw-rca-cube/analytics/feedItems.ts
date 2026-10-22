@@ -79,8 +79,8 @@ export const INFERENCE_BY_TAG: Record<string, (tone: string) => string> = {
 // Cards whose wording is specific to the question, not the tag (the tag-level text for "Target list" describes the flagged-clinic list).
 const ITEM_TEXT: Record<string, { inference: string; action: string }> = {
   "gz-loss": {
-    inference: "Gut Zoomer leaves two ways: clinics that stop entirely, and clinics that keep ordering but less. The stopped list is the concentrated, recoverable part; the rest shows in the family gap.",
-    action: "Call the stopped clinics, biggest earlier volume first, and ask what changed (price, turnaround, a competing panel) before offering a restart. Clinics still ordering but below expected are in the Gut Zoomer list under Product growth on the scorecard.",
+    inference: "Gut Zoomer leaves two ways: clinics that stop entirely, and clinics that keep ordering but less. Stopped clinics are the sharpest, most recoverable loss; declining ones are the slower leak that becomes the next stopped list.",
+    action: "Call the stopped clinics first, biggest earlier volume first, and ask what changed (price, turnaround, a competing panel) before offering a restart. Then the declining clinics, largest shortfall first: they still order, so a call that finds the cause is the cheapest recovery.",
   },
   "va-target": {
     inference: "These clinics already pay premium prices on VA panels and order often, so they are the likeliest to take the $400 Foundation Zoomer.",
@@ -199,20 +199,26 @@ export const baseLabelOf = (cfg: { baselineMode?: string; baselineStart: string;
 // ---- "Where am I losing Gut Zoomer orders?" (rep Business feed) --------------------------------------------------
 export type GzStop = { clinic: string; name: string; state: string; sales: string; priorOrders: number; lastOrder: string };
 export type GzRep = { name: string; delta: number; orderDelta: number };
+export type GzDecline = { clinic: string; name: string; state: string; sales: string; orders: number; expected: number; status: string };
 
-/** Gut Zoomer against baseline for the book, plus the clinics that stopped it, by state and (for a team) by RSM. */
+/** Gut Zoomer against baseline for the book, plus the clinics that stopped it and the ones still ordering below expected, by state and (for a team) by RSM. */
 export function gzLossItem(
   gz: { delta: number; orderDelta: number; orders: number; expectedOrders: number } | undefined,
   stops: GzStop[],
+  declining: GzDecline[],
   reps: GzRep[],
   baseLabel: string,
 ): FeedItem | null {
-  if (!gz && !stops.length) return null;
+  if (!gz && !stops.length && !declining.length) return null;
   const delta = gz?.delta ?? 0, orderDelta = gz?.orderDelta ?? 0;
   const lost = stops.reduce((t, r) => t + r.priorOrders, 0);
-  const byState = new Map<string, number>();
-  for (const r of stops) byState.set(r.state || "—", (byState.get(r.state || "—") ?? 0) + 1);
-  const states = [...byState].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k} (${n})`);
+  const short = declining.reduce((t, r) => t + Math.max(0, r.expected - r.orders), 0);
+  const topStates = (xs: Array<{ state: string }>) => {
+    const m = new Map<string, number>();
+    for (const r of xs) m.set(r.state || "—", (m.get(r.state || "—") ?? 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k} (${n})`);
+  };
+  const states = topStates(stops), dStates = topStates(declining);
   const worst = reps.filter(r => r.orderDelta < 0).sort((a, b) => a.orderDelta - b.orderDelta);
   const sInt = (n: number) => `${n > 0 ? "+" : ""}${INT(n)}`;
   const head = gz
@@ -220,20 +226,27 @@ export function gzLossItem(
     : "Gut Zoomer has no orders in this book in the window.";
   const stopTxt = stops.length
     ? ` ${INT(stops.length)} clinics have stopped ordering it (3+ orders in the 90 days before, none since); together they used to place ${INT(lost)} orders per 90 days${states.length ? `, mostly in ${states.join(", ")}` : ""}.`
-    : " No clinic has stopped ordering it.";
-  const repTxt = reps.length > 1 && worst.length ? ` By RSM the gap is largest at ${worst.slice(0, 3).map(r => `${r.name} (${INT(r.orderDelta)} orders)`).join(", ")}.` : "";
-  const top = [...stops].sort((a, b) => b.priorOrders - a.priorOrders).slice(0, 5)
-    .map(r => `${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${r.priorOrders} orders in the prior 90 days, last ${r.lastOrder}`);
+    : "";
+  const decTxt = declining.length
+    ? ` ${INT(declining.length)} more still order it but below what their baseline expects, ${INT(short)} orders short in total${dStates.length ? `, mostly in ${dStates.join(", ")}` : ""}.`
+    : "";
+  const noneTxt = !stops.length && !declining.length ? " No clinic has stopped it or fallen below its expected orders." : "";
+  const repTxt = reps.length > 1 && worst.length ? ` By RSM the order gap is largest at ${worst.slice(0, 3).map(r => `${r.name} (${INT(r.orderDelta)} orders)`).join(", ")}.` : "";
+  const topStop = [...stops].sort((a, b) => b.priorOrders - a.priorOrders).slice(0, 4)
+    .map(r => `Stopped: ${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${r.priorOrders} orders in the prior 90 days, last ${r.lastOrder}`);
+  const topDec = [...declining].sort((a, b) => (b.expected - b.orders) - (a.expected - a.orders)).slice(0, 4)
+    .map(r => `Declining: ${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${INT(r.orders)} ordered against ${r.expected.toFixed(1)} expected${r.status === "DECLINING" ? ", flagged DECLINING" : ""}`);
   const rsm = reps.length > 1 ? [...reps].sort((a, b) => a.orderDelta - b.orderDelta).slice(0, 6).map(r => `${r.name}: ${MONEY(r.delta)} · ${INT(r.orderDelta)} ord`) : [];
-  const bad = delta < 0;
+  const ids = [...stops.map(r => r.clinic), ...declining.map(r => r.clinic)];
+  const any = stops.length + declining.length > 0;
   return {
     id: "gz-loss",
     tag: "Portfolio",
-    tone: bad ? (stops.length ? "alert" : "watch") : stops.length ? "watch" : "good",
+    tone: delta < 0 ? (any ? "alert" : "watch") : any ? "watch" : "good",
     q: "Where am I losing Gut Zoomer orders?",
-    a: `${head}${stopTxt}${repTxt} Measured against ${baseLabel}.${stops.length ? " Open the list to see the clinics that stopped." : ""}`,
-    focus: stops.length ? `ids:${stops.slice(0, 300).map(r => r.clinic).join(",")}` : undefined,
-    focusLabel: "Clinics that stopped ordering Gut Zoomer",
-    detail: [...top, ...rsm, states.length ? `States: ${states.join(", ")}` : ""].filter(Boolean).join(" | "),
+    a: `${head}${stopTxt}${decTxt}${noneTxt}${repTxt} Measured against ${baseLabel}.${any ? " Open the list to see the stopped and declining clinics." : ""}`,
+    focus: ids.length ? `ids:${ids.slice(0, 300).join(",")}` : undefined,
+    focusLabel: "Clinics that stopped or are declining on Gut Zoomer",
+    detail: [...Array.from({ length: Math.max(topStop.length, topDec.length) }, (_, i) => [topStop[i], topDec[i]]).flat().filter((x): x is string => !!x), ...rsm, states.length ? `Stopped, by state: ${states.join(", ")}` : "", dStates.length ? `Declining, by state: ${dStates.join(", ")}` : ""].filter(Boolean).join(" | "),
   };
 }

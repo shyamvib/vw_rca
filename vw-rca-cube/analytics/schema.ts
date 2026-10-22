@@ -628,6 +628,22 @@ const schema = defineSchema({
     orders: v.number(),
   }).index("by_family", ["family"]),
 
+  // Clinics still ordering a family but below what their baseline expects, or flagged DECLINING (same rule as the scorecard's
+  // product lists), rebuilt with familyStops after each refresh (analytics/familyStops.ts).
+  familyDecline: defineTable({
+    family: v.string(),
+    clinic: v.string(),
+    name: v.string(),
+    state: v.string(),
+    sales: v.string(),
+    teamLead: v.optional(v.string()),
+    orders: v.number(),
+    expected: v.number(),
+    status: v.string(),
+    asOf: v.string(),
+    builtAt: v.number(),
+  }).index("by_family", ["family"]),
+
   familyStops: defineTable({
     month: v.string(),
     family: v.string(),

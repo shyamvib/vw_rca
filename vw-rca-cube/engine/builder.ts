@@ -92,6 +92,11 @@ export async function buildSnapshot(
     } catch (e) {
       console.error("family stops failed:", String(e).slice(0, 200));
     }
+    try {
+      console.log("family decline:", JSON.stringify(await host.invoke("familyStops:rebuildDecline", {})));
+    } catch (e) {
+      console.error("family decline failed:", String(e).slice(0, 200));
+    }
   }
   if (client) console.log("pushed to convex:", JSON.stringify(await pushToConvex(db, client, startedAt)));
   return { db, result, secs: Math.round((Date.now() - t0) / 1000) };

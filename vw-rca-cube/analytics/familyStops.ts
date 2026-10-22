@@ -23,6 +23,8 @@ import { addDays } from "./dateUtils";
 import { gatedQuery } from "./gated";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { TABLE } from "./powerbi";
+import { growthFor, type PGClinic } from "./productGrowth";
+import { MIN_BASE_ORDERS, MIN_EXPECTED_ORDERS } from "./families";
 
 export const STOP_FAMILIES = ["Gut Zoomer", "Total Tox"] as const;
 const FIRST_MONTH = "2026-05";
@@ -272,5 +274,72 @@ export const list = gatedQuery({
         asOf: r.asOf,
       })),
     };
+  },
+});
+
+
+const DECLINE_FAMILIES = ["Gut Zoomer"];
+const STATUS_RANK = ["STOPPED", "DECLINING", "RESTARTED", "NEW"];
+
+/** Still ordering the family in the window, and either flagged DECLINING or below the orders its baseline implies (the scorecard's rule). */
+export function declineOf(c: PGClinic, fam: string): { orders: number; expected: number; status: string } | null {
+  const orders = c.win[fam] ?? 0;
+  if (orders <= 0) return null;
+  const f = fam.toLowerCase();
+  const hit = (c.tests ?? []).filter(([t]) => t.toLowerCase().startsWith(f)).map(([, st]) => st);
+  const status = STATUS_RANK.find(st => hit.includes(st)) ?? "";
+  const base = c.base?.[fam] ?? 0;
+  const expected = c.isNew || base < MIN_BASE_ORDERS ? 0 : base * (c.share ?? 0);
+  return status === "DECLINING" || (expected >= MIN_EXPECTED_ORDERS && orders < expected) ? { orders, expected, status } : null;
+}
+
+export const declineRows = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const cfg = await ctx.db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
+    const gen = cfg?.gen ?? 0;
+    const meta = await ctx.db.query("clinicMeta").withIndex("by_gen", q => q.eq("gen", gen)).collect();
+    const leads = [...new Set(meta.map(m => m.teamLead ?? "—").filter(l => l && l !== "—"))];
+    const byClinic: Record<string, { name: string; state: string; sales: string; teamLead?: string }> = {};
+    for (const m of meta) byClinic[m.clinic] = { name: m.name, state: m.state, sales: m.sales, teamLead: m.teamLead };
+    return { leads, byClinic, asOf: (cfg?.currentEnd as string | undefined) ?? "" };
+  },
+});
+
+export const replaceDecline = internalMutation({
+  args: { rows: v.array(v.object({ family: v.string(), clinic: v.string(), name: v.string(), state: v.string(), sales: v.string(), teamLead: v.optional(v.string()), orders: v.number(), expected: v.number(), status: v.string(), asOf: v.string() })) },
+  handler: async (ctx, { rows }) => {
+    for (const r of await ctx.db.query("familyDecline").collect()) await ctx.db.delete(r._id);
+    const now = Date.now();
+    for (const r of rows) await ctx.db.insert("familyDecline", { ...r, builtAt: now });
+  },
+});
+
+/**
+ * Clinics still ordering a family but below what their baseline expects (or flagged DECLINING by Portfolio Changes): the
+ * scorecard's product-list rule (3+ baseline orders, 1+ expected in the window, a clinic new this year has none) applied
+ * to each team's book over the whole analysis window. Stopped clinics are left to familyStops.
+ */
+export const rebuildDecline = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ leads: number; rows: number }> => {
+    const { leads, byClinic, asOf }: { leads: string[]; byClinic: Record<string, { name: string; state: string; sales: string; teamLead?: string }>; asOf: string } = await ctx.runQuery(internal.familyStops.declineRows, {});
+    const out: Array<{ family: string; clinic: string; name: string; state: string; sales: string; teamLead?: string; orders: number; expected: number; status: string; asOf: string }> = [];
+    const seen = new Set<string>();
+    for (const lead of leads) {
+      const pg = await growthFor(ctx, { periodId: "all", sales: `team:${lead}`, noCache: true });
+      for (const c of pg.clinics) {
+        const id = byClinic[c.clinic];
+        if (!id || id.teamLead !== lead) continue;
+        for (const fam of DECLINE_FAMILIES) {
+          const d = declineOf(c, fam);
+          if (!d || seen.has(`${c.clinic}|${fam}`)) continue;
+          seen.add(`${c.clinic}|${fam}`);
+          out.push({ family: fam, clinic: c.clinic, name: id.name, state: id.state, sales: id.sales, ...(id.teamLead ? { teamLead: id.teamLead } : {}), orders: d.orders, expected: d.expected, status: d.status, asOf });
+        }
+      }
+    }
+    await ctx.runMutation(internal.familyStops.replaceDecline, { rows: out });
+    return { leads: leads.length, rows: out.length };
   },
 });
