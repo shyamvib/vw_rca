@@ -6,6 +6,7 @@ import { scopedAction } from "./gated";
 import { eq, ordersRows, rows as cubeRows } from "./cube";
 import { dow, eachDay, windowP75 } from "./dateUtils";
 import { familyOf, num, splitFamilies, TABLE } from "./powerbi";
+import { isTeamScope, teamOf } from "./scope";
 
 /**
  * Product Growth pillar (Shyam, 2026-10-06): per-clinic product-family mix
@@ -36,8 +37,9 @@ export const productGrowth = scopedAction({
     if (hit) return JSON.parse(hit);
     const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, { cfgKey, periodId: args.periodId });
     if (!cfg) return { ready: false, clinics: [] };
-    const mine = (clinics as Array<{ clinic: string; name: string; sales: string }>).filter(
-      c => c.sales === args.sales && /^\d+$/.test(c.clinic),
+    const team = isTeamScope(args.sales) ? teamOf(args.sales) : null;
+    const mine = (clinics as Array<{ clinic: string; name: string; sales: string; teamLead?: string }>).filter(
+      c => (team ? c.teamLead === team : c.sales === args.sales) && /^\d+$/.test(c.clinic),
     );
     if (!mine.length) return { ready: true, clinics: [] };
     const { start, end, days } = periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);

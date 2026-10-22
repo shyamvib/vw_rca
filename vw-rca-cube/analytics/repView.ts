@@ -7,6 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
+import { isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
@@ -29,11 +30,18 @@ const since = (cutoff: string, d?: string) =>
 /** Rep-level P75 baseline (same source as geo.scopeTotals): P75 of the rep's
  * own aggregated revenue, not a sum of per-clinic P75s (Shyam, 2026-10-12). */
 async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
-  const row = await ctx.db
-    .query("salesPeriodBaseline")
-    .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
-    .filter((q: any) => q.eq(q.field("sales"), sales))
-    .unique();
+  // A team scope uses the team lead's own baseline row (the lead's rollup covers the lead and every rep under them).
+  const row = isTeamScope(sales)
+    ? await ctx.db
+        .query("leadPeriodBaseline")
+        .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
+        .filter((q: any) => q.eq(q.field("lead"), teamOf(sales)))
+        .unique()
+    : await ctx.db
+        .query("salesPeriodBaseline")
+        .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
+        .filter((q: any) => q.eq(q.field("sales"), sales))
+        .unique();
   if (!row) return null;
   const k = await targetScale(ctx, { gen }, periodId);
   return { rev: (row.expectedRevenue as number) * k, ord: (row.expectedOrders as number) * k };
@@ -249,10 +257,9 @@ export const book = scopedQuery({
     const defsForWindow = cfg ? periodDefs(cfg.currentStart, cfg.currentEnd) : [];
     const windowStart = defsForWindow.find(d => d.id === args.periodId)?.days[0] ?? cfg?.currentStart ?? "";
     const metaForRep = cfg
-      ? await ctx.db
-          .query("clinicMeta")
-          .withIndex("by_gen_sales", q => q.eq("gen", cfg.gen ?? 0).eq("sales", args.sales!))
-          .collect()
+      ? isTeamScope(args.sales)
+        ? await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", cfg.gen ?? 0).eq("teamLead", teamOf(args.sales!))).collect()
+        : await ctx.db.query("clinicMeta").withIndex("by_gen_sales", q => q.eq("gen", cfg.gen ?? 0).eq("sales", args.sales!)).collect()
       : [];
     const earlyBase = metaForRep.filter(m => m.firstOrder && m.firstOrder >= `${curYear}-01-01` && m.firstOrder < windowStart);
     const orderedNow = new Set(rows.filter(r => r.orders > 0).map(r => r.clinic));

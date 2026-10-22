@@ -11,6 +11,7 @@ import {
 } from "./dateUtils";
 import { gatedQuery, scopedQuery } from "./gated";
 import type { QueryCtx } from "./_generated/server";
+import { isTeamScope, teamOf } from "./scope";
 
 /**
  * Product-family level-2 lists for one team lead.
@@ -63,17 +64,12 @@ function addDaysLocal(d: string, n: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-export const leadFamilies = gatedQuery({
-  args: { periodId: v.string(), teamLead: v.string() },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    ready: boolean;
-    all: FamilyRow[];
-    bundle: FamilyRow[];
-    nonbundle: FamilyRow[];
-  }> => {
+/** Family rows for a whole team (lead plus every rep under them): the team lead's own series. */
+export async function leadFamilyRows(
+  ctx: QueryCtx,
+  periodId: string,
+  teamLead: string,
+): Promise<{ ready: boolean; all: FamilyRow[]; bundle: FamilyRow[]; nonbundle: FamilyRow[] }> {
     const empty = { ready: false, all: [], bundle: [], nonbundle: [] };
     const cfg = await ctx.db
       .query("config")
@@ -83,17 +79,17 @@ export const leadFamilies = gatedQuery({
     const gen = cfg.gen ?? 0;
     const series = await ctx.db
       .query("familyLeadSeries")
-      .withIndex("by_gen_lead", q => q.eq("gen", gen).eq("lead", args.teamLead))
+      .withIndex("by_gen_lead", q => q.eq("gen", gen).eq("lead", teamLead))
       .collect();
     if (series.length === 0) return empty;
 
     const { days, kind } = daysOf(
-      args.periodId,
+      periodId,
       cfg.currentStart,
       cfg.currentEnd,
     );
     const dayset = new Set(days);
-    const gf = await goalFactors(ctx, cfg, args.periodId);
+    const gf = await goalFactors(ctx, cfg, periodId);
     const p75f: P75Factors | null =
       cfg.baselineMode === "p75"
         ? ((cfg.p75 as P75Factors | undefined) ?? null)
@@ -139,7 +135,11 @@ export const leadFamilies = gatedQuery({
       bundle: byScope.bundle,
       nonbundle: byScope.nonbundle,
     };
-  },
+}
+
+export const leadFamilies = gatedQuery({
+  args: { periodId: v.string(), teamLead: v.string() },
+  handler: async (ctx, args) => await leadFamilyRows(ctx, args.periodId, args.teamLead),
 });
 
 /**
@@ -156,6 +156,7 @@ export async function salesFamilyRows(
   periodId: string,
   sales: string,
 ): Promise<{ ready: boolean; all: FamilyRow[]; bundle: FamilyRow[]; nonbundle: FamilyRow[] }> {
+    if (isTeamScope(sales)) return await leadFamilyRows(ctx, periodId, teamOf(sales));
     const empty = { ready: false, all: [], bundle: [], nonbundle: [] };
     const cfg = await loadCfg(ctx);
     if (!cfg) return empty;

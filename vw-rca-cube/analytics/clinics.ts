@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
+import { isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
 import { goalFactors } from "./baseline";
 import {
@@ -399,7 +400,7 @@ export async function clinicHealthMap(
 
 export async function drill(
   ctx: QueryCtx,
-  args: {
+  args0: {
     periodId: string;
     lens: string;
     key?: string;
@@ -431,6 +432,8 @@ export async function drill(
     keepBaselined?: boolean;
   },
 ) {
+  // A team scope ("team:<lead>", rep view for a VP of sales) is the team-lead filter: the lead's clinics and every rep's under them.
+  const args = isTeamScope(args0.sales) ? { ...args0, sales: undefined, teamLead: teamOf(args0.sales) } : args0;
   const cfg = await loadCfg(ctx, args.configKey);
   if (!cfg) return { ready: false as const, rows: [], total: 0, count: 0 };
   const gen = cfg.gen ?? 0;

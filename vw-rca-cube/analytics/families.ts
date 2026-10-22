@@ -8,6 +8,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { clinicHealthMap } from "./clinics";
+import { TEAM_PREFIX, isTeamScope, repsInScope, teamOf } from "./scope";
 import { addDays, dow, eachDay, monthKey, quarterKey, windowP75 } from "./dateUtils";
 import { gatedAction, onlyMine, scopedAction, type Viewer } from "./gated";
 
@@ -71,6 +72,15 @@ export function periodRange(
   return { start: days[0], end: days[days.length - 1], days };
 }
 
+/** The reps under a team lead (a VP of sales' rep view scopes to "team:<lead>"). */
+export const teamReps = internalQuery({
+  args: { lead: v.string() },
+  handler: async (ctx, { lead }): Promise<string[]> => {
+    const cfg = await loadCfg(ctx);
+    return await repsInScope(ctx, cfg?.gen ?? 0, `${TEAM_PREFIX}${lead}`);
+  },
+});
+
 export const context = internalQuery({
   args: {
     family: v.optional(v.string()),
@@ -118,6 +128,7 @@ export const context = internalQuery({
         name: c.name,
         state: c.state,
         sales: c.sales,
+        teamLead: c.teamLead ?? "—",
         cohort: c.cohort,
         health: health.get(c.clinic) ?? [],
         pstatus: c.pstatus ?? [],
@@ -361,7 +372,8 @@ export const familyClinicsAction = scopedAction({
       });
     }
     if (!rep) return result;
-    const rows = result.rows.filter(r => r.sales === rep).slice(0, args.limit ?? 25);
+    const teamSet = isTeamScope(rep) ? new Set(await ctx.runQuery(internal.families.teamReps, { lead: teamOf(rep) })) : null;
+    const rows = result.rows.filter(r => (teamSet ? teamSet.has(r.sales) : r.sales === rep)).slice(0, args.limit ?? 25);
     return {
       ...result,
       rows,
@@ -1325,7 +1337,8 @@ export const switchClinicsAction = scopedAction({
     if (!rep) return result;
     // Rep logins: the rep's clinics only, with group counts/totals re-derived
     // from those rows so every tab describes what is on screen.
-    const mine = result.rows.filter(r => r.sales === rep);
+    const teamSet = isTeamScope(rep) ? new Set(await ctx.runQuery(internal.families.teamReps, { lead: teamOf(rep) })) : null;
+    const mine = result.rows.filter(r => (teamSet ? teamSet.has(r.sales) : r.sales === rep));
     const counts: Record<string, number> = {};
     const groupDelta: Record<string, number> = {};
     const totals = { downDelta: 0, upDelta: 0, downOrderDelta: 0, upOrderDelta: 0 };
