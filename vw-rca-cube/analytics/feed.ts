@@ -1080,7 +1080,7 @@ export const repQuestions = scopedQuery({
     const decRows = (await ctx.db.query("familyDecline").withIndex("by_family", q => q.eq("family", "Gut Zoomer")).collect())
       .filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales) && !stopped.has(r.clinic))
       .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, orders: r.orders, expected: r.expected, status: r.status }));
-    const gl = gzLossItem(gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg));
+    const gl = gzLossItem(gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first()));
     if (gl) shape(gl, true);
     else
       shape({ id: "gz-loss", tag: "Portfolio", tone: "good", q: "Where am I losing Gut Zoomer orders?", a: "Gut Zoomer has no orders and no stopped clinics in your book in this window." }, false);
