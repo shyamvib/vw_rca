@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { isTeamScope, repsInScope, teamOf } from "./scope";
+import { isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
