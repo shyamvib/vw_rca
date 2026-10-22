@@ -10,7 +10,7 @@ import { Logo } from "@/components/Logo";
 import { ScorecardGuide, guideIdFor, guideNav, openGuide } from "./ScorecardGuide";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
-import React, { Fragment, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
+import React, { Fragment, startTransition, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
@@ -2290,7 +2290,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
     const contrib = tenureSel === "cur" && c.label === "Revenue Retention" ? CONTRIB["Customer churn"] : listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
     const ids = contrib ? contrib.universe(b) : c.ids!;
-    setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib }));
+    startTransition(() => setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib })));
     setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
   };
   /** "Where to act" lists: the clinics in the cell are the ones the metric is about (down); everyone else measured is the contrast (up). */

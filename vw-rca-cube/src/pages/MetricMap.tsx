@@ -15,6 +15,9 @@ type Feat = { type: string; id?: string | number; properties: { name?: string };
 const usFeatures = (feature(usTopo as any, (usTopo as any).objects.states) as any).features as Feat[];
 const usPath = geoPath(geoAlbersUsa().fitSize([860, 500], { type: "FeatureCollection", features: usFeatures } as never));
 
+// Outlines are drawn once, not on every render (a hover re-renders the map).
+const usShapes = usFeatures.map(f => ({ id: String(f.id ?? f.properties.name), name: f.properties.name ?? "", d: usPath(f as never) ?? "" }));
+
 const fmt = (n: number, money: boolean) => {
   const a = Math.abs(n);
   const sign = n > 0 ? "+" : n < 0 ? "−" : "";
@@ -74,13 +77,13 @@ export function MetricMap({ points, money, rsm, state, onRsm, onState }: {
       <div className="rv-mm-map">
         <svg viewBox="0 0 860 500" role="img" aria-label="Metric by state">
           <title>Metric by state</title>
-          {usFeatures.map(f => {
-            const name = f.properties.name ?? "";
+          {usShapes.map(f => {
+            const name = f.name;
             const e = byState.get(name.toLowerCase());
             return (
               <path
-                key={String(f.id ?? name)}
-                d={usPath(f as never) ?? ""}
+                key={f.id}
+                d={f.d}
                 className={`rca-geo-shape${e ? " is-live" : ""}${state === name ? " is-selected" : ""}`}
                 fill={e ? shade(e.v, max) : "var(--vw-gray-08, #f0f0f0)"}
                 onMouseEnter={() => setHover(name)}
