@@ -73,7 +73,7 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   const fn = mode === "weekly" ? "refresh:weeklySnapshotTick" : mode === "monthly" ? "refresh:monthlySnapshotTick" : "refresh:refreshData";
@@ -84,6 +84,18 @@ export async function buildSnapshot(
       await host.invoke("familyLaunch:build", { end: (result as { dataThrough?: string } | null)?.dataThrough });
     } catch (e) {
       console.error("family launch dates failed:", String(e).slice(0, 200));
+    }
+    // Gut Zoomer / Total Tox stopped clinics. refresh.ts schedules this, but the engine's scheduler does nothing, so it is run here.
+    try {
+      const r = await host.invoke("familyStops:rebuild", { dataEnd: (result as { dataThrough?: string } | null)?.dataThrough });
+      console.log("family stops:", JSON.stringify(r));
+    } catch (e) {
+      console.error("family stops failed:", String(e).slice(0, 200));
+    }
+    try {
+      console.log("family decline:", JSON.stringify(await host.invoke("familyStops:rebuildDecline", {})));
+    } catch (e) {
+      console.error("family decline failed:", String(e).slice(0, 200));
     }
   }
   if (client) console.log("pushed to convex:", JSON.stringify(await pushToConvex(db, client, startedAt)));

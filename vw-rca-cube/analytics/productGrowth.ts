@@ -27,13 +27,14 @@ export type PGClinic = { clinic: string; name: string; win: Record<string, numbe
   tests?: Array<[string, string]>;
 };
 
-export const productGrowth = scopedAction({
-  args: { periodId: v.string(), sales: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<{ ready: boolean; start?: string; end?: string; baseWeeks?: number; clinics: PGClinic[] }> => {
+export type PGResult = { ready: boolean; start?: string; end?: string; baseWeeks?: number; clinics: PGClinic[] };
+
+/** The per-clinic product mix for a rep or team scope. `noCache` is for the engine's own refresh, which must not write cache rows into the snapshot. */
+export async function growthFor(ctx: any, args: { periodId: string; sales?: string; noCache?: boolean }): Promise<PGResult> {
     if (!args.sales) return { ready: false, clinics: [] };
     const cfgKey = viewerCfgKey(ctx);
     const key = (cfgKey ?? "") + `pg4|${args.periodId}|${args.sales}`;
-    const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
+    const hit: string | null = args.noCache ? null : await ctx.runQuery(internal.ingest.getCache, { key });
     if (hit) return JSON.parse(hit);
     const { cfg, clinics, goal } = await ctx.runQuery(internal.families.context, { cfgKey, periodId: args.periodId });
     if (!cfg) return { ready: false, clinics: [] };
@@ -105,7 +106,11 @@ export const productGrowth = scopedAction({
       (c.tests ??= []).push([test, st]);
     }
     const out = { ready: true, start, end, baseWeeks: baseDays.length / 7, clinics: [...acc.values()].filter(c => Object.keys(c.life).length || Object.keys(c.base ?? {}).length) };
-    await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(out) });
+    if (!args.noCache) await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(out) });
     return out;
-  },
+}
+
+export const productGrowth = scopedAction({
+  args: { periodId: v.string(), sales: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<PGResult> => await growthFor(ctx, args),
 });
