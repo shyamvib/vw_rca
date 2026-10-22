@@ -6,10 +6,10 @@ import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedQuery, scopedAction, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
-import { MONEY, INT, offsetFeedItem, vaFeedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
+import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
-import { isTeamScope, teamOf } from "./scope";
+import { isTeamScope, repsInScope, teamOf } from "./scope";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -1065,6 +1065,21 @@ export const repQuestions = scopedQuery({
         id: "va-target", tag: "Target list", tone: "info", q: "Which clinics are ready for the $400 Foundation Zoomer panel?",
         a: `None of your clinics currently meet both bars (VA-only orders at $${VA_MIN_AOV}+ AOV and ${VA_MIN_ORDERS_PER_WEEK}+ orders/week).`,
       }, false);
+    // Where Gut Zoomer orders are going: the family gap, the clinics that stopped it, and (for a team) which RSMs.
+    const gzRow = fam.all.find(f => f.family === "Gut Zoomer");
+    const stopRows = (await loadStops(ctx, isTeamScope(sales) ? teamOf(sales) : undefined))
+      .filter(r => r.family === "Gut Zoomer" && (isTeamScope(sales) || r.sales === sales))
+      .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, priorOrders: r.priorOrders, lastOrder: r.lastOrder }));
+    const gzReps: Array<{ name: string; delta: number; orderDelta: number }> = [];
+    if (isTeamScope(sales))
+      for (const rep of await repsInScope(ctx, gen, sales)) {
+        const g = (await salesFamilyRows(ctx, "all", rep)).all.find(f => f.family === "Gut Zoomer");
+        if (g) gzReps.push({ name: rep, delta: g.delta, orderDelta: g.orderDelta });
+      }
+    const gl = gzLossItem(gzRow, stopRows, gzReps, baseLabelOf(cfg));
+    if (gl) shape(gl, true);
+    else
+      shape({ id: "gz-loss", tag: "Portfolio", tone: "good", q: "Where am I losing Gut Zoomer orders?", a: "Gut Zoomer has no orders and no stopped clinics in your book in this window." }, false);
     return { ready: true as const, cards };
   },
 });
