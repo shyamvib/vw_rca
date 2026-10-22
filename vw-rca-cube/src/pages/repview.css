@@ -870,3 +870,8 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-mm-rsm .neg { color: var(--vw-error); }
 .rv-mm-rsm .pos { color: var(--vw-success); }
 @media (max-width: 900px) { .rv-mm { grid-template-columns: 1fr; } }
+
+/* Clinic list: sortable headings and the Top N row (2026-10-22) */
+.rv-sort { cursor: pointer; user-select: none; white-space: nowrap }
+.rv-sort:hover { color: var(--vw-blue) }
+.rv-topn { margin-top: 8px }

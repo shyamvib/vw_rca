@@ -2028,6 +2028,9 @@ type Contribution = {
   up: string;
   down: string;
   note: string;
+  /** Family lists: orders a clinic is short of what its baseline implies, so the list can sort by it and cut to the clinics behind half the gap. */
+  gap?: (clinic: string) => number;
+  gapLabel?: string;
   /** $ shown on a tile when the sign is not itself a dollar figure (churn: baseline $ of the clinics that stopped). */
   amount?: (r: ContribRow) => number;
   /** A line under the clinic's name in the list (product lists: orders vs expected and the status). */
@@ -2130,7 +2133,7 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
       </div>
       {showMap ? <MetricMap points={points} money={money$} rsm={rsm} state={stateSel} onRsm={setRsm} onState={setStateSel} /> : null}
       <p className="rv-contrib-note">{v?.note ?? contrib.note} <button type="button" className="rv-explain" onClick={() => openGuide(guideIdFor(label))}>Explain this metric</button></p>
-      <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} detail={contrib.detail} />
+      <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} detail={contrib.detail} gap={contrib.gap} gapLabel={contrib.gapLabel} />
     </>
   );
 }
@@ -2327,6 +2330,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         unit: "clinics",
         up: `Above expected ${family} orders, or newly on it`,
         down: `Below expected, or stopped / declining on ${family}`,
+        gap: cl => { const x = calc(cl); return Math.max(0, x.exp - x.ord); },
+        gapLabel: `${family} orders short`,
         detail: cl => { const x = calc(cl); return `${family}: ${x.ord} ordered${x.exp >= 1 ? ` vs ${x.exp.toFixed(1)} expected` : " · nothing expected"}${x.st ? ` · ${x.st}` : ""}`; },
         note: `Each clinic's ${family} orders in this window against what its baseline implies (3+ baseline orders needed; clinics new this year have none). Pulling down: below expected, or Portfolio Changes says STOPPED or DECLINING on it. Pushing up: above expected, or restarted / newly on it. The status looks at the last 28 days against the 90 before, so it does not move with the tab.`,
       };
@@ -3010,9 +3015,13 @@ function FocusTable({
   periodId,
   sales,
   detail,
+  gap,
+  gapLabel,
 }: {
   label: string;
   detail?: (clinic: string) => string;
+  gap?: (clinic: string) => number;
+  gapLabel?: string;
   rows: Array<{
     rank: number;
     clinic: string;
@@ -3045,6 +3054,27 @@ function FocusTable({
   const [term, setTerm] = useState("");
   const [health, setHealth] = useState("");
   const [pstatus, setPstatus] = useState("");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [limit, setLimit] = useState<number | null>(null);
+  type FRow = NonNullable<typeof rows>[number];
+  const SORTS: Record<string, (r: FRow) => number | string> = {
+    clinic: r => r.name.toLowerCase(), state: r => r.state, cohort: r => COHORT[r.cohort] ?? r.cohort,
+    baseline: r => r.baseline ?? 0, goal: r => r.expected, actual: r => r.actual, orders: r => r.orders, orderDelta: r => r.orderDelta,
+    aov: r => r.aov, aovDelta: r => r.aovDelta, bundle: r => r.bundleShare, bundleDelta: r => r.bundleDelta,
+    vsBase: r => r.realChange ?? 0, vsGoal: r => r.delta, gap: r => (gap ? gap(r.clinic) : 0),
+  };
+  // First click: text A to Z, a gap largest first, a change column worst (most negative) first, other numbers largest first.
+  const firstDir = (k: string): "asc" | "desc" =>
+    ["clinic", "state", "cohort", "orderDelta", "aovDelta", "bundleDelta", "vsBase", "vsGoal"].includes(k) ? "asc" : "desc";
+  const sortBy = (k: string) => {
+    if (sortKey === k) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setSortDir(firstDir(k)); }
+  };
+  const arrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const th = (k: string, text: string, cls = "", title?: string) => (
+    <th className={`${cls} rv-sort`.trim()} title={title ?? "Click to sort"} onClick={() => sortBy(k)}>{text}{arrow(k)}</th>
+  );
 
   const healthOptions = useMemo(() => {
     const m = new Map<string, number>();
@@ -3063,6 +3093,24 @@ function FocusTable({
       (!pstatus || (r.pstatus ?? []).includes(pstatus)) &&
       (!q || r.name.toLowerCase().includes(q)),
   );
+  const sorted = sortKey
+    ? [...filtered].sort((a, b) => {
+        const x = SORTS[sortKey](a), y = SORTS[sortKey](b);
+        const c = typeof x === "string" || typeof y === "string" ? String(x).localeCompare(String(y)) : x - y;
+        return sortDir === "asc" ? c : -c;
+      })
+    : filtered;
+  const shown = limit ? sorted.slice(0, limit) : sorted;
+  // The fewest clinics that together make up half of the orders short (largest gaps first), when this list has a gap.
+  const gapInfo = useMemo(() => {
+    if (!gap) return null;
+    const gs = filtered.map(r => gap(r.clinic)).filter(g => g > 0).sort((a, b) => b - a);
+    const total = gs.reduce((t, g) => t + g, 0);
+    if (!total) return null;
+    let acc = 0, n = 0;
+    for (const g of gs) { acc += g; n++; if (acc >= total / 2) break; }
+    return { total, n };
+  }, [gap, filtered]);
 
   return (
     <section className="rca-card rca-drill rv-focus-table">
@@ -3114,41 +3162,60 @@ function FocusTable({
                 </>
               ) : null}
             </div>
+            <div className="rca-filters rv-topn">
+              <span className="rca-filter-label">Show</span>
+              {[25, 50].map(n => (
+                <button type="button" key={n} className={`rca-tab${limit === n ? " is-active" : ""}`} onClick={() => setLimit(l => (l === n ? null : n))}>Top {n}</button>
+              ))}
+              <button type="button" className={`rca-tab${limit === null ? " is-active" : ""}`} onClick={() => setLimit(null)}>All</button>
+              {gapInfo ? (
+                <button type="button" className={`rca-tab${sortKey === "gap" && sortDir === "desc" && limit === gapInfo.n ? " is-active" : ""}`} onClick={() => { setSortKey("gap"); setSortDir("desc"); setLimit(gapInfo.n); }} title="The fewest clinics that together make up half of the orders short">
+                  Top {gapInfo.n} = half the gap
+                </button>
+              ) : null}
+              <span className="rca-filter-note">
+                {limit ? `Showing ${shown.length} of ${sorted.length}` : `${sorted.length} clinics`}
+                {sortKey ? " · sorted by the column you clicked (click again to reverse)" : " · click a column heading to sort"}
+                {gapInfo ? ` · ${gapInfo.n} clinics make up half of the ${Math.round(gapInfo.total).toLocaleString("en-US")} ${gapLabel ?? "orders short"}` : ""}
+              </span>
+            </div>
             <div className="rca-table-wrap">
               <table className="rca-table">
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Clinic</th>
-                    <th>State</th>
-                    <th>Cohort</th>
-                    <th className="rca-num" title="Mean run rate over the baseline window">Baseline</th>
-                    <th className="rca-num" title="Baseline plus the stretch: the yearly target spread over the year by baseline weekday weights">Goal</th>
-                    <th className="rca-num">Actual</th>
-                    <th className="rca-num">Orders</th>
-                    <th className="rca-num">Order Δ</th>
-                    <th className="rca-num">AOV</th>
-                    <th className="rca-num">AOV Δ</th>
-                    <th className="rca-num">Bundle %</th>
-                    <th className="rca-num">Bundle Δ</th>
-                    <th className="rca-num" title="Actual minus baseline: what the clinic did compared with what it normally does">vs baseline</th>
-                    <th className="rca-num" title="Actual minus goal = change vs baseline plus the goal stretch">vs Goal</th>
+                    {th("clinic", "Clinic")}
+                    {th("state", "State")}
+                    {th("cohort", "Cohort")}
+                    {gap ? th("gap", gapLabel ?? "Orders short", "rca-num", "Orders short of what the clinic's baseline implies: click to sort") : null}
+                    {th("baseline", "Baseline", "rca-num", "Mean run rate over the baseline window. Click to sort")}
+                    {th("goal", "Goal", "rca-num", "Baseline plus the stretch: the yearly target spread over the year by baseline weekday weights. Click to sort")}
+                    {th("actual", "Actual", "rca-num")}
+                    {th("orders", "Orders", "rca-num")}
+                    {th("orderDelta", "Order Δ", "rca-num")}
+                    {th("aov", "AOV", "rca-num")}
+                    {th("aovDelta", "AOV Δ", "rca-num")}
+                    {th("bundle", "Bundle %", "rca-num")}
+                    {th("bundleDelta", "Bundle Δ", "rca-num")}
+                    {th("vsBase", "vs baseline", "rca-num", "Actual minus baseline: what the clinic did compared with what it normally does. Click to sort")}
+                    {th("vsGoal", "vs Goal", "rca-num", "Actual minus goal = change vs baseline plus the goal stretch. Click to sort")}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(r => (
+                  {shown.map((r, i) => (
                     <Fragment key={r.clinic}>
                       <tr
                         className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}`}
                         onClick={() => setExpanded(cur => (cur === r.clinic ? null : r.clinic))}
                       >
-                        <td>{r.rank}</td>
+                        <td>{sortKey || limit ? i + 1 : r.rank}</td>
                         <td>
                           <span className="rca-chevron">{expanded === r.clinic ? "▾" : "▸"}</span> {r.name}
                           {detail ? <small className="rv-rowdetail">{detail(r.clinic)}</small> : null}
                         </td>
                         <td>{r.state}</td>
                         <td>{COHORT[r.cohort] ?? r.cohort}</td>
+                        {gap ? <td className="rca-num bad">{gap(r.clinic) > 0 ? gap(r.clinic).toFixed(1) : "—"}</td> : null}
                         <td className="rca-num">{r.baseline !== undefined ? K(r.baseline) : "—"}</td>
                         <td className="rca-num">{K(r.expected)}</td>
                         <td className="rca-num">{K(r.actual)}</td>
@@ -3163,7 +3230,7 @@ function FocusTable({
                       </tr>
                       {expanded === r.clinic ? (
                         <tr className="rca-subrow">
-                          <td colSpan={15}>
+                          <td colSpan={gap ? 16 : 15}>
                             <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} />
                           </td>
                         </tr>
