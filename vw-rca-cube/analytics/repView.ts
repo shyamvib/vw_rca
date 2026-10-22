@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { isTeamScope, teamOf } from "./scope";
+import { isTeamScope, repsInScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
@@ -193,7 +193,22 @@ export const book = scopedQuery({
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
-    const volume = (orders - expOrders) * baseAov;
+    // A team's volume is the sum of its reps' volumes, each priced at that rep's own baseline order value: pricing the
+    // team's order gap at the blended team AOV would shift dollars between volume and AOV effect (a mix effect) and the
+    // team card would not tie to its reps. The total (volume + AOV effect = actual - existing goal) is the same either way.
+    let volume = (orders - expOrders) * baseAov;
+    if (isTeamScope(args.sales)) {
+      const reps = await repsInScope(ctx, cfg.gen ?? 0, args.sales);
+      let v = 0;
+      let covered = true;
+      for (const rep of reps) {
+        const rr = rows.filter(r => r.sales === rep);
+        const b = await repBaseline(ctx, args.periodId, rep, cfg.gen ?? 0);
+        if (!b) { covered = false; break; }
+        v += (sum(rr, r => r.orders) - b.ord) * (b.ord ? b.rev / b.ord : 0);
+      }
+      if (covered) volume = v;
+    }
     const aovEffect = actual - exGoal - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.realChange));
 
@@ -925,6 +940,7 @@ export const rowsByFocus = scopedQuery({
         name: r.name,
         state: r.state,
         country: r.country,
+        sales: r.sales,
         cohort: r.cohort,
         isNew: r.isNew ?? false,
         life: r.life ?? null,

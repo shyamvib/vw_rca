@@ -20,6 +20,8 @@ import "./repview.css";
 import { AlertRail, FamilyLevel, FamilyPanel, SwitchPanel } from "./RcaDashboardPage";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 import { RaiseQuestionDialog } from "./RaiseQuestion";
+import { MetricMap } from "./MetricMap";
+import { geoKeyOf } from "../../analytics/geoKey";
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -2081,7 +2083,14 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
   type R = NonNullable<FocusRows>[number] & ContribRow;
   const v = contrib.variants?.[variant];
   const fOf = v?.f ?? contrib.f;
-  const scored = (rows as R[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
+  const [rsm, setRsm] = useState<string | null>(null);
+  const [stateSel, setStateSel] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(true);
+  const everyone = (rows as (R & { state?: string; country?: string; sales?: string })[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
+  // The map and the RSM table are cut from everyone measured; the tabs and the clinic list below follow the RSM / state picked.
+  const scored = everyone.filter(x => (!rsm || x.r.sales === rsm) && (!stateSel || geoKeyOf({ state: x.r.state ?? "", country: x.r.country ?? "" }).label === stateSel));
+  const money$ = !!contrib.amount || contrib.unit === "$";
+  const points = everyone.map(x => ({ clinic: x.r.clinic, state: x.r.state ?? "", country: x.r.country, sales: x.r.sales, c: x.c, amount: contrib.amount ? contrib.amount(x.r) : x.c }));
   const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
   const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
   const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
@@ -2115,6 +2124,11 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
           ))}
         </div>
       ) : null}
+      <div className="rv-contrib-var">
+        <button type="button" className={showMap ? "on" : ""} onClick={() => setShowMap(true)}>Map + RSMs</button>
+        <button type="button" className={!showMap ? "on" : ""} onClick={() => setShowMap(false)}>List only</button>
+      </div>
+      {showMap ? <MetricMap points={points} money={money$} rsm={rsm} state={stateSel} onRsm={setRsm} onState={setStateSel} /> : null}
       <p className="rv-contrib-note">{v?.note ?? contrib.note} <button type="button" className="rv-explain" onClick={() => openGuide(guideIdFor(label))}>Explain this metric</button></p>
       <FocusTable label={`${label} · ${tab === "up" ? "pushing up" : tab === "down" ? "pulling down" : "all clinics"}`} rows={ranked} onClose={onClose} periodId={periodId} sales={sales} detail={contrib.detail} />
     </>
