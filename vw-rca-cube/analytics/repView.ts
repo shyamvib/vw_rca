@@ -29,7 +29,7 @@ const since = (cutoff: string, d?: string) =>
 
 /** Rep-level P75 baseline (same source as geo.scopeTotals): P75 of the rep's
  * own aggregated revenue, not a sum of per-clinic P75s (Shyam, 2026-10-12). */
-async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
+export async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
   // A team scope uses the team lead's own baseline row (the lead's rollup covers the lead and every rep under them).
   const row = isTeamScope(sales)
     ? await ctx.db
@@ -45,6 +45,19 @@ async function repBaseline(ctx: any, periodId: string, sales: string, gen: numbe
   if (!row) return null;
   const k = await targetScale(ctx, { gen }, periodId);
   return { rev: (row.expectedRevenue as number) * k, ord: (row.expectedOrders as number) * k };
+}
+
+/** Volume effect of a set of clinic rows as the sum over their reps, each rep's order gap priced at that rep's own baseline
+ * order value. Additive across reps (team = sum of reps); null when a rep has no baseline row (caller keeps the blended one). */
+export async function repsVolume(ctx: any, gen: number, periodId: string, rows: ClinicRow[]): Promise<number | null> {
+  const reps = [...new Set(rows.map(r => r.sales))];
+  let v = 0;
+  for (const rep of reps) {
+    const b = await repBaseline(ctx, periodId, rep, gen);
+    if (!b) return null;
+    v += (sum(rows.filter(r => r.sales === rep), r => r.orders) - b.ord) * (b.ord ? b.rev / b.ord : 0);
+  }
+  return v;
 }
 
 export const book = scopedQuery({
@@ -193,22 +206,10 @@ export const book = scopedQuery({
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
-    // A team's volume is the sum of its reps' volumes, each priced at that rep's own baseline order value: pricing the
-    // team's order gap at the blended team AOV would shift dollars between volume and AOV effect (a mix effect) and the
-    // team card would not tie to its reps. The total (volume + AOV effect = actual - existing goal) is the same either way.
+    // A team's volume is the sum of its reps' volumes (see repsVolume): pricing the team's order gap at the blended team
+    // AOV would shift dollars between volume and AOV effect and the team card would not tie to its reps.
     let volume = (orders - expOrders) * baseAov;
-    if (isTeamScope(args.sales)) {
-      const reps = await repsInScope(ctx, cfg.gen ?? 0, args.sales);
-      let v = 0;
-      let covered = true;
-      for (const rep of reps) {
-        const rr = rows.filter(r => r.sales === rep);
-        const b = await repBaseline(ctx, args.periodId, rep, cfg.gen ?? 0);
-        if (!b) { covered = false; break; }
-        v += (sum(rr, r => r.orders) - b.ord) * (b.ord ? b.rev / b.ord : 0);
-      }
-      if (covered) volume = v;
-    }
+    if (isTeamScope(args.sales)) volume = (await repsVolume(ctx, cfg.gen ?? 0, args.periodId, rows)) ?? volume;
     const aovEffect = actual - exGoal - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.realChange));
 

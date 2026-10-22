@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { drill } from "./clinics";
 import { geoKeyOf } from "./geoKey";
 import { gatedQuery, scopedQuery } from "./gated";
+import { repsVolume } from "./repView";
 
 export { geoKeyOf };
 
@@ -416,6 +417,8 @@ export const scopeTotals = scopedQuery({
     const newGoal = await newGoalFor(ctx, cfg, args.periodId, baselineSum);
     const scopeBaseAov = expectedOrders ? expectedEx / expectedOrders : 0;
     volume = (orders - expectedOrders) * scopeBaseAov;
+    // A team lead's volume is the sum of their reps' volumes, the same as the rep view's team scope (no blended-AOV mix shift).
+    if (args.teamLead) volume = (await repsVolume(ctx, gen, args.periodId, res.rows)) ?? volume;
     aovEffect = actual - expectedEx - volume;
     expected = expectedEx + newGoal;
     return {
