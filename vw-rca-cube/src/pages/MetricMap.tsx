@@ -100,7 +100,7 @@ export function MetricMap({ points, money, rsm, state, onRsm, onState }: {
           {rsm || state ? <button type="button" onClick={() => { onRsm(null); onState(null); }}>Clear filters</button> : null}
         </div>
         {points.length > 0 && points.every(p => !p.sales) ? <div className="rv-mm-note">RSM names are not in this data yet: the analytics service needs the latest update.</div> : null}
-        <table>
+        {points.length > 0 && points.every(p => !p.sales) ? null : <table>
           <thead><tr><th>RSM</th><th>Clinics</th><th>Up</th><th>Down</th><th>{money ? "Impact" : "Net clinics"}</th></tr></thead>
           <tbody>
             {reps.map(r => (
@@ -111,7 +111,7 @@ export function MetricMap({ points, money, rsm, state, onRsm, onState }: {
             ))}
           </tbody>
           <tfoot><tr><td>Total</td><td>{reps.reduce((t, r) => t + r.n, 0)}</td><td>{reps.reduce((t, r) => t + r.up, 0)}</td><td>{reps.reduce((t, r) => t + r.down, 0)}</td><td>{fmt(total, money)}</td></tr></tfoot>
-        </table>
+        </table>}
       </div>
     </div>
   );
