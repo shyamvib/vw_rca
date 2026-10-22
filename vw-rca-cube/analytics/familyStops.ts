@@ -281,16 +281,19 @@ export const list = gatedQuery({
 const DECLINE_FAMILIES = ["Gut Zoomer"];
 const STATUS_RANK = ["STOPPED", "DECLINING", "RESTARTED", "NEW"];
 
-/** Still ordering the family in the window, and either flagged DECLINING or below the orders its baseline implies (the scorecard's rule). */
+/**
+ * The scorecard's "pulling down" test for one clinic and family: Portfolio Changes says STOPPED or DECLINING, or the clinic ordered
+ * less than its baseline implies (3+ baseline orders, 1+ expected in the window, a clinic new this year has none). Includes clinics
+ * with no orders in the window.
+ */
 export function declineOf(c: PGClinic, fam: string): { orders: number; expected: number; status: string } | null {
   const orders = c.win[fam] ?? 0;
-  if (orders <= 0) return null;
   const f = fam.toLowerCase();
   const hit = (c.tests ?? []).filter(([t]) => t.toLowerCase().startsWith(f)).map(([, st]) => st);
   const status = STATUS_RANK.find(st => hit.includes(st)) ?? "";
   const base = c.base?.[fam] ?? 0;
   const expected = c.isNew || base < MIN_BASE_ORDERS ? 0 : base * (c.share ?? 0);
-  return status === "DECLINING" || (expected >= MIN_EXPECTED_ORDERS && orders < expected) ? { orders, expected, status } : null;
+  return status === "STOPPED" || status === "DECLINING" || (expected >= MIN_EXPECTED_ORDERS && orders < expected) ? { orders, expected, status } : null;
 }
 
 export const declineRows = internalQuery({
@@ -316,9 +319,8 @@ export const replaceDecline = internalMutation({
 });
 
 /**
- * Clinics still ordering a family but below what their baseline expects (or flagged DECLINING by Portfolio Changes): the
- * scorecard's product-list rule (3+ baseline orders, 1+ expected in the window, a clinic new this year has none) applied
- * to each team's book over the whole analysis window. Stopped clinics are left to familyStops.
+ * The scorecard's Gut Zoomer pulling-down clinics (`declineOf`) for each team's book over the whole analysis window, stored so the
+ * rep Business feed can show the same list and the same shortfall.
  */
 export const rebuildDecline = internalAction({
   args: {},

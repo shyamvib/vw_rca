@@ -1076,11 +1076,11 @@ export const repQuestions = scopedQuery({
         const g = (await salesFamilyRows(ctx, "all", rep)).all.find(f => f.family === "Gut Zoomer");
         if (g) gzReps.push({ name: rep, delta: g.delta, orderDelta: g.orderDelta });
       }
-    const stopped = new Set(stopRows.map(r => r.clinic));
     const decRows = (await ctx.db.query("familyDecline").withIndex("by_family", q => q.eq("family", "Gut Zoomer")).collect())
-      .filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales) && !stopped.has(r.clinic))
+      .filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales))
       .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, orders: r.orders, expected: r.expected, status: r.status }));
-    const gl = gzLossItem(gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first()));
+    const dLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const gl = gzLossItem(gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first()), `${dLabel(cfg.currentStart)} – ${dLabel(cfg.currentEnd)}, ${cfg.currentEnd.slice(0, 4)} (the whole analysis window, not a single tab)`);
     if (gl) shape(gl, true);
     else
       shape({ id: "gz-loss", tag: "Portfolio", tone: "good", q: "Where am I losing Gut Zoomer orders?", a: "Gut Zoomer has no orders and no stopped clinics in your book in this window." }, false);
