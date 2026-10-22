@@ -99,8 +99,9 @@ export function MetricMap({ points, money, rsm, state, onRsm, onState }: {
           <span>By RSM{state ? ` · ${state}` : ""}</span>
           {rsm || state ? <button type="button" onClick={() => { onRsm(null); onState(null); }}>Clear filters</button> : null}
         </div>
+        {points.length > 0 && points.every(p => !p.sales) ? <div className="rv-mm-note">RSM names are not in this data yet: the analytics service needs the latest update.</div> : null}
         <table>
-          <thead><tr><th>RSM</th><th>Clinics</th><th>Up</th><th>Down</th><th>{money ? "Impact" : "Net"}</th></tr></thead>
+          <thead><tr><th>RSM</th><th>Clinics</th><th>Up</th><th>Down</th><th>{money ? "Impact" : "Net clinics"}</th></tr></thead>
           <tbody>
             {reps.map(r => (
               <tr key={r.name} className={rsm === r.name ? "on" : ""} onClick={() => onRsm(rsm === r.name ? null : r.name)}>

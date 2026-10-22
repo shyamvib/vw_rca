@@ -2090,7 +2090,7 @@ function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales
   // The map and the RSM table are cut from everyone measured; the tabs and the clinic list below follow the RSM / state picked.
   const scored = everyone.filter(x => (!rsm || x.r.sales === rsm) && (!stateSel || geoKeyOf({ state: x.r.state ?? "", country: x.r.country ?? "" }).label === stateSel));
   const money$ = !!contrib.amount || contrib.unit === "$";
-  const points = everyone.map(x => ({ clinic: x.r.clinic, state: x.r.state ?? "", country: x.r.country, sales: x.r.sales, c: x.c, amount: contrib.amount ? contrib.amount(x.r) : x.c }));
+  const points = everyone.map(x => ({ clinic: x.r.clinic, state: x.r.state ?? "", country: x.r.country, sales: x.r.sales, c: x.c, amount: contrib.amount ? contrib.amount(x.r) : contrib.unit === "$" ? x.c : Math.sign(x.c) }));
   const up = scored.filter(x => x.c > 0).sort((a, b) => b.c - a.c);
   const down = scored.filter(x => x.c < 0).sort((a, b) => a.c - b.c);
   const sum = (xs: typeof up) => xs.reduce((t, x) => t + x.c, 0);
