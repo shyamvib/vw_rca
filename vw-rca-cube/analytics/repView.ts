@@ -48,14 +48,15 @@ export async function repBaseline(ctx: any, periodId: string, sales: string, gen
 }
 
 /** Volume effect of a set of clinic rows as the sum over their reps, each rep's order gap priced at that rep's own baseline
- * order value. Additive across reps (team = sum of reps); null when a rep has no baseline row (caller keeps the blended one). */
-export async function repsVolume(ctx: any, gen: number, periodId: string, rows: ClinicRow[]): Promise<number | null> {
+ * order value. Additive across reps (team = sum of reps); a rep with no baseline row uses their clinics' own goals. */
+export async function repsVolume(ctx: any, gen: number, periodId: string, rows: ClinicRow[]): Promise<number> {
   const reps = [...new Set(rows.map(r => r.sales))];
   let v = 0;
   for (const rep of reps) {
-    const b = await repBaseline(ctx, periodId, rep, gen);
-    if (!b) return null;
-    v += (sum(rows.filter(r => r.sales === rep), r => r.orders) - b.ord) * (b.ord ? b.rev / b.ord : 0);
+    const mine = rows.filter(r => r.sales === rep);
+    // A rep with no baseline row falls back to their own clinics' goals, so one missing row does not change how the rest are priced.
+    const b = (await repBaseline(ctx, periodId, rep, gen)) ?? { rev: sum(mine, r => r.expected), ord: sum(mine, r => r.expectedOrders) };
+    v += (sum(mine, r => r.orders) - b.ord) * (b.ord ? b.rev / b.ord : 0);
   }
   return v;
 }
@@ -209,7 +210,7 @@ export const book = scopedQuery({
     // A team's volume is the sum of its reps' volumes (see repsVolume): pricing the team's order gap at the blended team
     // AOV would shift dollars between volume and AOV effect and the team card would not tie to its reps.
     let volume = (orders - expOrders) * baseAov;
-    if (isTeamScope(args.sales)) volume = (await repsVolume(ctx, cfg.gen ?? 0, args.periodId, rows)) ?? volume;
+    if (isTeamScope(args.sales)) volume = await repsVolume(ctx, cfg.gen ?? 0, args.periodId, rows);
     const aovEffect = actual - exGoal - volume;
     const atRiskRev = sum(atRiskRows, r => Math.max(0, -r.realChange));
 

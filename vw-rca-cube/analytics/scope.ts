@@ -6,7 +6,8 @@
 import type { QueryCtx } from "./_generated/server";
 
 export const TEAM_PREFIX = "team:";
-export const isTeamScope = (s?: string | null): s is string => !!s && s.startsWith(TEAM_PREFIX);
+/** "team:" with no name is not a team scope (it would otherwise match every clinic); it is treated as an unknown rep name. */
+export const isTeamScope = (s?: string | null): s is string => !!s && s.startsWith(TEAM_PREFIX) && s.slice(TEAM_PREFIX.length).trim() !== "";
 export const teamOf = (s: string) => s.slice(TEAM_PREFIX.length).trim();
 
 /** Does a row with this `sales` belong to the scope? One rep: the name matches. A team: the rep sits under the lead. */

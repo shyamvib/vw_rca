@@ -418,7 +418,7 @@ export const scopeTotals = scopedQuery({
     const scopeBaseAov = expectedOrders ? expectedEx / expectedOrders : 0;
     volume = (orders - expectedOrders) * scopeBaseAov;
     // A team lead's volume is the sum of their reps' volumes, the same as the rep view's team scope (no blended-AOV mix shift).
-    if (args.teamLead) volume = (await repsVolume(ctx, gen, args.periodId, res.rows)) ?? volume;
+    if (args.teamLead) volume = await repsVolume(ctx, gen, args.periodId, res.rows);
     aovEffect = actual - expectedEx - volume;
     expected = expectedEx + newGoal;
     return {
