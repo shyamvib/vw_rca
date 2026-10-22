@@ -2079,13 +2079,13 @@ type FocusRows = React.ComponentProps<typeof FocusTable>["rows"];
 function ContributorPanel({ label, tone, contrib, rows, onClose, periodId, sales }: { label: string; tone: Tone; contrib?: Contribution; rows: FocusRows; onClose: () => void; periodId: string; sales: string }) {
   const [tab, setTab] = useState<"up" | "down" | "all">(tone === "bad" || tone === "watch" ? "down" : "up");
   const [variant, setVariant] = useState(0);
+  const [rsm, setRsm] = useState<string | null>(null);
+  const [stateSel, setStateSel] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(true);
   if (!contrib || !rows) return <FocusTable label={label} rows={rows} onClose={onClose} periodId={periodId} sales={sales} />;
   type R = NonNullable<FocusRows>[number] & ContribRow;
   const v = contrib.variants?.[variant];
   const fOf = v?.f ?? contrib.f;
-  const [rsm, setRsm] = useState<string | null>(null);
-  const [stateSel, setStateSel] = useState<string | null>(null);
-  const [showMap, setShowMap] = useState(true);
   const everyone = (rows as (R & { state?: string; country?: string; sales?: string })[]).filter(r => !v?.inScope || v.inScope(r)).map(r => ({ r, c: fOf(r) }));
   // The map and the RSM table are cut from everyone measured; the tabs and the clinic list below follow the RSM / state picked.
   const scored = everyone.filter(x => (!rsm || x.r.sales === rsm) && (!stateSel || geoKeyOf({ state: x.r.state ?? "", country: x.r.country ?? "" }).label === stateSel));
