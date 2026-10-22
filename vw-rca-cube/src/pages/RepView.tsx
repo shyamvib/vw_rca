@@ -68,6 +68,8 @@ export function RepView(props: {
   isRep: boolean;
   /** A rep-view-only login that may open any rep: shows a way back to the rep list. */
   canSwitchRep?: boolean;
+  /** A VP of sales: the lead's own name, which names the "All reps (my team)" scope. */
+  teamName?: string;
   periodId: string;
   periodLabel: string;
   weeks: RepViewPeriod[];
@@ -250,7 +252,14 @@ export function RepView(props: {
   // Leaderboard scope toggle (Shyam, 2026-09-30): "My team" = reps under the
   // same team lead, re-ranked among themselves; "All reps" = company-wide.
   const [lbScope, setLbScope] = useState<"team" | "all">("team");
-  const myLead = (boardLbQ ?? []).find(r => r.name === sales)?.teamLead;
+  // "team:<lead>" = a VP of sales looking at the lead plus every rep under them as one combined book.
+  const teamLeadName = sales.startsWith("team:") ? sales.slice(5) : null;
+  const who = teamLeadName ? `${teamLeadName}'s team` : `${sales}'s`;
+  const teamRows = teamLeadName ? (boardLbQ ?? []).filter(r => r.teamLead === teamLeadName) : [];
+  const teamMe = teamLeadName && teamRows.length
+    ? (() => { const a = teamRows.reduce((t, r) => t + r.actual, 0), e = teamRows.reduce((t, r) => t + r.expected, 0); return { pct: e ? (a - e) / e : 0, reps: teamRows.length }; })()
+    : null;
+  const myLead = teamLeadName ?? (boardLbQ ?? []).find(r => r.name === sales)?.teamLead;
   const scopeLead = lbScope === "team" && myLead && myLead !== "—" ? myLead : null;
   const board = useMemo(() => rankBoard(boardLbQ ?? [], scopeLead), [boardLbQ, scopeLead]);
   const boardPrev = useMemo(() => rankBoard(boardLbPrevQ ?? [], scopeLead), [boardLbPrevQ, scopeLead]);
@@ -263,7 +272,12 @@ export function RepView(props: {
     return (
       <div className="rv-pick">
         <h2>Sales rep view</h2>
-        <p>Pick a rep to open their day, week and scorecard.</p>
+        <p>Pick a rep to open their day, week and scorecard{props.teamName ? ", or open your whole team as one book" : ""}.</p>
+        {props.teamName ? (
+          <div className="rv-pick-team">
+            <button type="button" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps · my team ({props.teamName} and every rep under them)</button>
+          </div>
+        ) : null}
         <div className="rv-pick-list">
           {props.reps.map(r => (
             <button key={r} type="button" onClick={() => props.onPickRep(r)}>
@@ -304,8 +318,13 @@ export function RepView(props: {
     <div className="rv-shell">
       <aside className="rv-rail">
         <div className="rv-brand"><Logo tone="white" height={18} /></div>
-        <div className="rv-rep">{sales}</div>
-        {props.canSwitchRep ? <button type="button" className="rv-explain" onClick={() => props.onPickRep("")}>Switch rep</button> : null}
+        <div className="rv-rep">{teamLeadName ? `${teamLeadName}'s team` : sales}</div>
+        {props.canSwitchRep ? (
+          <div className="rv-switch">
+            <button type="button" className="rv-explain" onClick={() => props.onPickRep("")}>Switch rep</button>
+            {props.teamName && !teamLeadName ? <button type="button" className="rv-explain" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps (my team)</button> : null}
+          </div>
+        ) : null}
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
@@ -345,7 +364,11 @@ export function RepView(props: {
             </button>
             <button type="button" className={lbScope === "all" ? "is-on" : ""} onClick={() => setLbScope("all")}>All reps</button>
           </div>
-          {me && !isRep ? (
+          {teamMe ? (
+            <p>
+              <b>{SP(teamMe.pct)}</b> vs goal this period for the {teamMe.reps} reps in {teamLeadName}'s team, combined. The board below ranks them.
+            </p>
+          ) : me && !isRep ? (
             <>
               <div className="rv-rank">
                 {me.rank}
@@ -404,7 +427,7 @@ export function RepView(props: {
           </div>
         ) : tab === "today" ? (
           !tb ? (
-            <div className="rv-loading">Loading {sales}'s day…</div>
+            <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
@@ -440,19 +463,19 @@ export function RepView(props: {
           )
         ) : tab === "plan" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <WeekPlan b={wb} fams={weekFams} plan={plan} onPlan={savePlan} sales={sales} periodId={thisWeek?.id ?? ""} />
           )
         ) : tab === "feed" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} />
           )
         ) : tab === "week" ? (
           !wb ? (
-            <div className="rv-loading">Loading {sales}'s week…</div>
+            <div className="rv-loading">Loading {who} week…</div>
           ) : (
             <>
             <WindowTab
@@ -471,7 +494,7 @@ export function RepView(props: {
           )
         ) : tab === "month" ? (
           !mb ? (
-            <div className="rv-loading">Loading {sales}'s month…</div>
+            <div className="rv-loading">Loading {who} month…</div>
           ) : (
             <>
             <WindowTab
@@ -489,7 +512,7 @@ export function RepView(props: {
           )
         ) : tab === "quarter" ? (
           !qb ? (
-            <div className="rv-loading">Loading {sales}'s quarter…</div>
+            <div className="rv-loading">Loading {who} quarter…</div>
           ) : (
             <>
             <WindowTab
@@ -507,7 +530,7 @@ export function RepView(props: {
           )
         ) : tab === "custom" ? (
           !b ? (
-            <div className="rv-loading">Loading {sales}'s book…</div>
+            <div className="rv-loading">Loading {who} book…</div>
           ) : (
             <WindowTab
               b={b}
@@ -2517,7 +2540,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       </div>
       {pillar === "Product Growth" ? (
         <>
-          <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />
+          {(sales ?? "").startsWith("team:") ? <p className="rv-dim rv-small">Product whitespace is marked rep by rep. Pick a rep to mark or review their clinics.</p> : <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />}
         </>
       ) : null}
       {pillar === "Expansion" || pillar === EXISTING ? <CrossSellList pg={pg} /> : null}
@@ -3886,7 +3909,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
   return (
     <div className="rv-sig">
       <div className="rv-eyebrow">Business feed · your book<Info k="signals" /></div>
-      <h1 className="rv-h1">{cards.length ? `${cards.length === 2 ? "Two" : cards.length} questions about your ${clinics} clinics` : "Business feed"}</h1>
+      <h1 className="rv-h1">{cards.length ? `${cards.length === 2 ? "Two" : cards.length} questions about ${sales.startsWith("team:") ? "your team's" : "your"} ${clinics} clinics` : "Business feed"}</h1>
       <div className="rv-sig-legend">
         <span className="rv-sig-chip is-fact">1 Fact</span><i>→</i><span className="rv-sig-chip is-inf">2 Inference</span><i>→</i><span className="rv-sig-chip is-evi">3 Evidence</span><i>→</i><span className="rv-sig-chip is-act">4 Action</span>
         <em>What happened, what it means, the numbers behind it, what to do. The same questions as the main Business Feed, cut to your own clinics.</em>
