@@ -73,7 +73,7 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "families"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   const fn = mode === "weekly" ? "refresh:weeklySnapshotTick" : mode === "monthly" ? "refresh:monthlySnapshotTick" : "refresh:refreshData";
@@ -92,6 +92,7 @@ export async function buildSnapshot(
     } catch (e) {
       console.error("family stops failed:", String(e).slice(0, 200));
     }
+    // rebuildDecline reads each team's product mix through families:context, so that module has to be registered above.
     try {
       console.log("family decline:", JSON.stringify(await host.invoke("familyStops:rebuildDecline", {})));
     } catch (e) {
