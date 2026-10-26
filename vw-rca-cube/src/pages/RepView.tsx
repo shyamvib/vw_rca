@@ -1612,7 +1612,7 @@ function TrendPct({ value, label, title }: { value: number | null; label: string
   );
 }
 
-function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
+export function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
   const [touchFilter, setTouchFilter] = useState<"" | "touched" | "untouched">("");
   const [clinicalFilter, setClinicalFilter] = useState<"" | "touched" | "untouched">("");
   const [fview, setFview] = useState<"funnel" | "sankey">("funnel");
@@ -4579,6 +4579,12 @@ export type ExecScorecard = {
   rows: Array<{ pillar: string; cells: Array<{ label: string; value: string; sub: string; tone: Tone }> }>;
   /** Heading as a percent of goal, per dial; null when the goal is not set. */
   dials: Array<{ name: string; pct: number | null; sub: string }>;
+  /** Clinics past their usual reorder (not churned). */
+  overdue: number | null;
+  /** Share of ordering clinics that ordered 2+ times. */
+  repeat: { rate: number | null; n: number; of: number } | null;
+  /** Product families for the window, with launch info for new releases. */
+  families: Array<{ family: string; orders: number; expectedOrders: number; isNew: boolean; daysLive?: number }>;
 };
 
 /** The rep-view scorecard for any scope ("team:*" = the whole company), reduced to what the overview draws. */
@@ -4587,10 +4593,11 @@ export function useExecScorecard(sales: string, periodId: string | undefined): E
   const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
   const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales && periodId ? { password: pw(), periodId, sales } : "skip");
   const pgd = usePG(sales, periodId);
+  const launchQ = useRcaQuery(api.familyLaunch.launches, { password: pw() });
   const b: Book | null = bookQ?.ready ? bookQ : null;
   const pace: Pace | null = paceQ?.ready ? (paceQ as Pace) : null;
   return useMemo(() => {
-    if (!b || !fams) return { ready: false, rows: [], dials: [] };
+    if (!b || !fams) return { ready: false, rows: [], dials: [], overdue: null, repeat: null, families: [] };
     const t = new Map<string, number>();
     for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
     const famList = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
@@ -4609,8 +4616,19 @@ export function useExecScorecard(sales: string, periodId: string | undefined): E
       { name: "Existing business", pct: pct(pace?.existingHeading ?? (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale), sub: "Retention and expansion revenue" },
       { name: "Combined", pct: pace ? pct(pace.heading, pace.plan) : null, sub: "Heading vs goal for the window" },
     ];
-    return { ready: true, rows: rows.map(r => ({ pillar: r.pillar, cells: r.cells.map(c => ({ label: c.label, value: c.value, sub: c.sub, tone: c.tone })) })), dials };
-  }, [b, fams, pace, pgd.data, pgd.elig]);
+    const launchOf = new Map((launchQ?.launches ?? []).map(l => [l.family, l]));
+    const families = ((fams?.all ?? []) as Fam[])
+      .filter(f => f.family !== "Unmapped" && f.family !== NON_ZOOMER)
+      .map(f => ({ family: f.family, orders: f.orders, expectedOrders: f.expectedOrders, isNew: launchOf.get(f.family)?.isNew === true, daysLive: launchOf.get(f.family)?.daysLive }));
+    return {
+      ready: true,
+      rows: rows.map(r => ({ pillar: r.pillar, cells: r.cells.map(c => ({ label: c.label, value: c.value, sub: c.sub, tone: c.tone })) })),
+      dials,
+      overdue: b.overdueCount ?? null,
+      repeat: { rate: k.repeatRate ?? null, n: k.repeatCount ?? 0, of: k.activeCount ?? 0 },
+      families,
+    };
+  }, [b, fams, pace, pgd.data, pgd.elig, launchQ]);
 }
 
 /** Per-pillar status for one scope, from the scorecard tones (same rule as the rep list). */

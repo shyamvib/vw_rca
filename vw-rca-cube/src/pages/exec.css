@@ -79,3 +79,11 @@
   .ev-sc-row, .ev-heat-row { grid-template-columns: minmax(0, 1fr); }
   .ev-headline { font-size: 28px; }
 }
+
+.ev-fams { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.ev-funnel .rv-panel { margin-top: 0; }
+.ev-statelist { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.ev-statelist .row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 70px; gap: 12px; align-items: center; font-family: var(--font-mono); font-size: 12px; }
+.ev-statelist .row .ev-mono { text-align: right; }
+.ev-statelist .ev-bar { display: block; }
+@media (max-width: 1100px) { .ev-fams { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
-import { useExecScorecard, usePillarStatus } from "./RepView";
+import { ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -12,6 +12,7 @@ export type ExecPeriod = {
   label: string;
   start: string;
   end: string;
+  days: number;
   actual: number;
   expected: number;
   delta: number;
@@ -189,6 +190,15 @@ export function ExecutiveView({
 }) {
   const { tabs, tab, setSel } = usePeriodTabs(periods);
   const p = tab.p;
+  const [cmp, setCmp] = useState<"base" | "prev">("base");
+  // The period before this one of the same kind (last week for this week, and so on); none for the full window.
+  const sameKind = periods.filter(x => x.kind === p.kind);
+  const at = sameKind.findIndex(x => x.id === p.id);
+  const prevP = tab.key !== "all" && at > 0 ? sameKind[at - 1] : null;
+  const PREV = ({ week: ["WoW", "last week"], month: ["MoM", "last month"], quarter: ["QoQ", "last quarter"] } as Record<string, [string, string]>)[tab.key];
+  const cmpOn = cmp === "prev" && !!prevP && !!PREV;
+  const fun = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, { password: pw(), periodId: p.id, sales: COMPANY });
+  const order3 = fun?.ready ? fun.stages.find(x => x.n === 3) : undefined;
 
   const proj = useRcaQuery(api.projection.summary, { password: pw() });
   const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id });
@@ -205,6 +215,16 @@ export function ExecutiveView({
   const headline =
     `${tab.label === "Full window" ? "Over the full window" : tab.label}, revenue is ${plain(Math.abs(p.delta))} ${behind ? "below" : "above"} goal` +
     (drags.length ? `, led by ${drags.map(d => `${d.label.toLowerCase()} (${money(d.value)})`).join(" and ")}.` : ".");
+
+  // Per day, this window against the one before it (windows differ in length, so totals are not comparable).
+  const perDay = (v: number, x: ExecPeriod) => v / Math.max(1, x.days);
+  const chg = (cur: number, prev: number) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 : null);
+  const revChg = prevP ? chg(perDay(p.actual, p), perDay(prevP.actual, prevP)) : null;
+  const headlineShown =
+    cmpOn && revChg !== null && PREV
+      ? `Per day, revenue is ${Math.abs(revChg).toFixed(0)}% ${revChg >= 0 ? "above" : "below"} ${PREV[1]}, at ${plain(perDay(p.actual, p))} a day against ${plain(perDay(prevP!.actual, prevP!))}.`
+      : headline;
+  const chgTxt = (c: number | null) => (c === null ? "" : ` · ${c >= 0 ? "+" : "-"}${Math.abs(c).toFixed(0)}%`);
 
   const attain = p.expected ? (p.actual / p.expected) * 100 : 0;
   const newRow = p.lensC.find(r => /new/i.test(r.label) && !/churn/i.test(r.label));
@@ -237,7 +257,7 @@ export function ExecutiveView({
     <div className="ev">
       <div>
         <div className="ev-eyebrow">Overview · {windowLabel}</div>
-        <h2 className="ev-headline">{headline}</h2>
+        <h2 className="ev-headline">{headlineShown}</h2>
       </div>
 
       <div className="ev-periodbar">
@@ -246,6 +266,12 @@ export function ExecutiveView({
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
+          {prevP && PREV ? (
+            <div className="ev-seg">
+              <button type="button" className={!cmpOn ? "is-on" : ""} onClick={() => setCmp("base")}>vs goal</button>
+              <button type="button" className={cmpOn ? "is-on" : ""} onClick={() => setCmp("prev")}>vs previous · {PREV[0]}</button>
+            </div>
+          ) : null}
           <div className="ev-seg">
             {tabs.map(t => (
               <button key={t.key} type="button" className={t.key === tab.key ? "is-on" : ""} onClick={() => setSel(t.key)}>{t.label}</button>
@@ -278,6 +304,19 @@ export function ExecutiveView({
             </div>
           ) : null}
 
+          {cmpOn && prevP && PREV ? (
+            <div className="ev-card ev-outlook">
+              <div className="ev-eyebrow">{tab.label} vs {PREV[1]} · per day</div>
+              <div className="ev-big"><b style={{ color: tone(revChg ?? 0) }}>{plain(perDay(p.actual, p))}</b><span>a day, against {plain(perDay(prevP.actual, prevP))}</span></div>
+              <div className="ev-row"><span>{revChg === null ? "" : `${Math.abs(revChg).toFixed(0)}% ${revChg >= 0 ? "above" : "below"} ${PREV[1]}`}</span><span className="mono">{p.days} days vs {prevP.days}</span></div>
+              <div className="ev-trio">
+                <div><div className="k">Orders / day</div><div className="v">{perDay(p.orders, p).toFixed(0)}</div></div>
+                <div><div className="k">{PREV[1]}</div><div className="v">{perDay(prevP.orders, prevP).toFixed(0)}</div></div>
+                <div><div className="k">Avg order</div><div className="v">${int(p.aov)}</div></div>
+              </div>
+              <div className="ev-note">Windows are different lengths, so everything here is per day. Order value was ${int(prevP.aov)} {PREV[1]}.</div>
+            </div>
+          ) : (
           <div className="ev-card ev-outlook">
             <div className="ev-eyebrow">{tab.label} vs goal</div>
             <div className="ev-big"><b style={{ color: behind ? BAD : GOOD }}>{plain(p.actual)}</b><span>of {plain(p.expected)} goal</span></div>
@@ -290,6 +329,7 @@ export function ExecutiveView({
             </div>
             <div className="ev-note">Orders are {pct(Math.abs((p.orders / (p.expectedOrders || 1) - 1) * 100))} {p.orders < p.expectedOrders ? "under" : "over"} what the goal implies ({int(p.expectedOrders)} expected). Order value is {p.aov >= p.baseAov ? "above" : "below"} baseline (${int(p.baseAov)}).</div>
           </div>
+          )}
 
           <div className="ev-card ev-outlook">
             <div className="ev-eyebrow">New business</div>
@@ -317,6 +357,95 @@ export function ExecutiveView({
         </section>
       ) : null}
 
+      <section>
+        <div className="ev-sechead">
+          <div className="ev-sectitle">Overall KPIs</div>
+          <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. Counts of clinics are as of the latest data.</div>
+        </div>
+        <div className="ev-grid3">
+          <Kpi
+            name={cmpOn ? "Revenue per day" : "Revenue vs goal"}
+            value={cmpOn ? plain(perDay(p.actual, p)) : money(p.delta)}
+            sub={cmpOn && prevP && PREV ? `was ${plain(perDay(prevP.actual, prevP))} a day ${PREV[1]}${chgTxt(revChg)}` : `${pct(attain)} of ${plain(p.expected)}`}
+            color={cmpOn ? tone(revChg ?? 0) : tone(p.delta)}
+            dot={(cmpOn ? (revChg ?? 0) >= 0 : !behind) ? GOOD : BAD}
+          />
+          <Kpi
+            name={cmpOn ? "Orders per day" : "Orders"}
+            value={cmpOn ? perDay(p.orders, p).toFixed(0) : int(p.orders)}
+            sub={cmpOn && prevP && PREV ? `was ${perDay(prevP.orders, prevP).toFixed(0)} a day ${PREV[1]}${chgTxt(chg(perDay(p.orders, p), perDay(prevP.orders, prevP)))}` : `${int(p.expectedOrders)} expected`}
+            color={p.orders < p.expectedOrders ? BAD : undefined}
+            dot={p.orders < p.expectedOrders ? BAD : GOOD}
+          />
+          <Kpi
+            name="Avg order value"
+            value={`$${int(p.aov)}`}
+            sub={cmpOn && prevP && PREV ? `was $${int(prevP.aov)} ${PREV[1]}${chgTxt(chg(p.aov, prevP.aov))}` : `baseline $${int(p.baseAov)}`}
+            dot={p.aov >= (cmpOn && prevP ? prevP.aov : p.baseAov) ? GOOD : WARN}
+          />
+          <Kpi
+            name="Repeat ordering"
+            value={sc.repeat?.rate != null ? `${Math.round(sc.repeat.rate * 100)}%` : "—"}
+            sub={sc.repeat ? `${int(sc.repeat.n)} of ${int(sc.repeat.of)} ordering clinics ordered 2+ times` : "loading"}
+            dot={sc.repeat?.rate == null ? "var(--vw-gray-10)" : sc.repeat.rate >= 0.62 ? GOOD : sc.repeat.rate >= 0.5 ? WARN : BAD}
+          />
+          <Kpi
+            name="Buying clinics overdue"
+            value={sc.overdue !== null ? int(sc.overdue) : "—"}
+            sub="past their usual reorder, not yet churned"
+            color={sc.overdue ? BAD : undefined}
+            dot={sc.overdue ? BAD : GOOD}
+          />
+          <Kpi
+            name="New clinics reaching order 3"
+            value={order3 ? int(order3.clinics) : "—"}
+            sub={order3 && fun?.ready ? `of ${int(fun.clinics)} new clinics${fun.clinics ? ` · ${Math.round((order3.clinics / fun.clinics) * 100)}%` : ""}` : "loading"}
+            dot={!order3 || !fun?.ready || !fun.clinics ? "var(--vw-gray-10)" : order3.clinics / fun.clinics >= 0.28 ? GOOD : WARN}
+          />
+        </div>
+        {sc.families.length ? (
+          <>
+            <div className="ev-sechead" style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
+              <div className="ev-secsub">Orders against expected, by family</div>
+            </div>
+            <div className="ev-fams">
+              {sc.families.filter(x => !x.isNew).map(x => {
+                const g = x.expectedOrders ? x.orders / x.expectedOrders - 1 : null;
+                return (
+                  <Kpi
+                    key={x.family}
+                    name={x.family}
+                    value={`${int(x.orders)} orders`}
+                    sub={`${int(x.expectedOrders)} expected · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs expected`}
+                    color={g !== null && g < -0.05 ? BAD : undefined}
+                    dot={g === null ? "var(--vw-gray-10)" : g >= 0 ? GOOD : g > -0.05 ? WARN : BAD}
+                  />
+                );
+              })}
+            </div>
+            {sc.families.some(x => x.isNew) ? (
+              <>
+                <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no expected orders or colour.</div>
+                <div className="ev-fams">
+                  {sc.families.filter(x => x.isNew).map(x => (
+                    <Kpi key={x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" />
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </section>
+
+      <section>
+        <div className="ev-sechead">
+          <div className="ev-sectitle">New business funnel</div>
+          <div className="ev-secsub">New clinics this window, signup to order 5, with the touches between each step.</div>
+        </div>
+        <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={COMPANY} /></div>
+      </section>
+
       <div className="ev-split">
         <div className="ev-card" style={{ padding: "18px 20px" }}>
           <div className="ev-sectitle">Revenue gap by state</div>
@@ -338,17 +467,20 @@ export function ExecutiveView({
             <span><i style={{ background: "var(--vw-gray-05)", border: "1px solid var(--vw-gray-10)" }} />No orders</span>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>Overall KPIs</div>
-          <div className="ev-kpis">
-            <Kpi name="Revenue vs goal" value={money(p.delta)} sub={`${pct(attain)} of ${plain(p.expected)}`} color={tone(p.delta)} dot={behind ? BAD : GOOD} />
-            <Kpi name="Orders" value={int(p.orders)} sub={`${int(p.expectedOrders)} expected`} color={p.orders < p.expectedOrders ? BAD : undefined} dot={p.orders < p.expectedOrders ? BAD : GOOD} />
-            <Kpi name="Avg order value" value={`$${int(p.aov)}`} sub={`baseline $${int(p.baseAov)}`} dot={p.aov >= p.baseAov ? GOOD : WARN} />
-            <Kpi name="Patients" value={int(p.patients)} sub={`${int(p.expectedPatients)} expected`} color={p.patients < p.expectedPatients ? BAD : undefined} dot={p.patients < p.expectedPatients ? BAD : GOOD} />
+        <div className="ev-card" style={{ padding: "18px 20px" }}>
+          <div className="ev-sectitle">Biggest gaps by state</div>
+          <div className="ev-secsub" style={{ marginTop: 3 }}>Largest shortfalls and leads, {tab.label.toLowerCase()}.</div>
+          <div className="ev-statelist">
+            {[...states.entries()].sort((a, b2) => a[1] - b2[1]).slice(0, 8).map(([code, v]) => (
+              <div className="row" key={code}>
+                <span>{code}</span>
+                <span className="ev-bar"><span className="mid" /><span className="fill" style={{ left: v < 0 ? `${50 - (Math.abs(v) / (Math.abs(worst) || 1)) * 50}%` : "50%", width: `${(Math.abs(v) / (Math.abs(worst) || 1)) * 50}%`, background: tone(v) }} /></span>
+                <span className="ev-mono" style={{ color: tone(v) }}>{money(v)}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
-
 
       {sc.ready ? (
         <div className="ev-card" style={{ overflow: "hidden" }}>
