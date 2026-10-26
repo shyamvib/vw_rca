@@ -9,7 +9,7 @@ import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
-import { ExecutiveView } from "./ExecutiveView";
+import { ExecutiveView, TeamsView } from "./ExecutiveView";
 import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
@@ -1265,7 +1265,7 @@ export function RcaDashboardPage() {
   const repLogin = useMemo(() => repSession(), []);
   const isRep = repLogin !== null;
   // Reps only get their own view: no company dashboard, no Business Feed.
-  const [view, setView] = useState<"overview" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
+  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
   const isLead = repLogin?.all === true; // rep-view only, but any rep's book
   const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
   const [geoPick, setGeoPick] = useState<string | null>(null);
@@ -1832,6 +1832,13 @@ export function RcaDashboardPage() {
           </button>
           <button
             type="button"
+            className={`rca-tab${view === "teams" ? " is-active" : ""}`}
+            onClick={() => setView("teams")}
+          >
+            Teams
+          </button>
+          <button
+            type="button"
             className={`rca-tab${view === "dashboard" ? " is-active" : ""}`}
             onClick={() => setView("dashboard")}
           >
@@ -2049,6 +2056,11 @@ export function RcaDashboardPage() {
             windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
             onOpenFeed={() => setView("feed")}
             onOpenTree={id => { setSelected(id); setView("dashboard"); }}
+          />
+        ) : view === "teams" ? (
+          <TeamsView
+            periods={periods as never}
+            windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
           />
         ) : view === "feed" ? (
           <InsightsView

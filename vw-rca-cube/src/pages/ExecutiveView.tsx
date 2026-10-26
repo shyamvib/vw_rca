@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
+import { useExecScorecard, usePillarStatus } from "./RepView";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -28,6 +29,7 @@ export type ExecPeriod = {
   topStates: Array<{ state: string; value: number }>;
 };
 
+const COMPANY = "team:*";
 const GOOD = "var(--vw-success)";
 const BAD = "var(--vw-error)";
 const WARN = "var(--vw-warning)";
@@ -54,6 +56,114 @@ const TILES: Record<string, [number, number]> = {
   AZ: [1, 5], NM: [2, 5], KS: [3, 5], AR: [4, 5], TN: [5, 5], NC: [6, 5], SC: [7, 5], DC: [8, 5], OK: [3, 6], LA: [4, 6], MS: [5, 6], AL: [6, 6], GA: [7, 6], HI: [0, 7], TX: [3, 7], FL: [8, 7],
 };
 
+
+const TONE_DOT: Record<string, string> = { good: GOOD, watch: WARN, bad: BAD, act: "var(--vw-gray-30)", na: "var(--vw-gray-10)" };
+
+/** Semicircle dial: filled to the heading as a share of goal (scale 60% to 110%), tick at 100%. */
+function Dial({ name, pct, sub }: { name: string; pct: number | null; sub: string }) {
+  const status = pct === null ? null : pct >= 100 ? "good" : pct >= 95 ? "watch" : "bad";
+  const color = status === "good" ? GOOD : status === "watch" ? WARN : BAD;
+  const label = status === "good" ? "On track" : status === "watch" ? "Watch" : status === "bad" ? "Behind" : "No goal set";
+  const f = pct === null ? 0 : Math.max(0, Math.min(1, (pct - 60) / 50));
+  const th = Math.PI * (1 - 0.8);
+  const x = (r: number) => (80 + r * Math.cos(th)).toFixed(1);
+  const y = (r: number) => (80 - r * Math.sin(th)).toFixed(1);
+  return (
+    <div className="ev-card ev-dial">
+      <div className="nm">{name}</div>
+      <svg width="150" height="90" viewBox="0 0 160 96">
+        <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none" stroke="var(--vw-gray-10)" strokeWidth="12" />
+        <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none" stroke={color} strokeWidth="12" strokeDasharray={`${(Math.PI * 60 * f).toFixed(1)} 400`} />
+        <line x1={x(48)} y1={y(48)} x2={x(72)} y2={y(72)} stroke="var(--vw-ink)" strokeWidth="2" />
+        <text x="80" y="76" textAnchor="middle" fontSize="22" fontFamily="var(--font-mono)" fill="var(--vw-ink)">{pct === null ? "—" : `${Math.round(pct)}%`}</text>
+      </svg>
+      <div style={{ fontSize: 12, fontWeight: 500, color }}>{label}</div>
+      <div className="sub">{sub}</div>
+    </div>
+  );
+}
+
+/** This week / month / quarter / full window, taken from the bridge periods. */
+function usePeriodTabs(periods: ExecPeriod[]) {
+  const tabs = useMemo(() => {
+    const last = (k: ExecPeriod["kind"]) => [...periods].reverse().find(x => x.kind === k);
+    return [
+      { key: "week", label: "This week", p: last("week") },
+      { key: "month", label: "This month", p: last("month") },
+      { key: "quarter", label: "This quarter", p: last("quarter") },
+      { key: "all", label: "Full window", p: periods.find(x => x.id === "all") },
+    ].filter((t): t is { key: string; label: string; p: ExecPeriod } => !!t.p);
+  }, [periods]);
+  const [sel, setSel] = useState("all");
+  const tab = tabs.find(t => t.key === sel) ?? tabs[tabs.length - 1];
+  return { tabs, tab, setSel };
+}
+
+const PILLARS: Array<[string, string]> = [["New Business", "New Biz"], ["Bundle growth", "AOV"], ["Product Growth", "Product"], ["Retention", "Retention"], ["Expansion", "Expansion"], ["Combined", "Combined"]];
+const STATUS_CHIP = {
+  good: { bg: "var(--vw-success-bg)", color: "var(--vw-success)", label: "On track" },
+  watch: { bg: "var(--vw-warning-bg)", color: "#795b35", label: "Watch" },
+  behind: { bg: "var(--vw-error-bg)", color: "var(--vw-error)", label: "Behind" },
+};
+
+function HeatRow({ name, scope, periodId, bold }: { name: string; scope: string; periodId: string; bold?: boolean }) {
+  const st = usePillarStatus(scope, periodId);
+  const behind = st ? PILLARS.filter(([k]) => st[k] === "behind").length : null;
+  return (
+    <div className="ev-heat-row" style={bold ? { background: "var(--vw-gray-02)" } : undefined}>
+      <div style={{ textAlign: "left", fontSize: 14, fontWeight: bold ? 600 : 500 }}>{name}</div>
+      {PILLARS.map(([k]) => {
+        const c = st?.[k] ? STATUS_CHIP[st[k]] : null;
+        return (
+          <div key={k}>
+            {c ? <span className="ev-chip" style={{ background: c.bg, color: c.color }}>{c.label}</span> : <span className="ev-chip" style={{ color: "var(--text-disabled)" }}>…</span>}
+          </div>
+        );
+      })}
+      <div style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, color: behind !== null && behind >= 3 ? BAD : "var(--text-secondary)" }}>{behind === null ? "" : `${behind} of 6`}</div>
+    </div>
+  );
+}
+
+/** Status per pillar for every rep, each from that rep's own scorecard, with the two teams and the company underneath. */
+export function TeamsView({ periods, windowLabel }: { periods: ExecPeriod[]; windowLabel: string }) {
+  const { tabs, tab, setSel } = usePeriodTabs(periods);
+  const p = tab.p;
+  const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id });
+  const leads = useRcaQuery(api.geo.teamLeads, { password: pw() });
+  const names = ((reps ?? []) as Array<{ name: string; expected: number; delta: number }>)
+    .filter(r => r.expected > 0)
+    .sort((a, b) => a.delta / a.expected - b.delta / b.expected)
+    .map(r => r.name);
+  return (
+    <div className="ev">
+      <div>
+        <div className="ev-eyebrow">Teams · {windowLabel}</div>
+        <h2 className="ev-headline">Where each rep and team stands on every pillar.</h2>
+      </div>
+      <div className="ev-periodbar">
+        <div className="ev-caption">{shortDate(p.start)} – {shortDate(p.end)} · reps listed from furthest behind goal to furthest ahead</div>
+        <div className="ev-seg">
+          {tabs.map(t => (
+            <button key={t.key} type="button" className={t.key === tab.key ? "is-on" : ""} onClick={() => setSel(t.key)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="ev-card ev-heat">
+        <div className="ev-heat-row hd">
+          <div style={{ textAlign: "left" }}>Rep</div>
+          {PILLARS.map(([k, short]) => <div key={k}>{short}</div>)}
+          <div style={{ textAlign: "right" }}>Behind</div>
+        </div>
+        {names.map(n => <HeatRow key={`${p.id}|${n}`} name={n} scope={n} periodId={p.id} />)}
+        {((leads ?? []) as string[]).map(l => <HeatRow key={`${p.id}|team|${l}`} name={`${l}'s team`} scope={`team:${l}`} periodId={p.id} bold />)}
+        <HeatRow key={`${p.id}|all`} name="Company" scope={COMPANY} periodId={p.id} bold />
+      </div>
+      <div className="ev-secsub">Status per pillar from each rep's own scorecard: any red metric makes the pillar Behind, any amber makes it Watch. Team rows treat the whole book as one.</div>
+    </div>
+  );
+}
+
 type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"; q: string; a: string };
 
 function Kpi({ name, value, sub, color, dot }: { name: string; value: string; sub: string; color?: string; dot: string }) {
@@ -77,25 +187,14 @@ export function ExecutiveView({
   onOpenFeed: () => void;
   onOpenTree: (periodId: string) => void;
 }) {
-  const last = (k: ExecPeriod["kind"]) => [...periods].reverse().find(p => p.kind === k);
-  const tabs = useMemo(
-    () =>
-      [
-        { key: "week", label: "This week", p: last("week") },
-        { key: "month", label: "This month", p: last("month") },
-        { key: "quarter", label: "This quarter", p: last("quarter") },
-        { key: "all", label: "Full window", p: periods.find(p => p.id === "all") },
-      ].filter((t): t is { key: string; label: string; p: ExecPeriod } => !!t.p),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [periods],
-  );
-  const [sel, setSel] = useState("all");
-  const tab = tabs.find(t => t.key === sel) ?? tabs[tabs.length - 1];
+  const { tabs, tab, setSel } = usePeriodTabs(periods);
   const p = tab.p;
 
   const proj = useRcaQuery(api.projection.summary, { password: pw() });
   const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id });
   const feed = useRcaQuery(api.feed.feed, { password: pw() });
+  const geo = useRcaQuery(api.geo.geoSummary, { password: pw(), periodId: p.id });
+  const sc = useExecScorecard(COMPANY, p.id);
 
   // Headline: the gap, then the two biggest drags across the volume/price and cohort lenses.
   const drags = [...p.lensA, ...p.lensC]
@@ -111,9 +210,17 @@ export function ExecutiveView({
   const newRow = p.lensC.find(r => /new/i.test(r.label) && !/churn/i.test(r.label));
   const newRev = newRow?.real ?? 0;
 
-  const states = new Map(p.topStates.map(s => [s.state, s.value]));
-  const otherNet = 0;
-  void otherNet;
+  // Every state's gap, from the geography query; the six worst from the bridge are the fallback while it loads.
+  const geoRows = ((geo?.rows ?? []) as Array<{ code: string; kind: string; delta: number }>).filter(r => r.kind === "state");
+  const states = new Map<string, number>(geoRows.length ? geoRows.map(r => [r.code, r.delta]) : p.topStates.map(s => [s.state, s.value]));
+  const worst = [...states.values()].reduce((m, v) => Math.min(m, v), 0);
+  const best = [...states.values()].reduce((m, v) => Math.max(m, v), 0);
+  // Shade by size of the gap: deeper red for bigger shortfalls, deeper green for bigger leads.
+  const tileColor = (v: number) => {
+    const share = v < 0 ? v / (worst || -1) : v / (best || 1);
+    const a = 0.25 + 0.75 * Math.min(1, Math.sqrt(share));
+    return { background: `color-mix(in srgb, ${v < 0 ? BAD : GOOD} ${Math.round(a * 100)}%, var(--vw-white))`, color: a > 0.55 ? "var(--vw-white)" : "var(--text-primary)" };
+  };
 
   const repRows = ((reps ?? []) as Array<{ name: string; actual: number; expected: number; delta: number; clinics: number }>)
     .filter(r => r.expected > 0)
@@ -197,15 +304,28 @@ export function ExecutiveView({
         </div>
       </section>
 
+
+      {sc.ready ? (
+        <section>
+          <div className="ev-sechead">
+            <div className="ev-sectitle">Pillar health</div>
+            <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. The tick marks 100% of goal.</div>
+          </div>
+          <div className="ev-dials">
+            {sc.dials.map(d => <Dial key={d.name} {...d} />)}
+          </div>
+        </section>
+      ) : null}
+
       <div className="ev-split">
         <div className="ev-card" style={{ padding: "18px 20px" }}>
           <div className="ev-sectitle">Revenue gap by state</div>
-          <div className="ev-secsub" style={{ marginTop: 3 }}>{tab.label}, against goal. The six worst states are shaded.</div>
+          <div className="ev-secsub" style={{ marginTop: 3 }}>{tab.label}, against goal. Darker means a bigger gap.</div>
           <div className="ev-map">
             {Object.entries(TILES).map(([code, [c, r]]) => {
               const v = states.get(code);
               return (
-                <div key={code} className="ev-tile" style={{ gridColumn: c + 1, gridRow: r + 1, ...(v !== undefined ? { background: v < 0 ? BAD : GOOD, color: "var(--vw-white)" } : {}) }}>
+                <div key={code} className="ev-tile" style={{ gridColumn: c + 1, gridRow: r + 1, ...(v !== undefined ? tileColor(v) : {}) }}>
                   <span className="c">{code}</span>
                   <span className="n">{v !== undefined ? money(v) : ""}</span>
                 </div>
@@ -215,7 +335,7 @@ export function ExecutiveView({
           <div className="ev-legend">
             <span><i style={{ background: BAD }} />Behind goal</span>
             <span><i style={{ background: GOOD }} />Ahead of goal</span>
-            <span><i style={{ background: "var(--vw-gray-05)", border: "1px solid var(--vw-gray-10)" }} />Other states</span>
+            <span><i style={{ background: "var(--vw-gray-05)", border: "1px solid var(--vw-gray-10)" }} />No orders</span>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -228,6 +348,36 @@ export function ExecutiveView({
           </div>
         </div>
       </div>
+
+
+      {sc.ready ? (
+        <div className="ev-card" style={{ overflow: "hidden" }}>
+          <div className="ev-sc-head">
+            <div>
+              <div className="ev-sectitle">Scorecard</div>
+              <div className="ev-secsub" style={{ marginTop: 3 }}>Every pillar and metric for the whole company, {tab.label.toLowerCase()}.</div>
+            </div>
+            <div className="ev-legend" style={{ margin: 0 }}>
+              <span><i style={{ background: GOOD, borderRadius: "50%" }} />On track</span>
+              <span><i style={{ background: WARN, borderRadius: "50%" }} />Watch</span>
+              <span><i style={{ background: BAD, borderRadius: "50%" }} />Behind</span>
+              <span><i style={{ background: "var(--vw-gray-30)", borderRadius: "50%" }} />Where to act</span>
+            </div>
+          </div>
+          {sc.rows.map(r => (
+            <div className="ev-sc-row" key={r.pillar}>
+              <div className="ev-sc-pillar">{r.pillar === "Bundle growth" ? "AOV" : r.pillar}</div>
+              {r.cells.map(c => (
+                <div className="ev-sc-cell" key={c.label}>
+                  <div className="top"><span>{c.label}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
+                  <div className="val">{c.value}</div>
+                  <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {repRows.length ? (
         <div className="ev-card ev-team">

@@ -4571,3 +4571,51 @@ function NewClinicFlow({ ids, onList, signups = 0, leadCount, onLeads }: { ids: 
   );
 }
 const addDaysStr = (d: string, n: number) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+
+
+/* ── Executive overview hooks (company-wide scorecard) ─────────────────── */
+export type ExecScorecard = {
+  ready: boolean;
+  rows: Array<{ pillar: string; cells: Array<{ label: string; value: string; sub: string; tone: Tone }> }>;
+  /** Heading as a percent of goal, per dial; null when the goal is not set. */
+  dials: Array<{ name: string; pct: number | null; sub: string }>;
+};
+
+/** The rep-view scorecard for any scope ("team:*" = the whole company), reduced to what the overview draws. */
+export function useExecScorecard(sales: string, periodId: string | undefined): ExecScorecard {
+  const bookQ = useRcaQuery(api.repView.book, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const pgd = usePG(sales, periodId);
+  const b: Book | null = bookQ?.ready ? bookQ : null;
+  const pace: Pace | null = paceQ?.ready ? (paceQ as Pace) : null;
+  return useMemo(() => {
+    if (!b || !fams) return { ready: false, rows: [], dials: [] };
+    const t = new Map<string, number>();
+    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
+    const famList = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+    const family = famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
+    const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
+    const rows = scoreRows(b, fams, pg);
+    const k = b.kpi;
+    const scale = pace?.ratio ?? (pace && pace.elapsedDays ? (pace.elapsedDays + pace.remainingDays) / pace.elapsedDays : 1);
+    const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family);
+    const newRev = k.newRevenue + (k.reactivatedRevenue ?? 0);
+    const pct = (heading: number, plan: number) => (plan > 0 ? (heading / plan) * 100 : null);
+    const dials = [
+      { name: "New Business", pct: pct(pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0), sub: "New revenue vs goal" },
+      { name: "AOV", pct: pct(k.aov ?? 0, k.baseAov ?? 0), sub: "Order value vs baseline" },
+      { name: "Product Growth", pct: hz ? pct(hz.orders, hz.expectedOrders) : null, sub: `${family} orders vs goal` },
+      { name: "Existing business", pct: pct(pace?.existingHeading ?? (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale), sub: "Retention and expansion revenue" },
+      { name: "Combined", pct: pace ? pct(pace.heading, pace.plan) : null, sub: "Heading vs goal for the window" },
+    ];
+    return { ready: true, rows: rows.map(r => ({ pillar: r.pillar, cells: r.cells.map(c => ({ label: c.label, value: c.value, sub: c.sub, tone: c.tone })) })), dials };
+  }, [b, fams, pace, pgd.data, pgd.elig]);
+}
+
+/** Per-pillar status for one scope, from the scorecard tones (same rule as the rep list). */
+export function usePillarStatus(sales: string, periodId: string | undefined): Record<string, "behind" | "watch" | "good"> | null {
+  const bookQ = useRcaQuery(api.repView.book, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  return useMemo(() => (bookQ?.ready && fams ? pillarStatus(bookQ, fams) : null), [bookQ, fams]);
+}

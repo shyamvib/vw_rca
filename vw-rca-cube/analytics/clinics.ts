@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
 import { goalFactors } from "./baseline";
 import {
@@ -433,7 +433,10 @@ export async function drill(
   },
 ) {
   // A team scope ("team:<lead>", rep view for a VP of sales) is the team-lead filter: the lead's clinics and every rep's under them.
-  const args = isTeamScope(args0.sales) ? { ...args0, sales: undefined, teamLead: teamOf(args0.sales) } : args0;
+  // "team:*" is the whole company: no filter at all.
+  const args = isTeamScope(args0.sales)
+    ? { ...args0, sales: undefined, teamLead: isCompanyLead(teamOf(args0.sales)) ? undefined : teamOf(args0.sales) }
+    : args0;
   const cfg = await loadCfg(ctx, args.configKey);
   if (!cfg) return { ready: false as const, rows: [], total: 0, count: 0 };
   const gen = cfg.gen ?? 0;

@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
@@ -31,6 +31,19 @@ const since = (cutoff: string, d?: string) =>
  * own aggregated revenue, not a sum of per-clinic P75s (Shyam, 2026-10-12). */
 export async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
   // A team scope uses the team lead's own baseline row (the lead's rollup covers the lead and every rep under them).
+  // The company is the sum of every lead's rollup (baseline is additive across leads).
+  if (isTeamScope(sales) && isCompanyLead(teamOf(sales))) {
+    const rows = await ctx.db
+      .query("leadPeriodBaseline")
+      .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
+      .collect();
+    if (!rows.length) return null;
+    const k = await targetScale(ctx, { gen }, periodId);
+    return {
+      rev: rows.reduce((s: number, r: any) => s + (r.expectedRevenue as number), 0) * k,
+      ord: rows.reduce((s: number, r: any) => s + (r.expectedOrders as number), 0) * k,
+    };
+  }
   const row = isTeamScope(sales)
     ? await ctx.db
         .query("leadPeriodBaseline")
@@ -274,7 +287,9 @@ export const book = scopedQuery({
     const defsForWindow = cfg ? periodDefs(cfg.currentStart, cfg.currentEnd) : [];
     const windowStart = defsForWindow.find(d => d.id === args.periodId)?.days[0] ?? cfg?.currentStart ?? "";
     const metaForRep = cfg
-      ? isTeamScope(args.sales)
+      ? isTeamScope(args.sales) && isCompanyLead(teamOf(args.sales))
+        ? await ctx.db.query("clinicMeta").withIndex("by_gen", q => q.eq("gen", cfg.gen ?? 0)).collect()
+        : isTeamScope(args.sales)
         ? await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", cfg.gen ?? 0).eq("teamLead", teamOf(args.sales!))).collect()
         : await ctx.db.query("clinicMeta").withIndex("by_gen_sales", q => q.eq("gen", cfg.gen ?? 0).eq("sales", args.sales!)).collect()
       : [];
