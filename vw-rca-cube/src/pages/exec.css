@@ -82,10 +82,6 @@
 
 .ev-fams { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .ev-funnel .rv-panel { margin-top: 0; }
-.ev-statelist { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
-.ev-statelist .row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 70px; gap: 12px; align-items: center; font-family: var(--font-mono); font-size: 12px; }
-.ev-statelist .row .ev-mono { text-align: right; }
-.ev-statelist .ev-bar { display: block; }
 @media (max-width: 1100px) { .ev-fams { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* Fills match the rep view's scorecard and family cards. */
@@ -99,3 +95,6 @@
 .ev-card.ev-kpi.ev-t-good { border-color: rgba(22, 163, 74, 0.35); }
 .ev-card.ev-kpi.ev-t-watch { border-color: rgba(217, 119, 6, 0.4); }
 .ev-card.ev-kpi.ev-t-bad { border-color: rgba(220, 38, 38, 0.35); }
+.ev-split .ev-team { padding: 18px 20px; }
+.ev-split .ev-team-head, .ev-split .ev-team-row { grid-template-columns: minmax(0, 1.4fr) 52px minmax(0, 2fr) 60px; gap: 10px; }
+.ev-team-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

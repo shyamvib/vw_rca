@@ -488,19 +488,25 @@ export function ExecutiveView({
             <span><i style={{ background: "var(--vw-gray-05)", border: "1px solid var(--vw-gray-10)" }} />No orders</span>
           </div>
         </div>
-        <div className="ev-card" style={{ padding: "18px 20px" }}>
-          <div className="ev-sectitle">Biggest gaps by state</div>
-          <div className="ev-secsub" style={{ marginTop: 3 }}>Largest shortfalls and leads, {tab.label.toLowerCase()}.</div>
-          <div className="ev-statelist">
-            {[...states.entries()].sort((a, b2) => a[1] - b2[1]).slice(0, 8).map(([code, v]) => (
-              <div className="row" key={code}>
-                <span>{code}</span>
-                <span className="ev-bar"><span className="mid" /><span className="fill" style={{ left: v < 0 ? `${50 - (Math.abs(v) / (Math.abs(worst) || 1)) * 50}%` : "50%", width: `${(Math.abs(v) / (Math.abs(worst) || 1)) * 50}%`, background: tone(v) }} /></span>
-                <span className="ev-mono" style={{ color: tone(v) }}>{money(v)}</span>
-              </div>
-            ))}
+        {repRows.length ? (
+          <div className="ev-card ev-team">
+            <div className="ev-sectitle">Team performance</div>
+            <div className="ev-note" style={{ marginTop: 4, maxWidth: 640 }}>Revenue against each rep's own goal, {tab.label.toLowerCase()} ({shortDate(p.start)} – {shortDate(p.end)}). Bars run to ±50%.</div>
+            <div className="ev-team-head"><div>Rep</div><div style={{ textAlign: "right" }}>Clinics</div><div>Against goal</div><div style={{ textAlign: "right" }}>% to goal</div></div>
+            {repRows.map(r => {
+              const w = (Math.min(Math.abs(r.pc), 50) / 50) * 50;
+              const pos = r.pc >= 0;
+              return (
+                <div className="ev-team-row" key={r.name}>
+                  <div className="nm">{r.name}</div>
+                  <div className="cl">{int(r.clinics)}</div>
+                  <div className="ev-bar"><div className="mid" /><div className="fill" style={{ left: `${pos ? 50 : 50 - w}%`, width: `${w}%`, background: tone(r.pc) }} /></div>
+                  <div className="pc" style={{ color: tone(r.pc) }}>{pos ? "+" : "-"}{Math.abs(r.pc).toFixed(1)}%</div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        ) : null}
       </div>
 
       {sc.ready ? (
@@ -539,26 +545,6 @@ export function ExecutiveView({
         </div>
         <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={COMPANY} /></div>
       </section>
-
-      {repRows.length ? (
-        <div className="ev-card ev-team">
-          <div className="ev-sectitle">Team performance</div>
-          <div className="ev-note" style={{ marginTop: 4, maxWidth: 640 }}>Revenue against each rep's own goal, {tab.label.toLowerCase()} ({shortDate(p.start)} – {shortDate(p.end)}). Bars run to ±50%.</div>
-          <div className="ev-team-head"><div>Rep</div><div style={{ textAlign: "right" }}>Clinics</div><div>Against goal</div><div style={{ textAlign: "right" }}>% to goal</div></div>
-          {repRows.map(r => {
-            const w = (Math.min(Math.abs(r.pc), 50) / 50) * 50;
-            const pos = r.pc >= 0;
-            return (
-              <div className="ev-team-row" key={r.name}>
-                <div className="nm">{r.name}</div>
-                <div className="cl">{int(r.clinics)}</div>
-                <div className="ev-bar"><div className="mid" /><div className="fill" style={{ left: `${pos ? 50 : 50 - w}%`, width: `${w}%`, background: tone(r.pc) }} /></div>
-                <div className="pc" style={{ color: tone(r.pc) }}>{pos ? "+" : "-"}{Math.abs(r.pc).toFixed(1)}%</div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
 
       {signals.length ? (
         <section>
