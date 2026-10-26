@@ -30,7 +30,13 @@ export function newClinicFunnelGroups(
 import { scopeMatcher, repsInScope } from "./scope";
 import { v } from "convex/values";
 import { addDays, diffDays, monthKey, prevMonthKey, quarterKey, prevQuarterKey, quarterStart } from "./dateUtils";
-import { scopedQuery } from "./gated";
+import { gatedAction, scopedQuery } from "./gated";
+import { internal } from "./_generated/api";
+import { viewerCfgKey } from "./config";
+import { periodRange } from "./families";
+import { ordersRows } from "./cube";
+import { DATA_START } from "./familyLaunch";
+import { num } from "./powerbi";
 import { loadCfg } from "./config";
 import { periodDays } from "./clinics";
 function median(nums: number[]): number {
@@ -272,6 +278,35 @@ export const seqFor = scopedQuery({
     const rows = await ctx.db.query("newClinicOrderSeq").withIndex("by_gen", q => q.eq("gen", gen)).collect();
     const out: Record<string, { signup?: string; orders: string[] }> = {};
     for (const r of rows) if (want.has(r.clinic)) out[r.clinic] = { signup: r.signupDate, orders: r.orderDates };
+    return out;
+  },
+});
+
+
+/**
+ * Repeat patients (Shyam, 2026-10-25): of the distinct patients who ordered in the window, how many had already ordered
+ * before it (any time since the data starts). Three distinct-patient counts, so the overlap is exact without pulling ids:
+ * repeat = |window| + |before| - |before or window|. Company-wide; team logins only.
+ */
+export const repeatPatients = gatedAction({
+  args: { periodId: v.string() },
+  handler: async (ctx, args): Promise<{ ready: boolean; window?: number; repeat?: number; since?: string }> => {
+    const cfgKey = viewerCfgKey(ctx);
+    const key = `${cfgKey ?? ""}rp1|${args.periodId}`;
+    const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
+    if (hit) return JSON.parse(hit);
+    const { cfg } = await ctx.runQuery(internal.families.context, { cfgKey, periodId: args.periodId });
+    if (!cfg) return { ready: false };
+    const { start, end } = periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);
+    const count = async (s: string, e: string) => num((await ordersRows({ start: s, end: e, m: { pat: "patients" } }))[0] ?? {}, "pat");
+    let out: { ready: boolean; window: number; repeat: number; since: string };
+    if (start <= DATA_START) {
+      out = { ready: true, window: await count(start, end), repeat: 0, since: DATA_START };
+    } else {
+      const [win, before, both] = await Promise.all([count(start, end), count(DATA_START, addDays(start, -1)), count(DATA_START, end)]);
+      out = { ready: true, window: win, repeat: Math.max(0, Math.min(win, win + before - both)), since: DATA_START };
+    }
+    await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(out) });
     return out;
   },
 });

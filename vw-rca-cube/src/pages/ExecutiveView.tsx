@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { useRcaQuery } from "@/lib/rca";
+import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
 import { ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import "./exec.css";
@@ -17,6 +17,8 @@ export type ExecPeriod = {
   expected: number;
   delta: number;
   baseline?: number;
+  realChange?: number;
+  ambition?: number;
   newGoal?: number;
   orders: number;
   expectedOrders: number;
@@ -190,13 +192,23 @@ export function ExecutiveView({
 }) {
   const { tabs, tab, setSel } = usePeriodTabs(periods);
   const p = tab.p;
-  const [cmp, setCmp] = useState<"base" | "prev">("base");
+  const [cmp, setCmp] = useState<"goal" | "baseline" | "prev">("goal");
   // The period before this one of the same kind (last week for this week, and so on); none for the full window.
   const sameKind = periods.filter(x => x.kind === p.kind);
   const at = sameKind.findIndex(x => x.id === p.id);
   const prevP = tab.key !== "all" && at > 0 ? sameKind[at - 1] : null;
   const PREV = ({ week: ["WoW", "last week"], month: ["MoM", "last month"], quarter: ["QoQ", "last quarter"] } as Record<string, [string, string]>)[tab.key];
   const cmpOn = cmp === "prev" && !!prevP && !!PREV;
+  const baseOn = cmp === "baseline" && p.baseline !== undefined && p.baseline > 0;
+  const real = p.realChange ?? (p.baseline !== undefined ? p.actual - p.baseline : 0);
+  const runRepeat = useRcaAction(api.newClinicFunnel.repeatPatients);
+  const [rp, setRp] = useState<{ ready: boolean; window?: number; repeat?: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    setRp(null);
+    runRepeat({ password: pw(), periodId: p.id }).then(r => live && setRp(r)).catch(() => live && setRp({ ready: false }));
+    return () => { live = false; };
+  }, [p.id, runRepeat]);
   const fun = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, { password: pw(), periodId: p.id, sales: COMPANY });
   const order3 = fun?.ready ? fun.stages.find(x => x.n === 3) : undefined;
 
@@ -221,7 +233,9 @@ export function ExecutiveView({
   const chg = (cur: number, prev: number) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 : null);
   const revChg = prevP ? chg(perDay(p.actual, p), perDay(prevP.actual, prevP)) : null;
   const headlineShown =
-    cmpOn && revChg !== null && PREV
+    baseOn
+      ? `${tab.label === "Full window" ? "Over the full window" : tab.label}, revenue is ${plain(Math.abs(real))} ${real >= 0 ? "above" : "below"} its baseline run rate` + (p.ambition ? `; the goal asks for ${plain(p.ambition)} more than baseline.` : ".")
+      : cmpOn && revChg !== null && PREV
       ? `Per day, revenue is ${Math.abs(revChg).toFixed(0)}% ${revChg >= 0 ? "above" : "below"} ${PREV[1]}, at ${plain(perDay(p.actual, p))} a day against ${plain(perDay(prevP!.actual, prevP!))}.`
       : headline;
   const chgTxt = (c: number | null) => (c === null ? "" : ` · ${c >= 0 ? "+" : "-"}${Math.abs(c).toFixed(0)}%`);
@@ -266,12 +280,11 @@ export function ExecutiveView({
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
-          {prevP && PREV ? (
-            <div className="ev-seg">
-              <button type="button" className={!cmpOn ? "is-on" : ""} onClick={() => setCmp("base")}>vs goal</button>
-              <button type="button" className={cmpOn ? "is-on" : ""} onClick={() => setCmp("prev")}>vs previous · {PREV[0]}</button>
-            </div>
-          ) : null}
+          <div className="ev-seg">
+            <button type="button" className={cmp === "goal" || (cmp === "prev" && !cmpOn) || (cmp === "baseline" && !baseOn) ? "is-on" : ""} onClick={() => setCmp("goal")}>vs goal</button>
+            {p.baseline !== undefined ? <button type="button" className={baseOn ? "is-on" : ""} onClick={() => setCmp("baseline")}>vs baseline</button> : null}
+            {prevP && PREV ? <button type="button" className={cmpOn ? "is-on" : ""} onClick={() => setCmp("prev")}>vs previous · {PREV[0]}</button> : null}
+          </div>
           <div className="ev-seg">
             {tabs.map(t => (
               <button key={t.key} type="button" className={t.key === tab.key ? "is-on" : ""} onClick={() => setSel(t.key)}>{t.label}</button>
@@ -304,7 +317,20 @@ export function ExecutiveView({
             </div>
           ) : null}
 
-          {cmpOn && prevP && PREV ? (
+          {baseOn && p.baseline ? (
+            <div className="ev-card ev-outlook">
+              <div className="ev-eyebrow">{tab.label} vs baseline</div>
+              <div className="ev-big"><b style={{ color: tone(real) }}>{plain(p.actual)}</b><span>against a {plain(p.baseline)} baseline</span></div>
+              <div className="ev-track"><i style={{ width: `${Math.min(100, (p.actual / p.baseline) * 100)}%`, background: p.actual >= p.baseline ? GOOD : WARN }} /></div>
+              <div className="ev-row"><span>{Math.round((p.actual / p.baseline) * 100)}% of baseline</span><span className="mono" style={{ color: tone(real) }}>{money(real)} vs baseline</span></div>
+              <div className="ev-trio">
+                <div><div className="k">Goal</div><div className="v">{plain(p.expected)}</div></div>
+                <div><div className="k">Goal stretch</div><div className="v">{p.ambition !== undefined ? plain(p.ambition) : "—"}</div></div>
+                <div><div className="k">Avg order</div><div className="v">${int(p.aov)}</div></div>
+              </div>
+              <div className="ev-note">Baseline is the mean run rate of the baseline period, scaled to this window. The goal is the baseline plus the stretch needed to reach the annual target, so beating the baseline is real growth and beating the goal is the plan.</div>
+            </div>
+          ) : cmpOn && prevP && PREV ? (
             <div className="ev-card ev-outlook">
               <div className="ev-eyebrow">{tab.label} vs {PREV[1]} · per day</div>
               <div className="ev-big"><b style={{ color: tone(revChg ?? 0) }}>{plain(perDay(p.actual, p))}</b><span>a day, against {plain(perDay(prevP.actual, prevP))}</span></div>
@@ -364,11 +390,11 @@ export function ExecutiveView({
         </div>
         <div className="ev-grid3">
           <Kpi
-            name={cmpOn ? "Revenue per day" : "Revenue vs goal"}
-            value={cmpOn ? plain(perDay(p.actual, p)) : money(p.delta)}
-            sub={cmpOn && prevP && PREV ? `was ${plain(perDay(prevP.actual, prevP))} a day ${PREV[1]}${chgTxt(revChg)}` : `${pct(attain)} of ${plain(p.expected)}`}
-            color={cmpOn ? tone(revChg ?? 0) : tone(p.delta)}
-            dot={(cmpOn ? (revChg ?? 0) >= 0 : !behind) ? GOOD : BAD}
+            name={cmpOn ? "Revenue per day" : baseOn ? "Revenue vs baseline" : "Revenue vs goal"}
+            value={cmpOn ? plain(perDay(p.actual, p)) : baseOn ? money(real) : money(p.delta)}
+            sub={cmpOn && prevP && PREV ? `was ${plain(perDay(prevP.actual, prevP))} a day ${PREV[1]}${chgTxt(revChg)}` : baseOn ? `${pct((p.actual / (p.baseline || 1)) * 100)} of a ${plain(p.baseline ?? 0)} baseline` : `${pct(attain)} of ${plain(p.expected)}`}
+            color={cmpOn ? tone(revChg ?? 0) : baseOn ? tone(real) : tone(p.delta)}
+            dot={(cmpOn ? (revChg ?? 0) >= 0 : baseOn ? real >= 0 : !behind) ? GOOD : BAD}
           />
           <Kpi
             name={cmpOn ? "Orders per day" : "Orders"}
@@ -384,10 +410,10 @@ export function ExecutiveView({
             dot={p.aov >= (cmpOn && prevP ? prevP.aov : p.baseAov) ? GOOD : WARN}
           />
           <Kpi
-            name="Repeat ordering"
-            value={sc.repeat?.rate != null ? `${Math.round(sc.repeat.rate * 100)}%` : "—"}
-            sub={sc.repeat ? `${int(sc.repeat.n)} of ${int(sc.repeat.of)} ordering clinics ordered 2+ times` : "loading"}
-            dot={sc.repeat?.rate == null ? "var(--vw-gray-10)" : sc.repeat.rate >= 0.62 ? GOOD : sc.repeat.rate >= 0.5 ? WARN : BAD}
+            name="Repeat patients"
+            value={rp?.ready && rp.repeat !== undefined ? int(rp.repeat) : "—"}
+            sub={rp?.ready && rp.window ? `of ${int(rp.window)} patients had ordered before ${shortDate(p.start)} · ${Math.round(((rp.repeat ?? 0) / rp.window) * 100)}%` : rp === null ? "loading" : "not available"}
+            dot={rp?.ready && rp.window ? ((rp.repeat ?? 0) / rp.window >= 0.5 ? GOOD : WARN) : "var(--vw-gray-10)"}
           />
           <Kpi
             name="Buying clinics overdue"
