@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
-import { ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
+import { MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -62,26 +62,23 @@ const TILES: Record<string, [number, number]> = {
 
 const TONE_DOT: Record<string, string> = { good: GOOD, watch: WARN, bad: BAD, act: "var(--vw-gray-30)", na: "var(--vw-gray-10)" };
 
-/** Semicircle dial: filled to the heading as a share of goal (scale 60% to 110%), tick at 100%. */
-function Dial({ name, pct, sub }: { name: string; pct: number | null; sub: string }) {
-  const status = pct === null ? null : pct >= 100 ? "good" : pct >= 95 ? "watch" : "bad";
-  const color = status === "good" ? GOOD : status === "watch" ? WARN : BAD;
-  const label = status === "good" ? "On track" : status === "watch" ? "Watch" : status === "bad" ? "Behind" : "No goal set";
-  const f = pct === null ? 0 : Math.max(0, Math.min(1, (pct - 60) / 50));
-  const th = Math.PI * (1 - 0.8);
-  const x = (r: number) => (80 + r * Math.cos(th)).toFixed(1);
-  const y = (r: number) => (80 - r * Math.sin(th)).toFixed(1);
+/** One outcome dial, the same as the rep view: so far, heading and goal, and the clinics it is measured over. */
+function Meter({ m, hero }: { m: ReturnType<typeof useExecScorecard>["meters"][number]; hero?: boolean }) {
+  const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   return (
-    <div className="ev-card ev-dial">
-      <div className="nm">{name}</div>
-      <svg width="150" height="90" viewBox="0 0 160 96">
-        <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none" stroke="var(--vw-gray-10)" strokeWidth="12" />
-        <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none" stroke={color} strokeWidth="12" strokeDasharray={`${(Math.PI * 60 * f).toFixed(1)} 400`} />
-        <line x1={x(48)} y1={y(48)} x2={x(72)} y2={y(72)} stroke="var(--vw-ink)" strokeWidth="2" />
-        <text x="80" y="76" textAnchor="middle" fontSize="22" fontFamily="var(--font-mono)" fill="var(--vw-ink)">{pct === null ? "—" : `${Math.round(pct)}%`}</text>
-      </svg>
-      <div style={{ fontSize: 12, fontWeight: 500, color }}>{label}</div>
-      <div className="sub">{sub}</div>
+    <div className={`rv-outm${hero ? " rv-outm-hero" : ""} ev-t-${tone}`} style={{ cursor: "default" }}>
+      <div className="rv-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}</div>
+      <b>{m.label}</b>
+      <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style="dial" big={hero} />
+      <div className="rv-outm-nums">
+        <span><i className="sw sofar" />So far <b>{m.soFarT}</b></span>
+        <span><i className="sw heading" />Heading <b>{m.headingT}</b></span>
+        <span><i className="sw plan" />{m.planLbl} <b>{m.planT}</b></span>
+      </div>
+      <div className="rv-outm-clin" title={`Clinics this dial is measured over: ${m.clinics.why}`}>
+        <b>{m.clinics.ordered !== undefined ? `${m.clinics.ordered} of ${m.clinics.n}` : (m.clinics.n ?? "…")}</b> {m.clinics.ordered !== undefined ? "clinics ordered" : "clinics"}
+        <span>{m.clinics.why} · of {m.bookClinics} in the book</span>
+      </div>
     </div>
   );
 }
@@ -166,6 +163,7 @@ export function TeamsView({ periods, windowLabel }: { periods: ExecPeriod[]; win
     </div>
   );
 }
+
 
 type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"; q: string; a: string };
 
@@ -378,11 +376,10 @@ export function ExecutiveView({
         <section>
           <div className="ev-sechead">
             <div className="ev-sectitle">Pillar health</div>
-            <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. The tick marks 100% of goal.</div>
+            <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. Solid needle is booked so far, dotted is where the window is heading, and the marker is the goal.</div>
           </div>
-          <div className="ev-dials">
-            {sc.dials.map(d => <Dial key={d.name} {...d} />)}
-          </div>
+          {sc.meters.some(m => m.pillar === "Combined") ? <div className="rv-outhero">{sc.meters.filter(m => m.pillar === "Combined").map(m => <Meter key={m.pillar} m={m} hero />)}</div> : null}
+          <div className="rv-outmeters">{sc.meters.filter(m => m.pillar !== "Combined").map(m => <Meter key={m.pillar} m={m} />)}</div>
         </section>
       ) : null}
 

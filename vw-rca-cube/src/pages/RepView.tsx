@@ -4438,7 +4438,7 @@ function MeterToggle({ v, set }: { v: MeterStyle; set: (v: MeterStyle) => void }
     </span>
   );
 }
-function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; heading: number; plan: number; style: MeterStyle; big?: boolean }) {
+export function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; heading: number; plan: number; style: MeterStyle; big?: boolean }) {
   const hi = Math.max(plan, heading, soFar, 1e-9) * 1.05;
   const tone = plan ? (heading >= plan ? "good" : heading >= plan * 0.95 ? "watch" : "bad") : "na";
   if (style === "bar") {
@@ -4577,8 +4577,13 @@ const addDaysStr = (d: string, n: number) => { const t = new Date(d + "T00:00:00
 export type ExecScorecard = {
   ready: boolean;
   rows: Array<{ pillar: string; cells: Array<{ label: string; value: string; sub: string; tone: Tone }> }>;
-  /** Heading as a percent of goal, per dial; null when the goal is not set. */
-  dials: Array<{ name: string; pct: number | null; sub: string }>;
+  /** The rep view's outcome dials: so far, heading and goal for each pillar, with the clinics each is measured over. */
+  meters: Array<{
+    pillar: string; label: string; soFar: number; heading: number; plan: number;
+    soFarT: string; headingT: string; planT: string; planLbl: string;
+    clinics: { n: number | null; ordered?: number; why: string };
+    bookClinics: number;
+  }>;
   /** Clinics past their usual reorder (not churned). */
   overdue: number | null;
   /** Share of ordering clinics that ordered 2+ times. */
@@ -4597,7 +4602,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined): E
   const b: Book | null = bookQ?.ready ? bookQ : null;
   const pace: Pace | null = paceQ?.ready ? (paceQ as Pace) : null;
   return useMemo(() => {
-    if (!b || !fams) return { ready: false, rows: [], dials: [], overdue: null, repeat: null, families: [] };
+    if (!b || !fams) return { ready: false, rows: [], meters: [], overdue: null, repeat: null, families: [] };
     const t = new Map<string, number>();
     for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
     const famList = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
@@ -4608,13 +4613,18 @@ export function useExecScorecard(sales: string, periodId: string | undefined): E
     const scale = pace?.ratio ?? (pace && pace.elapsedDays ? (pace.elapsedDays + pace.remainingDays) / pace.elapsedDays : 1);
     const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family);
     const newRev = k.newRevenue + (k.reactivatedRevenue ?? 0);
-    const pct = (heading: number, plan: number) => (plan > 0 ? (heading / plan) * 100 : null);
-    const dials = [
-      { name: "New Business", pct: pct(pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0), sub: "New revenue vs goal" },
-      { name: "AOV", pct: pct(k.aov ?? 0, k.baseAov ?? 0), sub: "Order value vs baseline" },
-      { name: "Product Growth", pct: hz ? pct(hz.orders, hz.expectedOrders) : null, sub: `${family} orders vs goal` },
-      { name: "Existing business", pct: pct(pace?.existingHeading ?? (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale), sub: "Retention and expansion revenue" },
-      { name: "Combined", pct: pace ? pct(pace.heading, pace.plan) : null, sub: "Heading vs goal for the window" },
+    const ordered = new Set<string>(b.activeIds ?? []);
+    const count = (ids: string[], why: string) => ({ n: ids.length, ordered: ids.filter(id => ordered.has(id)).length, why });
+    const bookClinics = (b.allIds ?? []).length;
+    const num = (n: number) => n.toFixed(0);
+    const mk = (pillar: string, label: string, soFar: number, heading: number, plan: number, fmt: (n: number) => string, planLbl: string, clinics: { n: number | null; ordered?: number; why: string }) =>
+      ({ pillar, label, soFar, heading, plan, soFarT: fmt(soFar), headingT: fmt(heading), planT: plan ? fmt(plan) : "—", planLbl, clinics, bookClinics });
+    const meters = [
+      mk("New Business", "New Revenue", newRev, pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0, K, pace?.newPlan ? "goal" : "no goal", count([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], "new + reactivated")),
+      mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.baseAov ?? 0, K, "baseline AOV", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
+      ...(hz ? [mk("Product Growth", `${hz.family} orders`, hz.orders, hz.orders * scale, hz.expectedOrders * scale, num, "goal", { n: pg ? pg.buyerIds.length : null, why: `ordered ${family}` })] : []),
+      mk("Existing business", "Existing business revenue", k.existingRevenue ?? 0, pace?.existingHeading !== undefined ? pace.existingHeading : (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale, K, k.existingGoal !== undefined ? "goal" : "baseline", count(b.existingIds ?? [], "existing: ordered in the baseline")),
+      ...(pace ? [mk("Combined", "Revenue", pace.soFar, pace.heading, pace.plan, K, "goal", count(b.allIds ?? [], "existing + new + returning"))] : []),
     ];
     const launchOf = new Map((launchQ?.launches ?? []).map(l => [l.family, l]));
     const families = ((fams?.all ?? []) as Fam[])
@@ -4623,7 +4633,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined): E
     return {
       ready: true,
       rows: rows.map(r => ({ pillar: r.pillar, cells: r.cells.map(c => ({ label: c.label, value: c.value, sub: c.sub, tone: c.tone })) })),
-      dials,
+      meters,
       overdue: b.overdueCount ?? null,
       repeat: { rate: k.repeatRate ?? null, n: k.repeatCount ?? 0, of: k.activeCount ?? 0 },
       families,
