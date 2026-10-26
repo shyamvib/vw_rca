@@ -169,9 +169,12 @@ export function TeamsView({ periods, windowLabel }: { periods: ExecPeriod[]; win
 
 type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"; q: string; a: string };
 
-function Kpi({ name, value, sub, color, dot }: { name: string; value: string; sub: string; color?: string; dot: string }) {
+/** Same fills as the rep view: green on track, amber watch, red behind, blue where to act, dashed white for new releases. */
+const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch" : dot === BAD ? "bad" : dot === "var(--vw-gray-30)" ? "act" : "na");
+
+function Kpi({ name, value, sub, color, dot, fill }: { name: string; value: string; sub: string; color?: string; dot: string; fill?: string }) {
   return (
-    <div className="ev-card ev-kpi">
+    <div className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}`}>
       <div className="top"><span>{name}</span><i className="dot" style={{ background: dot }} /></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
@@ -455,21 +458,13 @@ export function ExecutiveView({
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no expected orders or colour.</div>
                 <div className="ev-fams">
                   {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" />
+                    <Kpi key={x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
                   ))}
                 </div>
               </>
             ) : null}
           </>
         ) : null}
-      </section>
-
-      <section>
-        <div className="ev-sechead">
-          <div className="ev-sectitle">New business funnel</div>
-          <div className="ev-secsub">New clinics this window, signup to order 5, with the touches between each step.</div>
-        </div>
-        <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={COMPANY} /></div>
       </section>
 
       <div className="ev-split">
@@ -526,7 +521,7 @@ export function ExecutiveView({
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar === "Bundle growth" ? "AOV" : r.pillar}</div>
               {r.cells.map(c => (
-                <div className="ev-sc-cell" key={c.label}>
+                <div className={`ev-sc-cell ev-t-${c.tone}`} key={c.label}>
                   <div className="top"><span>{c.label}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
@@ -536,6 +531,14 @@ export function ExecutiveView({
           ))}
         </div>
       ) : null}
+
+      <section>
+        <div className="ev-sechead">
+          <div className="ev-sectitle">New business funnel</div>
+          <div className="ev-secsub">New clinics this window, signup to order 5, with the touches between each step.</div>
+        </div>
+        <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={COMPANY} /></div>
+      </section>
 
       {repRows.length ? (
         <div className="ev-card ev-team">
