@@ -1925,6 +1925,15 @@ export function RcaDashboardPage() {
             }}
           >
             <option value="">All reps</option>
+            {isRep ? null : (
+              <optgroup label="Whole team, as one book">
+                {(leads ?? []).map(l => (
+                  <option key={`team:${l}`} value={`team:${l}`}>
+                    {l}'s team
+                  </option>
+                ))}
+              </optgroup>
+            )}
             {[...(salesLeaderboard ?? [])]
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(r => (
@@ -2019,6 +2028,7 @@ export function RcaDashboardPage() {
             isRep={isRep}
             canSwitchRep={isLead}
             teamName={isLead ? repLogin!.rep : undefined}
+            teams={isRep ? undefined : (leads ?? [])}
             periodId={periodIdSafe}
             periodLabel={
               periodIdSafe === "all"

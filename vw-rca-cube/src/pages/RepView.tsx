@@ -72,6 +72,8 @@ export function RepView(props: {
   canSwitchRep?: boolean;
   /** A VP of sales: the lead's own name, which names the "All reps (my team)" scope. */
   teamName?: string;
+  /** Admin (team login): every lead, so any team can be opened as one book from the picker. */
+  teams?: string[];
   periodId: string;
   periodLabel: string;
   weeks: RepViewPeriod[];
@@ -278,6 +280,13 @@ export function RepView(props: {
         {props.teamName ? (
           <div className="rv-pick-team">
             <button type="button" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps · my team ({props.teamName} and every rep under them)</button>
+          </div>
+        ) : null}
+        {props.teams?.length ? (
+          <div className="rv-pick-team">
+            {props.teams.map(t => (
+              <button key={t} type="button" onClick={() => props.onPickRep(`team:${t}`)}>All reps · {t}'s team ({t} and every rep under them)</button>
+            ))}
           </div>
         ) : null}
         <div className="rv-pick-list">
