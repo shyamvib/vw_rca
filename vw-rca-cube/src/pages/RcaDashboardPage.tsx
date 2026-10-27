@@ -1267,6 +1267,8 @@ export function RcaDashboardPage() {
   const [view, setView] = useState<"dashboard" | "feed" | "rep">(isRep ? "rep" : "dashboard");
   const isLead = repLogin?.all === true; // rep-view only, but any rep's book
   const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
+  // Admin: with a team lead picked in the top bar and no rep chosen, the rep view is that lead's whole team as one book.
+  const repScope = !isRep && !salesRep && teamLead ? `team:${teamLead}` : salesRep;
   const [geoPick, setGeoPick] = useState<string | null>(null);
   // The map only appears once the geography branch is opened, and its tables
   // stay behind a "show as table" toggle so the page is not a wall of numbers.
@@ -1925,15 +1927,6 @@ export function RcaDashboardPage() {
             }}
           >
             <option value="">All reps</option>
-            {isRep ? null : (
-              <optgroup label="Whole team, as one book">
-                {(leads ?? []).map(l => (
-                  <option key={`team:${l}`} value={`team:${l}`}>
-                    {l}'s team
-                  </option>
-                ))}
-              </optgroup>
-            )}
             {[...(salesLeaderboard ?? [])]
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(r => (
@@ -2024,11 +2017,10 @@ export function RcaDashboardPage() {
       <div className="rca-page">
         {view === "rep" ? (
           <RepView
-            sales={salesRep}
+            sales={repScope}
             isRep={isRep}
             canSwitchRep={isLead}
             teamName={isLead ? repLogin!.rep : undefined}
-            teams={isRep ? undefined : (leads ?? [])}
             periodId={periodIdSafe}
             periodLabel={
               periodIdSafe === "all"
