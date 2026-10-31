@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
-import { MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
+import { ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -63,11 +63,11 @@ const TILES: Record<string, [number, number]> = {
 const TONE_DOT: Record<string, string> = { good: GOOD, watch: WARN, bad: BAD, act: "var(--vw-gray-30)", na: "var(--vw-gray-10)" };
 
 /** One outcome dial, the same as the rep view: so far, heading and goal, and the clinics it is measured over. */
-function Meter({ m, hero }: { m: ReturnType<typeof useExecScorecard>["meters"][number]; hero?: boolean }) {
+function Meter({ m, hero, on, onPick }: { m: ReturnType<typeof useExecScorecard>["meters"][number]; hero?: boolean; on?: boolean; onPick: () => void }) {
   const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   return (
-    <div className={`rv-outm${hero ? " rv-outm-hero" : ""} ev-t-${tone}`} style={{ cursor: "default" }}>
-      <div className="rv-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}</div>
+    <button type="button" className={`rv-outm${hero ? " rv-outm-hero" : ""}${on ? " is-sel" : ""} ev-t-${tone}`} onClick={onPick} title="Click for the clinics behind this dial">
+      <div className="rv-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}{m.tag ? <em className="rv-allp"> · {m.tag}</em> : null}</div>
       <b>{m.label}</b>
       <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style="dial" big={hero} />
       <div className="rv-outm-nums">
@@ -79,7 +79,7 @@ function Meter({ m, hero }: { m: ReturnType<typeof useExecScorecard>["meters"][n
         <b>{m.clinics.ordered !== undefined ? `${m.clinics.ordered} of ${m.clinics.n}` : (m.clinics.n ?? "…")}</b> {m.clinics.ordered !== undefined ? "clinics ordered" : "clinics"}
         <span>{m.clinics.why} · of {m.bookClinics} in the book</span>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -170,9 +170,9 @@ type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"
 /** Same fills as the rep view: green on track, amber watch, red behind, blue where to act, dashed white for new releases. */
 const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch" : dot === BAD ? "bad" : dot === "var(--vw-gray-30)" ? "act" : "na");
 
-function Kpi({ name, value, sub, color, dot, fill }: { name: string; value: string; sub: string; color?: string; dot: string; fill?: string }) {
+function Kpi({ name, value, sub, color, dot, fill, onClick, on }: { name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean }) {
   return (
-    <div className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}`}>
+    <div className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
       <div className="top"><span>{name}</span><i className="dot" style={{ background: dot }} /></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
@@ -212,12 +212,35 @@ export function ExecutiveView({
   }, [p.id, runRepeat]);
   const fun = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, { password: pw(), periodId: p.id, sales: COMPANY });
   const order3 = fun?.ready ? fun.stages.find(x => x.n === 3) : undefined;
+  // Order 3 is judged like for like: of the new clinics old enough to have had `days` since order 1, the share that got
+  // there in that time, against the same share for the baseline period's new clinics. Heading-vs-goal colours (95% = watch).
+  const o3 = (() => {
+    const g = fun?.ready ? fun.order3 : undefined;
+    if (!order3 || !fun?.ready || !g) return { sub: "loading", dot: "var(--vw-gray-10)" };
+    const rate = (x: { n: number; of: number }) => (x.of ? x.n / x.of : null);
+    const cur = rate(g.cur);
+    const base = g.base ? rate(g.base) : null;
+    const lead = `${int(fun.clinics)} new clinics, ${int(order3.clinics)} reached order 3`;
+    if (g.cur.of < 10) return { sub: `${lead}. Too early to judge: only ${g.cur.of} are ${g.days}+ days past order 1`, dot: "var(--vw-gray-30)" };
+    const mine = `${g.cur.n} of ${g.cur.of} clinics ${g.days}+ days in got there within ${g.days} days (${Math.round((cur ?? 0) * 100)}%)`;
+    if (base === null || !g.base || g.base.of < 10) return { sub: `${mine}. No baseline rate to compare`, dot: "var(--vw-gray-30)" };
+    const ratio = (cur ?? 0) / (base || 1);
+    return { sub: `${mine} vs ${Math.round(base * 100)}% in the baseline`, dot: ratio >= 1 ? GOOD : ratio >= 0.95 ? WARN : BAD };
+  })();
 
   const proj = useRcaQuery(api.projection.summary, { password: pw() });
   const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id });
   const feed = useRcaQuery(api.feed.feed, { password: pw() });
   const geo = useRcaQuery(api.geo.geoSummary, { password: pw(), periodId: p.id });
-  const sc = useExecScorecard(COMPANY, p.id);
+  const [fam, setFam] = useState("");
+  const sc = useExecScorecard(COMPANY, p.id, fam);
+  // The clinic list behind a dial or a scorecard cell, shown under whichever was clicked.
+  const [open, setOpen] = useState<{ from: "dial" | "cell"; sel: ExecSel } | null>(null);
+  useEffect(() => setOpen(null), [p.id, fam]);
+  const openList = (from: "dial" | "cell", cell: string) => {
+    const sel = sc.pick(cell);
+    setOpen(o => (!sel || (o && o.sel.key === sel.key && o.from === from) ? null : { from, sel }));
+  };
 
   // Headline: the gap, then the two biggest drags across the volume/price and cohort lenses.
   const drags = [...p.lensA, ...p.lensC]
@@ -378,8 +401,15 @@ export function ExecutiveView({
             <div className="ev-sectitle">Pillar health</div>
             <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. Solid needle is booked so far, dotted is where the window is heading, and the marker is the goal.</div>
           </div>
-          {sc.meters.some(m => m.pillar === "Combined") ? <div className="rv-outhero">{sc.meters.filter(m => m.pillar === "Combined").map(m => <Meter key={m.pillar} m={m} hero />)}</div> : null}
-          <div className="rv-outmeters">{sc.meters.filter(m => m.pillar !== "Combined").map(m => <Meter key={m.pillar} m={m} />)}</div>
+          {sc.scoped ? (
+            <div className="rv-scope" style={{ marginBottom: 12 }}>
+              <span>Dials and scorecard are scoped to <b>{sc.family}</b>. Retention and expansion are not family-specific yet, so they stay on all products.</span>
+              <button type="button" onClick={() => setFam("")}>Back to all products</button>
+            </div>
+          ) : null}
+          {sc.meters.some(m => m.pillar === "Combined") ? <div className="rv-outhero">{sc.meters.filter(m => m.pillar === "Combined").map(m => <Meter key={m.pillar} m={m} hero on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />)}</div> : null}
+          <div className="rv-outmeters">{sc.meters.filter(m => m.pillar !== "Combined").map(m => <Meter key={m.pillar} m={m} on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />)}</div>
+          {open?.from === "dial" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={COMPANY} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
         </section>
       ) : null}
 
@@ -425,15 +455,15 @@ export function ExecutiveView({
           <Kpi
             name="New clinics reaching order 3"
             value={order3 ? int(order3.clinics) : "—"}
-            sub={order3 && fun?.ready ? `of ${int(fun.clinics)} new clinics${fun.clinics ? ` · ${Math.round((order3.clinics / fun.clinics) * 100)}%` : ""}` : "loading"}
-            dot={!order3 || !fun?.ready || !fun.clinics ? "var(--vw-gray-10)" : order3.clinics / fun.clinics >= 0.28 ? GOOD : WARN}
+            sub={o3.sub}
+            dot={o3.dot}
           />
         </div>
         {sc.families.length ? (
           <>
             <div className="ev-sechead" style={{ marginTop: 20 }}>
               <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
-              <div className="ev-secsub">Orders against expected, by family</div>
+              <div className="ev-secsub">Orders against expected, by family. Click one to scope the dials and scorecard to it.</div>
             </div>
             <div className="ev-fams">
               {sc.families.filter(x => !x.isNew).map(x => {
@@ -441,6 +471,8 @@ export function ExecutiveView({
                 return (
                   <Kpi
                     key={x.family}
+                    onClick={() => setFam(f => (f === x.family ? "" : x.family))}
+                    on={sc.scoped && sc.family === x.family}
                     name={x.family}
                     value={`${int(x.orders)} orders`}
                     sub={`${int(x.expectedOrders)} expected · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs expected`}
@@ -455,7 +487,7 @@ export function ExecutiveView({
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no expected orders or colour.</div>
                 <div className="ev-fams">
                   {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
+                    <Kpi key={x.family} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
                   ))}
                 </div>
               </>
@@ -524,7 +556,7 @@ export function ExecutiveView({
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar === "Bundle growth" ? "AOV" : r.pillar}</div>
               {r.cells.map(c => (
-                <div className={`ev-sc-cell ev-t-${c.tone}`} key={c.label}>
+                <div className={`ev-sc-cell ev-t-${c.tone}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
                   <div className="top"><span>{c.label}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
@@ -534,6 +566,7 @@ export function ExecutiveView({
           ))}
         </div>
       ) : null}
+      {open?.from === "cell" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={COMPANY} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
 
       <section>
         <div className="ev-sechead">

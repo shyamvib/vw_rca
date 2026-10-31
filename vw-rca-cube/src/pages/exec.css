@@ -95,3 +95,11 @@
 .ev-team-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-outm.ev-t-good, .rv-outm.ev-t-watch, .rv-outm.ev-t-bad { box-shadow: none; }
 .ev .rv-outmeters { margin-bottom: 0; }
+
+.ev-click { cursor: pointer; }
+.ev-kpi.ev-click:hover, .ev-sc-cell.ev-click:hover { filter: brightness(0.97); }
+.ev-kpi.is-on { outline: 2px solid var(--vw-blue-hover); }
+.ev-sc-cell.is-on { outline: 2px solid var(--vw-blue-hover); outline-offset: -2px; }
+.rv-outm { font: inherit; }
+.ev-list { margin-top: 16px; }
+.ev-list .rv-panel { margin-top: 12px; }

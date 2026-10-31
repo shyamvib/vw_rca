@@ -248,8 +248,24 @@ export const orderRetentionFunnel = scopedQuery({
       qoqPct: curQCounts && prevQCounts ? pctChange(curQCounts[i], prevQCounts[i]) : null,
     }));
 
+    // Early-retention benchmark for "reached order 3" (2026-10-26). A clinic that signed up last week cannot have reached
+    // order 3 yet, so raw counts always look low. The like-for-like read is: of the new clinics old enough to have had
+    // `order3.days` since order 1 (45, the same cut the churn rule uses for new clinics), how many reached order 3 inside
+    // that time. The baseline is the same rate over the baseline period's own new clinics.
+    const ORDER3_DAYS = 45;
+    const dataEnd = cfg.currentEnd;
+    const o3Rate = (rows: typeof cohort) => {
+      const mature = rows.filter(r => r.orderDates.length >= 1 && diffDays(r.orderDates[0], dataEnd) >= ORDER3_DAYS);
+      return { of: mature.length, n: mature.filter(r => r.orderDates.length >= 3 && diffDays(r.orderDates[0], r.orderDates[2]) <= ORDER3_DAYS).length };
+    };
+    const baseCohort = cfg.baselineStart && cfg.baselineEnd
+      ? seqRows.filter(r => inScope(r.sales) && r.firstOrder >= cfg.baselineStart && r.firstOrder <= cfg.baselineEnd)
+      : [];
+    const order3 = { days: ORDER3_DAYS, cur: o3Rate(cohort), base: baseCohort.length ? o3Rate(baseCohort) : null };
+
     return {
       ready: true as const,
+      order3,
       start,
       end,
       signups,
