@@ -217,6 +217,9 @@ export const book = scopedQuery({
     const aovGap = active.filter(r => r.baseAov > 0 && r.aov < r.baseAov);
     const aovOpp = sum(aovGap, r => (r.baseAov - r.aov) * r.orders);
     const baseAov = expOrders ? exGoal / expOrders : 0;
+    // The real baseline AOV (baseline revenue over baseline orders). `baseAov` above is the goal's AOV (goal revenue over goal orders).
+    const baseOrdTot = sum(rows, r => (r.baseOrdersPerDay ?? 0) * days);
+    const baselineAov = baseOrdTot ? sum(rows, r => r.baseline) / baseOrdTot : null;
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
@@ -679,6 +682,7 @@ export const book = scopedQuery({
         o1to2: roll90.length ? roll90.filter(r => (r.ytdOrders ?? r.windowOrders) >= 2).length / roll90.length : null,
         aov: orders ? actual / orders : null,
         baseAov,
+        baselineAov,
         existingAov: exOrd ? exAct / exOrd : null,
         existingBaseAov: exExpOrd ? exExp / exExpOrd : null,
         bundlePen: orders ? bundleOrders / orders : null,

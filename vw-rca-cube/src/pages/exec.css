@@ -110,3 +110,11 @@
 .rv-outm { font: inherit; }
 .ev-list { margin-top: 16px; }
 .ev-list .rv-panel { margin-top: 12px; }
+
+.ev-delta { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); }
+.ev-delta.up { color: var(--vw-success); }
+.ev-delta.dn { color: var(--vw-error); }
+.ev-ref { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); }
+.ev-ref.fixed { opacity: 0.8; }
+.ev-rule { font-style: normal; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); border: 1px solid var(--border-subtle); border-radius: 3px; padding: 1px 5px; margin-left: 8px; }
+.ev-banner { border: 1px dashed var(--vw-warning); background: var(--vw-warning-bg); color: #795b35; border-radius: 8px; padding: 12px 16px; font-size: 13px; line-height: 1.4; }
