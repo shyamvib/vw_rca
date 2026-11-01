@@ -1798,6 +1798,8 @@ type Fam = {
   orders: number;
   expected: number;
   expectedOrders: number;
+  baseline?: number;
+  baselineOrders?: number;
   delta: number;
   orderDelta: number;
 };
@@ -4591,6 +4593,9 @@ type ExecMeter = {
   soFarT: string; headingT: string; planT: string; planLbl: string;
   /** The goal for the days elapsed so far (0 when there is none), against the window-end `plan`. */
   planTo: number; planToT: string;
+  /** The baseline (mean run rate) for the days elapsed; 0 where the dial has none (new clinics). */
+  baseTo: number;
+  fmt: (n: number) => string;
   clinics: { n: number | null; ordered?: number; why: string };
   bookClinics: number;
   /** "all products" when a dial does not follow the selected family. */
@@ -4603,6 +4608,12 @@ export type ExecScorecard = {
   rows: Array<{ pillar: string; cells: ExecCell[] }>;
   /** The rep view's outcome dials: so far, heading and goal for each pillar, with the clinics each is measured over. */
   meters: ExecMeter[];
+  /** Days of the window so far and in all; scale is the full-window goal over the goal so far (1 when the window is complete). */
+  elapsedDays: number;
+  windowDays: number;
+  scale: number;
+  /** The whole book's revenue against the goal, from the pace query, whichever family the dials follow. */
+  total: { soFar: number; heading: number; plan: number; planTo: number } | null;
   /** Clinics past their usual reorder (not churned). */
   overdue: number | null;
   /** Share of ordering clinics that ordered 2+ times. */
@@ -4652,20 +4663,20 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
     const count = (ids: string[], why: string) => (scoped ? { n: ids.length, why } : { n: ids.length, ordered: ids.filter(id => ordered.has(id)).length, why });
     const num = (n: number) => n.toFixed(0);
     const cellOf = (pillar: string) => rows.find(r => r.pillar === (pillar === "Existing business" ? "Retention" : pillar))?.cells[0]?.label ?? "";
-    const mk = (pillar: string, label: string, soFar: number, heading: number, plan: number, planTo: number, fmt: (n: number) => string, planLbl: string, clinics: ExecMeter["clinics"], tag?: string): ExecMeter =>
-      ({ pillar, label, soFar, heading, plan, soFarT: fmt(soFar), headingT: fmt(heading), planT: plan ? fmt(plan) : "—", planTo, planToT: planTo ? fmt(planTo) : "—", planLbl, clinics, bookClinics, tag, cell: cellOf(pillar) });
+    const mk = (pillar: string, label: string, soFar: number, heading: number, plan: number, planTo: number, baseTo: number, fmt: (n: number) => string, planLbl: string, clinics: ExecMeter["clinics"], tag?: string): ExecMeter =>
+      ({ pillar, label, soFar, heading, plan, soFarT: fmt(soFar), headingT: fmt(heading), planT: plan ? fmt(plan) : "—", planTo, planToT: planTo ? fmt(planTo) : "—", baseTo, fmt, planLbl, clinics, bookClinics, tag, cell: cellOf(pillar) });
     const allP = scoped ? "all products" : undefined;
     const noBase = "new · no baseline";
     const meters: ExecMeter[] = [
-      mk("New Business", "New Revenue", newRev, pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0, pace?.newGoal ?? 0, K, pace?.newPlan ? "goal" : "no goal", count([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], "new + reactivated"), allP),
+      mk("New Business", "New Revenue", newRev, pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0, pace?.newGoal ?? 0, 0, K, pace?.newPlan ? "goal" : "no goal", count([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], "new + reactivated"), allP),
       scoped && selFam
-        ? mk("Bundle growth", `${selFam.family} AOV`, selFam.orders ? selFam.revenue / selFam.orders : 0, selFam.orders ? selFam.revenue / selFam.orders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, K, famLaunch ? noBase : "baseline AOV", { n: famBuyers, why: `ordered ${family}` })
-        : mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.baseAov ?? 0, k.baseAov ?? 0, K, "baseline AOV", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
-      ...(selFam ? [mk("Product Growth", `${selFam.family} orders`, selFam.orders, selFam.orders * scale, famLaunch ? 0 : selFam.expectedOrders * scale, famLaunch ? 0 : selFam.expectedOrders, num, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })] : []),
-      mk("Existing business", "Existing business revenue", k.existingRevenue ?? 0, pace?.existingHeading !== undefined ? pace.existingHeading : (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale, k.existingGoal ?? k.existingBaseline ?? 0, K, k.existingGoal !== undefined ? "goal" : "baseline", count(b.existingIds ?? [], "existing: ordered in the baseline"), allP),
+        ? mk("Bundle growth", `${selFam.family} AOV`, selFam.orders ? selFam.revenue / selFam.orders : 0, selFam.orders ? selFam.revenue / selFam.orders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, K, famLaunch ? noBase : "baseline AOV", { n: famBuyers, why: `ordered ${family}` })
+        : mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.baseAov ?? 0, k.baseAov ?? 0, k.baseAov ?? 0, K, "baseline AOV", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
+      ...(selFam ? [mk("Product Growth", `${selFam.family} orders`, selFam.orders, selFam.orders * scale, famLaunch ? 0 : selFam.expectedOrders * scale, famLaunch ? 0 : selFam.expectedOrders, famLaunch ? 0 : selFam.baselineOrders ?? 0, num, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })] : []),
+      mk("Existing business", "Existing business revenue", k.existingRevenue ?? 0, pace?.existingHeading !== undefined ? pace.existingHeading : (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale, k.existingGoal ?? k.existingBaseline ?? 0, k.existingBaseline ?? 0, K, k.existingGoal !== undefined ? "goal" : "baseline", count(b.existingIds ?? [], "existing: ordered in the baseline"), allP),
       ...(scoped && selFam
-        ? [mk("Combined", `${selFam.family} revenue`, selFam.revenue, selFam.revenue * scale, famLaunch ? 0 : selFam.expected * scale, famLaunch ? 0 : selFam.expected, K, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })]
-        : pace ? [mk("Combined", "Revenue", pace.soFar, pace.heading, pace.plan, (pace.expSoFar ?? 0) + (pace.newGoal ?? 0), K, "goal", count(b.allIds ?? [], "existing + new + returning"))] : []),
+        ? [mk("Combined", `${selFam.family} revenue`, selFam.revenue, selFam.revenue * scale, famLaunch ? 0 : selFam.expected * scale, famLaunch ? 0 : selFam.expected, famLaunch ? 0 : selFam.baseline ?? 0, K, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })]
+        : pace ? [mk("Combined", "Revenue", pace.soFar, pace.heading, pace.plan, (pace.expSoFar ?? 0) + (pace.newGoal ?? 0), 0, K, "goal", count(b.allIds ?? [], "existing + new + returning"))] : []),
     ];
     const families = ((fams?.all ?? []) as Fam[])
       .filter(f => f.family !== "Unmapped" && f.family !== NON_ZOOMER)
@@ -4674,6 +4685,10 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
       ready: true as const,
       rows,
       meters,
+      elapsedDays: pace?.elapsedDays ?? 0,
+      windowDays: pace ? pace.elapsedDays + pace.remainingDays : 0,
+      scale,
+      total: pace ? { soFar: pace.soFar, heading: pace.heading, plan: pace.plan, planTo: (pace.expSoFar ?? 0) + (pace.newGoal ?? 0) } : null,
       overdue: b.overdueCount ?? null,
       repeat: { rate: k.repeatRate ?? null, n: k.repeatCount ?? 0, of: k.activeCount ?? 0 },
       families,
@@ -4687,7 +4702,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
     const ids = contrib ? contrib.universe(b) : c.ids;
     return { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids.length} clinics`, ids: ids.length ? ids : c.ids, tone: c.tone, contrib };
   };
-  return base ? { ...base, family, scoped, pick } : { ready: false, rows: [], meters: [], overdue: null, repeat: null, families: [], family, scoped, pick };
+  return base ? { ...base, family, scoped, pick } : { ready: false, rows: [], meters: [], elapsedDays: 0, windowDays: 0, scale: 1, total: null, overdue: null, repeat: null, families: [], family, scoped, pick };
 }
 
 /** The clinic list for a picked dial or scorecard cell: up / down tabs, map and list, as in the rep scorecard. */

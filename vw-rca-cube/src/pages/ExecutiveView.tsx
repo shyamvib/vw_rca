@@ -63,15 +63,44 @@ const TILES: Record<string, [number, number]> = {
 const TONE_DOT: Record<string, string> = { good: GOOD, watch: WARN, bad: BAD, act: "var(--vw-gray-30)", na: "var(--vw-gray-10)" };
 
 type MeterData = ReturnType<typeof useExecScorecard>["meters"][number];
+type ViewMeter = MeterData & { elapsed: boolean; refText: string; vs: string };
+type ViewOpts = {
+  mode: "goal" | "baseline" | "prev";
+  elapsed: boolean;
+  scale: number;
+  elapsedDays: number;
+  windowDays: number;
+  /** The same dial for the previous period, its length in days and what to call it ("last week"). */
+  prev?: { m?: MeterData; days: number; name: string };
+};
 
-/** A dial against the goal for the whole window (so far, heading, goal) or against the goal for the days elapsed (so far, goal to date). */
-function viewOf(m: MeterData, elapsed: boolean): MeterData {
-  if (!elapsed) return m;
-  return { ...m, heading: m.soFar, headingT: m.soFarT, plan: m.planTo, planT: m.planToT, planLbl: m.planTo && m.planTo !== m.plan ? `${m.planLbl} to date` : m.planLbl };
+/** A dial against what the page is comparing to: the goal, the baseline or the previous period's pace, for the days
+ * elapsed (so far against it) or for the whole period (heading against it). AOV is a rate, so it is never stretched over days. */
+function viewOf(m: MeterData, o: ViewOpts): ViewMeter {
+  const rate = m.pillar === "Bundle growth";
+  const days = o.elapsed ? o.elapsedDays : o.windowDays;
+  let plan = o.elapsed ? m.planTo : m.plan;
+  let lbl = o.elapsed && m.planTo && m.planTo !== m.plan ? `${m.planLbl} to date` : m.planLbl;
+  let vs = "goal";
+  let refText = o.elapsed ? "goal to date" : "the window goal";
+  if (o.mode === "baseline") {
+    plan = m.baseTo ? (rate || o.elapsed ? m.baseTo : m.baseTo * o.scale) : 0;
+    lbl = plan ? (rate ? "baseline AOV" : o.elapsed ? "baseline to date" : "baseline") : "no baseline";
+    vs = "baseline";
+    refText = o.elapsed ? "baseline to date" : "the window baseline";
+  } else if (o.mode === "prev") {
+    const pm = o.prev?.m;
+    plan = pm && o.prev ? (rate ? pm.soFar : (pm.soFar / Math.max(1, o.prev.days)) * days) : 0;
+    lbl = plan ? (rate ? o.prev!.name : `${o.prev!.name}'s pace`) : "no previous";
+    vs = "previous";
+    refText = `${o.prev?.name ?? "previous"}'s pace`;
+  }
+  const heading = o.elapsed ? m.soFar : m.heading;
+  return { ...m, heading, headingT: m.fmt(heading), plan, planT: plan ? m.fmt(plan) : "—", planLbl: lbl, elapsed: o.elapsed, refText, vs };
 }
 
-/** One outcome dial, the same as the rep view: so far, heading and goal, and the clinics it is measured over. */
-function Meter({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: boolean; on?: boolean; onPick: () => void; elapsed?: boolean }) {
+/** One outcome dial, the same as the rep view: so far, heading and what it is compared to, and the clinics it is measured over. */
+function Meter({ m, hero, on, onPick }: { m: ViewMeter; hero?: boolean; on?: boolean; onPick: () => void }) {
   const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   return (
     <button type="button" className={`rv-outm${hero ? " rv-outm-hero" : ""}${on ? " is-sel" : ""} ev-t-${tone}`} onClick={onPick} title="Click for the clinics behind this dial">
@@ -80,7 +109,7 @@ function Meter({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: boolean;
       <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style="dial" big={hero} />
       <div className="rv-outm-nums">
         <span><i className="sw sofar" />So far <b>{m.soFarT}</b></span>
-        {elapsed ? null : <span><i className="sw heading" />Heading <b>{m.headingT}</b></span>}
+        {m.elapsed ? null : <span><i className="sw heading" />Heading <b>{m.headingT}</b></span>}
         <span><i className="sw plan" />{m.planLbl} <b>{m.planT}</b></span>
       </div>
       <ClinicsLine m={m} />
@@ -97,8 +126,8 @@ function ClinicsLine({ m }: { m: MeterData }) {
   );
 }
 
-/** The same dial as a card: the number so far, how far it is to the goal, and the clinics behind it. */
-function MeterCard({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: boolean; on?: boolean; onPick: () => void; elapsed?: boolean }) {
+/** The same dial as a card: the number so far, how far it is to what it is compared to, and the clinics behind it. */
+function MeterCard({ m, hero, on, onPick }: { m: ViewMeter; hero?: boolean; on?: boolean; onPick: () => void }) {
   const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   const color = tone === "good" ? GOOD : tone === "bad" ? BAD : tone === "watch" ? "#795b35" : "var(--text-primary)";
   const attain = m.plan ? (m.soFar / m.plan) * 100 : null;
@@ -114,13 +143,13 @@ function MeterCard({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: bool
         <i style={{ width: `${attain === null ? 0 : Math.min(100, attain)}%`, background: tone === "good" ? GOOD : tone === "bad" ? BAD : WARN }} />
       </div>
       <div className="ev-row">
-        <span>{attain === null ? "No goal to compare" : `${Math.round(attain)}% of ${elapsed ? "goal to date" : "the window goal"}`}</span>
-        {off !== null ? <span className="mono" style={{ color }}>{elapsed ? "" : "heading "}{signed(off)} vs goal</span> : null}
+        <span>{attain === null ? `No ${m.vs} to compare` : `${Math.round(attain)}% of ${m.refText}`}</span>
+        {off !== null ? <span className="mono" style={{ color }}>{m.elapsed ? "" : "heading "}{signed(off)} vs {m.vs}</span> : null}
       </div>
       <div className="ev-trio">
         <div><div className="k">So far</div><div className="v">{m.soFarT}</div></div>
-        {elapsed ? null : <div><div className="k">Heading</div><div className="v">{m.headingT}</div></div>}
-        <div><div className="k">{elapsed ? "Goal to date" : "Goal"}</div><div className="v">{m.planT}</div></div>
+        {m.elapsed ? null : <div><div className="k">Heading</div><div className="v">{m.headingT}</div></div>}
+        <div><div className="k">{m.planLbl}</div><div className="v">{m.planT}</div></div>
       </div>
       <ClinicsLine m={m} />
     </div>
@@ -240,7 +269,7 @@ export function ExecutiveView({
   const [cmp, setCmp] = useState<"goal" | "baseline" | "prev">("goal");
   // How the pillar KPIs are drawn, and which goal they are measured against.
   const [design, setDesign] = useState<"dials" | "cards">("dials");
-  const [basis, setBasis] = useState<"window" | "elapsed">("window");
+  const [basis, setBasis] = useState<"window" | "elapsed">("elapsed");
   // The period before this one of the same kind (last week for this week, and so on); none for the full window.
   const sameKind = periods.filter(x => x.kind === p.kind);
   const at = sameKind.findIndex(x => x.id === p.id);
@@ -248,7 +277,6 @@ export function ExecutiveView({
   const PREV = ({ week: ["WoW", "last week"], month: ["MoM", "last month"], quarter: ["QoQ", "last quarter"] } as Record<string, [string, string]>)[tab.key];
   const cmpOn = cmp === "prev" && !!prevP && !!PREV;
   const baseOn = cmp === "baseline" && p.baseline !== undefined && p.baseline > 0;
-  const real = p.realChange ?? (p.baseline !== undefined ? p.actual - p.baseline : 0);
   const runRepeat = useRcaAction(api.newClinicFunnel.repeatPatients);
   const [rp, setRp] = useState<{ ready: boolean; window?: number; repeat?: number } | null>(null);
   useEffect(() => {
@@ -281,6 +309,19 @@ export function ExecutiveView({
   const geo = useRcaQuery(api.geo.geoSummary, { password: pw(), periodId: p.id });
   const [fam, setFam] = useState("");
   const sc = useExecScorecard(COMPANY, p.id, fam);
+  // The previous period's dials, for the vs previous comparison (the queries only run while it is picked).
+  const prevSc = useExecScorecard(COMPANY, cmpOn && prevP ? prevP.id : undefined, fam);
+  // One basis for the whole page: the days elapsed so far, or the whole period (booked so far heads to a projected finish).
+  const canBasis = !!sc.total && sc.windowDays > sc.elapsedDays;
+  const el = basis === "elapsed" || !canBasis;
+  const mode: "goal" | "baseline" | "prev" = cmpOn ? "prev" : baseOn ? "baseline" : "goal";
+  const T = sc.total;
+  const wScale = el || !T ? 1 : sc.scale;
+  const revNow = el || !T ? p.actual : T.heading;
+  const goalPlan = el || !T ? p.expected : T.plan;
+  const goalDelta = revNow - goalPlan;
+  const basePlan = (p.baseline ?? 0) * wScale;
+  const baseDelta = revNow - basePlan;
   // The clinic list behind a dial or a scorecard cell, shown under whichever was clicked.
   const [open, setOpen] = useState<{ from: "dial" | "cell"; sel: ExecSel } | null>(null);
   useEffect(() => setOpen(null), [p.id, fam]);
@@ -294,10 +335,13 @@ export function ExecutiveView({
     .filter(r => r.value < 0)
     .sort((a, b) => a.value - b.value)
     .slice(0, 2);
-  const behind = p.delta < 0;
+  const behind = goalDelta < 0;
+  const lead = tab.label === "Full window" ? "Over the full window" : tab.label;
+  const verb = el ? "is" : "is heading";
+  const forWin = el ? "" : " for the whole period";
   const headline =
-    `${tab.label === "Full window" ? "Over the full window" : tab.label}, revenue is ${plain(Math.abs(p.delta))} ${behind ? "below" : "above"} goal` +
-    (drags.length ? `, led by ${drags.map(d => `${d.label.toLowerCase()} (${money(d.value)})`).join(" and ")}.` : ".");
+    `${lead}, revenue ${verb} ${plain(Math.abs(goalDelta))} ${behind ? "below" : "above"} goal${forWin}` +
+    (el && drags.length ? `, led by ${drags.map(d => `${d.label.toLowerCase()} (${money(d.value)})`).join(" and ")}.` : ".");
 
   // Per day, this window against the one before it (windows differ in length, so totals are not comparable).
   const perDay = (v: number, x: ExecPeriod) => v / Math.max(1, x.days);
@@ -305,13 +349,19 @@ export function ExecutiveView({
   const revChg = prevP ? chg(perDay(p.actual, p), perDay(prevP.actual, prevP)) : null;
   const headlineShown =
     baseOn
-      ? `${tab.label === "Full window" ? "Over the full window" : tab.label}, revenue is ${plain(Math.abs(real))} ${real >= 0 ? "above" : "below"} its baseline run rate` + (p.ambition ? `; the goal asks for ${plain(p.ambition)} more than baseline.` : ".")
+      ? `${lead}, revenue ${verb} ${plain(Math.abs(baseDelta))} ${baseDelta >= 0 ? "above" : "below"} its baseline run rate${forWin}` + (p.ambition ? `; the goal asks for ${plain(p.ambition * wScale)} more than baseline.` : ".")
       : cmpOn && revChg !== null && PREV
       ? `Per day, revenue is ${Math.abs(revChg).toFixed(0)}% ${revChg >= 0 ? "above" : "below"} ${PREV[1]}, at ${plain(perDay(p.actual, p))} a day against ${plain(perDay(prevP!.actual, prevP!))}.`
       : headline;
+  const caption =
+    cmpOn && prevP && PREV
+      ? `${plain(p.actual)} over ${p.days} days · ${PREV[1]} was ${plain(prevP.actual)} over ${prevP.days}`
+      : baseOn
+      ? el ? `${plain(p.actual)} actual against a ${plain(basePlan)} baseline` : `${plain(p.actual)} booked, heading to ${plain(revNow)} against a ${plain(basePlan)} baseline for the whole period`
+      : el ? `${plain(p.actual)} actual against ${plain(p.expected)} goal` : `${plain(p.actual)} booked, heading to ${plain(revNow)} against a ${plain(goalPlan)} goal for the whole period`;
   const chgTxt = (c: number | null) => (c === null ? "" : ` · ${c >= 0 ? "+" : "-"}${Math.abs(c).toFixed(0)}%`);
 
-  const attain = p.expected ? (p.actual / p.expected) * 100 : 0;
+  const attain = goalPlan ? (revNow / goalPlan) * 100 : 0;
 
   // Every state's gap, from the geography query; the six worst from the bridge are the fallback while it loads.
   const geoRows = ((geo?.rows ?? []) as Array<{ code: string; kind: string; delta: number }>).filter(r => r.kind === "state");
@@ -345,15 +395,21 @@ export function ExecutiveView({
 
       <div className="ev-periodbar">
         <div className="ev-caption">
-          {shortDate(p.start)} – {shortDate(p.end)} · {plain(p.actual)} actual against {plain(p.expected)} goal
+          {shortDate(p.start)} – {shortDate(p.end)} · {caption}
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
           <div className="ev-seg">
             <button type="button" className={cmp === "goal" || (cmp === "prev" && !cmpOn) || (cmp === "baseline" && !baseOn) ? "is-on" : ""} onClick={() => setCmp("goal")}>vs goal</button>
             {p.baseline !== undefined ? <button type="button" className={baseOn ? "is-on" : ""} onClick={() => setCmp("baseline")}>vs baseline</button> : null}
             {prevP && PREV ? <button type="button" className={cmpOn ? "is-on" : ""} onClick={() => setCmp("prev")}>vs previous · {PREV[0]}</button> : null}
           </div>
+          {canBasis ? (
+            <div className="ev-seg" title="Measure the whole page over the days elapsed, or over the whole period">
+              <button type="button" className={el ? "is-on" : ""} onClick={() => setBasis("elapsed")}>To date</button>
+              <button type="button" className={!el ? "is-on" : ""} onClick={() => setBasis("window")}>To period end</button>
+            </div>
+          ) : null}
           <div className="ev-seg">
             {tabs.map(t => (
               <button key={t.key} type="button" className={t.key === tab.key ? "is-on" : ""} onClick={() => setSel(t.key)}>{t.label}</button>
@@ -396,21 +452,15 @@ export function ExecutiveView({
             <div className="ev-sectitle">Pillar health</div>
             <div className="ev-secsub">
               {tab.label}, {shortDate(p.start)} – {shortDate(p.end)}.{" "}
-              {basis === "elapsed"
-                ? `Goal is for the days elapsed, through ${shortDate(p.end)}.`
-                : design === "dials"
-                ? "Solid needle is booked so far, dotted is where the window is heading, and the marker is the goal for the whole window."
-                : "Goal is for the whole window; heading is where the window is projected to finish."}
+              {el
+                ? `Booked so far against ${mode === "goal" ? "the goal" : mode === "baseline" ? "the baseline" : `${PREV?.[1]}'s pace`} for the days elapsed, through ${shortDate(p.end)}.`
+                : `Heading is where the period is projected to finish, against ${mode === "goal" ? "the goal" : mode === "baseline" ? "the baseline" : `${PREV?.[1]}'s pace`} for the whole period.${design === "dials" ? " Solid needle is booked so far, dotted is heading, and the marker is what it is compared to." : ""}`}
             </div>
           </div>
           <div className="ev-ctrls">
             <div className="ev-seg">
               <button type="button" className={design === "dials" ? "is-on" : ""} onClick={() => setDesign("dials")}>Dials</button>
               <button type="button" className={design === "cards" ? "is-on" : ""} onClick={() => setDesign("cards")}>Cards</button>
-            </div>
-            <div className="ev-seg">
-              <button type="button" className={basis === "window" ? "is-on" : ""} onClick={() => setBasis("window")}>Goal for the full window</button>
-              <button type="button" className={basis === "elapsed" ? "is-on" : ""} onClick={() => setBasis("elapsed")}>Goal to date</button>
             </div>
           </div>
           {sc.scoped ? (
@@ -420,10 +470,18 @@ export function ExecutiveView({
             </div>
           ) : null}
           {(() => {
-            const el = basis === "elapsed";
             const Item = design === "dials" ? Meter : MeterCard;
             const one = (m: MeterData, hero?: boolean) => (
-              <Item key={m.pillar} m={viewOf(m, el)} hero={hero} elapsed={el} on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />
+              <Item
+                key={m.pillar}
+                m={viewOf(!sc.scoped && m.pillar === "Combined" ? { ...m, baseTo: p.baseline ?? 0 } : m, {
+                  mode, elapsed: el, scale: sc.scale, elapsedDays: sc.elapsedDays, windowDays: sc.windowDays,
+                  prev: mode === "prev" && PREV ? { m: prevSc.meters.find(x => x.pillar === m.pillar), days: prevSc.elapsedDays, name: PREV[1] } : undefined,
+                })}
+                hero={hero}
+                on={open?.from === "dial" && open.sel.key === m.cell}
+                onPick={() => openList("dial", m.cell)}
+              />
             );
             const hero = sc.meters.filter(m => m.pillar === "Combined");
             return (
@@ -444,16 +502,16 @@ export function ExecutiveView({
         </div>
         <div className="ev-grid3">
           <Kpi
-            name={cmpOn ? "Revenue per day" : baseOn ? "Revenue vs baseline" : "Revenue vs goal"}
-            value={cmpOn ? plain(perDay(p.actual, p)) : baseOn ? money(real) : money(p.delta)}
-            sub={cmpOn && prevP && PREV ? `was ${plain(perDay(prevP.actual, prevP))} a day ${PREV[1]}${chgTxt(revChg)}` : baseOn ? `${pct((p.actual / (p.baseline || 1)) * 100)} of a ${plain(p.baseline ?? 0)} baseline` : `${pct(attain)} of ${plain(p.expected)}`}
-            color={cmpOn ? tone(revChg ?? 0) : baseOn ? tone(real) : tone(p.delta)}
-            dot={(cmpOn ? (revChg ?? 0) >= 0 : baseOn ? real >= 0 : !behind) ? GOOD : BAD}
+            name={cmpOn ? "Revenue per day" : `Revenue ${el ? "" : "heading "}vs ${baseOn ? "baseline" : "goal"}`}
+            value={cmpOn ? plain(perDay(p.actual, p)) : baseOn ? money(baseDelta) : money(goalDelta)}
+            sub={cmpOn && prevP && PREV ? `was ${plain(perDay(prevP.actual, prevP))} a day ${PREV[1]}${chgTxt(revChg)}` : baseOn ? `${pct((revNow / (basePlan || 1)) * 100)} of a ${plain(basePlan)} baseline` : `${pct(attain)} of ${plain(goalPlan)}`}
+            color={cmpOn ? tone(revChg ?? 0) : baseOn ? tone(baseDelta) : tone(goalDelta)}
+            dot={(cmpOn ? (revChg ?? 0) >= 0 : baseOn ? baseDelta >= 0 : !behind) ? GOOD : BAD}
           />
           <Kpi
-            name={cmpOn ? "Orders per day" : "Orders"}
-            value={cmpOn ? perDay(p.orders, p).toFixed(0) : int(p.orders)}
-            sub={cmpOn && prevP && PREV ? `was ${perDay(prevP.orders, prevP).toFixed(0)} a day ${PREV[1]}${chgTxt(chg(perDay(p.orders, p), perDay(prevP.orders, prevP)))}` : `${int(p.expectedOrders)} expected`}
+            name={cmpOn ? "Orders per day" : el ? "Orders" : "Orders heading"}
+            value={cmpOn ? perDay(p.orders, p).toFixed(0) : int(p.orders * wScale)}
+            sub={cmpOn && prevP && PREV ? `was ${perDay(prevP.orders, prevP).toFixed(0)} a day ${PREV[1]}${chgTxt(chg(perDay(p.orders, p), perDay(prevP.orders, prevP)))}` : `${int(p.expectedOrders * wScale)} expected${el ? "" : " for the period"}`}
             color={p.orders < p.expectedOrders ? BAD : undefined}
             dot={p.orders < p.expectedOrders ? BAD : GOOD}
           />

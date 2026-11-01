@@ -29,6 +29,9 @@ export type FamilyRow = {
   orders: number;
   expected: number;
   expectedOrders: number;
+  /** The baseline (mean run rate) over the same days, before the goal factor: revenue and orders. */
+  baseline: number;
+  baselineOrders: number;
   delta: number;
   orderDelta: number;
 };
@@ -107,11 +110,15 @@ export async function leadFamilyRows(
     for (const s of series) {
       let expected = 0;
       let expectedOrders = 0;
+      let baseline = 0;
+      let baselineOrders = 0;
       for (const d of days) {
         const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
         const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
         expected += (s.rates[dow(d)] ?? 0) * fR;
         expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
+        baseline += s.rates[dow(d)] ?? 0;
+        baselineOrders += s.ordRates[dow(d)] ?? 0;
       }
       let revenue = 0;
       let orders = 0;
@@ -126,6 +133,8 @@ export async function leadFamilyRows(
         orders,
         expected,
         expectedOrders,
+        baseline,
+        baselineOrders,
         delta: revenue - expected,
         orderDelta: orders - expectedOrders,
       });
@@ -139,7 +148,7 @@ export async function leadFamilyRows(
           if (!t) m.set(r.family, { ...r });
           else {
             t.revenue += r.revenue; t.orders += r.orders; t.expected += r.expected;
-            t.expectedOrders += r.expectedOrders; t.delta += r.delta; t.orderDelta += r.orderDelta;
+            t.expectedOrders += r.expectedOrders; t.baseline += r.baseline; t.baselineOrders += r.baselineOrders; t.delta += r.delta; t.orderDelta += r.orderDelta;
           }
         }
         byScope[k] = [...m.values()];
@@ -208,11 +217,15 @@ export async function salesFamilyRows(
     for (const s of series) {
       let expected = 0;
       let expectedOrders = 0;
+      let baseline = 0;
+      let baselineOrders = 0;
       for (const d of days) {
         const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
         const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
         expected += (s.rates[dow(d)] ?? 0) * fR;
         expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
+        baseline += s.rates[dow(d)] ?? 0;
+        baselineOrders += s.ordRates[dow(d)] ?? 0;
       }
       let revenue = 0;
       let orders = 0;
@@ -227,6 +240,8 @@ export async function salesFamilyRows(
         orders,
         expected,
         expectedOrders,
+        baseline,
+        baselineOrders,
         delta: revenue - expected,
         orderDelta: orders - expectedOrders,
       });
