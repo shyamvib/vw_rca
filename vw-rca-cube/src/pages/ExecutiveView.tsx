@@ -62,8 +62,16 @@ const TILES: Record<string, [number, number]> = {
 
 const TONE_DOT: Record<string, string> = { good: GOOD, watch: WARN, bad: BAD, act: "var(--vw-gray-30)", na: "var(--vw-gray-10)" };
 
+type MeterData = ReturnType<typeof useExecScorecard>["meters"][number];
+
+/** A dial against the goal for the whole window (so far, heading, goal) or against the goal for the days elapsed (so far, goal to date). */
+function viewOf(m: MeterData, elapsed: boolean): MeterData {
+  if (!elapsed) return m;
+  return { ...m, heading: m.soFar, headingT: m.soFarT, plan: m.planTo, planT: m.planToT, planLbl: m.planTo && m.planTo !== m.plan ? `${m.planLbl} to date` : m.planLbl };
+}
+
 /** One outcome dial, the same as the rep view: so far, heading and goal, and the clinics it is measured over. */
-function Meter({ m, hero, on, onPick }: { m: ReturnType<typeof useExecScorecard>["meters"][number]; hero?: boolean; on?: boolean; onPick: () => void }) {
+function Meter({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: boolean; on?: boolean; onPick: () => void; elapsed?: boolean }) {
   const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   return (
     <button type="button" className={`rv-outm${hero ? " rv-outm-hero" : ""}${on ? " is-sel" : ""} ev-t-${tone}`} onClick={onPick} title="Click for the clinics behind this dial">
@@ -72,14 +80,50 @@ function Meter({ m, hero, on, onPick }: { m: ReturnType<typeof useExecScorecard>
       <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style="dial" big={hero} />
       <div className="rv-outm-nums">
         <span><i className="sw sofar" />So far <b>{m.soFarT}</b></span>
-        <span><i className="sw heading" />Heading <b>{m.headingT}</b></span>
+        {elapsed ? null : <span><i className="sw heading" />Heading <b>{m.headingT}</b></span>}
         <span><i className="sw plan" />{m.planLbl} <b>{m.planT}</b></span>
       </div>
-      <div className="rv-outm-clin" title={`Clinics this dial is measured over: ${m.clinics.why}`}>
-        <b>{m.clinics.ordered !== undefined ? `${m.clinics.ordered} of ${m.clinics.n}` : (m.clinics.n ?? "…")}</b> {m.clinics.ordered !== undefined ? "clinics ordered" : "clinics"}
-        <span>{m.clinics.why} · of {m.bookClinics} in the book</span>
-      </div>
+      <ClinicsLine m={m} />
     </button>
+  );
+}
+
+function ClinicsLine({ m }: { m: MeterData }) {
+  return (
+    <div className="rv-outm-clin" title={`Clinics this dial is measured over: ${m.clinics.why}`}>
+      <b>{m.clinics.ordered !== undefined ? `${m.clinics.ordered} of ${m.clinics.n}` : (m.clinics.n ?? "…")}</b> {m.clinics.ordered !== undefined ? "clinics ordered" : "clinics"}
+      <span>{m.clinics.why} · of {m.bookClinics} in the book</span>
+    </div>
+  );
+}
+
+/** The same dial as a card: the number so far, how far it is to the goal, and the clinics behind it. */
+function MeterCard({ m, hero, on, onPick, elapsed }: { m: MeterData; hero?: boolean; on?: boolean; onPick: () => void; elapsed?: boolean }) {
+  const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
+  const color = tone === "good" ? GOOD : tone === "bad" ? BAD : tone === "watch" ? "#795b35" : "var(--text-primary)";
+  const attain = m.plan ? (m.soFar / m.plan) * 100 : null;
+  const off = m.plan ? (m.heading / m.plan - 1) * 100 : null;
+  const signed = (n: number) => `${n >= 0 ? "+" : "-"}${Math.abs(n).toFixed(0)}%`;
+  const key = (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } };
+  return (
+    <div className={`ev-card ev-outlook ev-click ev-t-${tone}${hero ? " ev-outlook-hero" : ""}${on ? " is-on" : ""}`} onClick={onPick} onKeyDown={key} role="button" tabIndex={0} title="Click for the clinics behind this card">
+      <div className="ev-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}{m.tag ? ` · ${m.tag}` : ""}</div>
+      <div className="ev-note" style={{ marginTop: -6 }}>{m.label}</div>
+      <div className="ev-big"><b style={{ color }}>{m.soFarT}</b><span>{m.plan ? `of ${m.planT} ${m.planLbl}` : m.planLbl}</span></div>
+      <div className="ev-track">
+        <i style={{ width: `${attain === null ? 0 : Math.min(100, attain)}%`, background: tone === "good" ? GOOD : tone === "bad" ? BAD : WARN }} />
+      </div>
+      <div className="ev-row">
+        <span>{attain === null ? "No goal to compare" : `${Math.round(attain)}% of ${elapsed ? "goal to date" : "the window goal"}`}</span>
+        {off !== null ? <span className="mono" style={{ color }}>{elapsed ? "" : "heading "}{signed(off)} vs goal</span> : null}
+      </div>
+      <div className="ev-trio">
+        <div><div className="k">So far</div><div className="v">{m.soFarT}</div></div>
+        {elapsed ? null : <div><div className="k">Heading</div><div className="v">{m.headingT}</div></div>}
+        <div><div className="k">{elapsed ? "Goal to date" : "Goal"}</div><div className="v">{m.planT}</div></div>
+      </div>
+      <ClinicsLine m={m} />
+    </div>
   );
 }
 
@@ -194,6 +238,9 @@ export function ExecutiveView({
   const { tabs, tab, setSel } = usePeriodTabs(periods);
   const p = tab.p;
   const [cmp, setCmp] = useState<"goal" | "baseline" | "prev">("goal");
+  // How the pillar KPIs are drawn, and which goal they are measured against.
+  const [design, setDesign] = useState<"dials" | "cards">("dials");
+  const [basis, setBasis] = useState<"window" | "elapsed">("window");
   // The period before this one of the same kind (last week for this week, and so on); none for the full window.
   const sameKind = periods.filter(x => x.kind === p.kind);
   const at = sameKind.findIndex(x => x.id === p.id);
@@ -265,8 +312,6 @@ export function ExecutiveView({
   const chgTxt = (c: number | null) => (c === null ? "" : ` · ${c >= 0 ? "+" : "-"}${Math.abs(c).toFixed(0)}%`);
 
   const attain = p.expected ? (p.actual / p.expected) * 100 : 0;
-  const newRow = p.lensC.find(r => /new/i.test(r.label) && !/churn/i.test(r.label));
-  const newRev = newRow?.real ?? 0;
 
   // Every state's gap, from the geography query; the six worst from the bridge are the fallback while it loads.
   const geoRows = ((geo?.rows ?? []) as Array<{ code: string; kind: string; delta: number }>).filter(r => r.kind === "state");
@@ -317,14 +362,14 @@ export function ExecutiveView({
         </div>
       </div>
 
-      <section>
-        <div className="ev-sechead">
-          <div className="ev-sectitle">Outlook</div>
-          <div className="ev-secsub">Company-wide, through {projReady ? shortDate(projReady.ytd.end) : shortDate(p.end)}.</div>
-        </div>
-        <div className="ev-grid3">
-          {projReady ? (
-            <div className="ev-card ev-outlook">
+      {projReady ? (
+        <section>
+          <div className="ev-sechead">
+            <div className="ev-sectitle">Outlook</div>
+            <div className="ev-secsub">Company-wide, through {shortDate(projReady.ytd.end)}.</div>
+          </div>
+          <div className="ev-card ev-outlook ev-outlook-wide">
+            <div className="ev-outlook">
               <div className="ev-eyebrow">Year-end outlook</div>
               <div className="ev-big"><b style={{ color: projReady.gap > 0 ? BAD : GOOD }}>{plain(projReady.projected.close)}</b><span>projected close</span></div>
               <div className="ev-track"><i style={{ width: `${Math.min(100, (projReady.projected.close / projReady.target) * 100)}%`, background: "var(--vw-blue)" }} /></div>
@@ -332,74 +377,41 @@ export function ExecutiveView({
                 <span>{Math.round((projReady.projected.close / projReady.target) * 100)}% of the {plain(projReady.target)} target</span>
                 <span className="mono" style={{ color: projReady.gap > 0 ? BAD : GOOD }}>{projReady.gap > 0 ? `-${plain(projReady.gap)} short` : `+${plain(-projReady.gap)} ahead`}</span>
               </div>
-              <div className="ev-trio">
+            </div>
+            <div className="ev-outlook">
+              <div className="ev-trio" style={{ borderTop: 0, paddingTop: 0 }}>
                 <div><div className="k">Booked so far</div><div className="v">{plain(projReady.ytd.revenue)}</div></div>
                 <div><div className="k">Still needed</div><div className="v" style={{ color: BAD }}>{plain(projReady.neededRemaining)}</div></div>
                 <div><div className="k">Per weekday</div><div className="v">{plain(projReady.pace.workdayNeeded)}</div></div>
               </div>
               <div className="ev-note">{int(projReady.pace.remainingDays)} days left. At the current run rate a trading weekday brings {plain(projReady.pace.workdayProjected)} against the {plain(projReady.pace.workdayNeeded)} needed.</div>
             </div>
-          ) : null}
-
-          {baseOn && p.baseline ? (
-            <div className="ev-card ev-outlook">
-              <div className="ev-eyebrow">{tab.label} vs baseline</div>
-              <div className="ev-big"><b style={{ color: tone(real) }}>{plain(p.actual)}</b><span>against a {plain(p.baseline)} baseline</span></div>
-              <div className="ev-track"><i style={{ width: `${Math.min(100, (p.actual / p.baseline) * 100)}%`, background: p.actual >= p.baseline ? GOOD : WARN }} /></div>
-              <div className="ev-row"><span>{Math.round((p.actual / p.baseline) * 100)}% of baseline</span><span className="mono" style={{ color: tone(real) }}>{money(real)} vs baseline</span></div>
-              <div className="ev-trio">
-                <div><div className="k">Goal</div><div className="v">{plain(p.expected)}</div></div>
-                <div><div className="k">Goal stretch</div><div className="v">{p.ambition !== undefined ? plain(p.ambition) : "—"}</div></div>
-                <div><div className="k">Avg order</div><div className="v">${int(p.aov)}</div></div>
-              </div>
-              <div className="ev-note">Baseline is the mean run rate of the baseline period, scaled to this window. The goal is the baseline plus the stretch needed to reach the annual target, so beating the baseline is real growth and beating the goal is the plan.</div>
-            </div>
-          ) : cmpOn && prevP && PREV ? (
-            <div className="ev-card ev-outlook">
-              <div className="ev-eyebrow">{tab.label} vs {PREV[1]} · per day</div>
-              <div className="ev-big"><b style={{ color: tone(revChg ?? 0) }}>{plain(perDay(p.actual, p))}</b><span>a day, against {plain(perDay(prevP.actual, prevP))}</span></div>
-              <div className="ev-row"><span>{revChg === null ? "" : `${Math.abs(revChg).toFixed(0)}% ${revChg >= 0 ? "above" : "below"} ${PREV[1]}`}</span><span className="mono">{p.days} days vs {prevP.days}</span></div>
-              <div className="ev-trio">
-                <div><div className="k">Orders / day</div><div className="v">{perDay(p.orders, p).toFixed(0)}</div></div>
-                <div><div className="k">{PREV[1]}</div><div className="v">{perDay(prevP.orders, prevP).toFixed(0)}</div></div>
-                <div><div className="k">Avg order</div><div className="v">${int(p.aov)}</div></div>
-              </div>
-              <div className="ev-note">Windows are different lengths, so everything here is per day. Order value was ${int(prevP.aov)} {PREV[1]}.</div>
-            </div>
-          ) : (
-          <div className="ev-card ev-outlook">
-            <div className="ev-eyebrow">{tab.label} vs goal</div>
-            <div className="ev-big"><b style={{ color: behind ? BAD : GOOD }}>{plain(p.actual)}</b><span>of {plain(p.expected)} goal</span></div>
-            <div className="ev-track"><i style={{ width: `${Math.min(100, attain)}%`, background: attain >= 95 ? GOOD : WARN }} /></div>
-            <div className="ev-row"><span>{Math.round(attain)}% of goal</span><span className="mono" style={{ color: tone(p.delta) }}>{money(p.delta)} vs goal</span></div>
-            <div className="ev-trio">
-              <div><div className="k">Baseline</div><div className="v">{p.baseline !== undefined ? plain(p.baseline) : "—"}</div></div>
-              <div><div className="k">Orders</div><div className="v">{int(p.orders)}</div></div>
-              <div><div className="k">Avg order</div><div className="v">${int(p.aov)}</div></div>
-            </div>
-            <div className="ev-note">Orders are {pct(Math.abs((p.orders / (p.expectedOrders || 1) - 1) * 100))} {p.orders < p.expectedOrders ? "under" : "over"} what the goal implies ({int(p.expectedOrders)} expected). Order value is {p.aov >= p.baseAov ? "above" : "below"} baseline (${int(p.baseAov)}).</div>
           </div>
-          )}
-
-          <div className="ev-card ev-outlook">
-            <div className="ev-eyebrow">New business</div>
-            <div className="ev-big"><b style={{ color: p.newGoal && newRev < p.newGoal ? "#795b35" : GOOD }}>{plain(newRev)}</b><span>{p.newGoal ? `of ${plain(p.newGoal)} goal` : "from new clinics"}</span></div>
-            <div className="ev-track"><i style={{ width: `${p.newGoal ? Math.min(100, (newRev / p.newGoal) * 100) : 0}%`, background: p.newGoal && newRev >= p.newGoal ? GOOD : WARN }} /></div>
-            <div className="ev-row">
-              <span>{p.newGoal ? `${Math.round((newRev / p.newGoal) * 100)}% of the new-business goal` : "No new-business goal set"}</span>
-              {p.newGoal ? <span className="mono" style={{ color: newRev >= p.newGoal ? GOOD : "#795b35" }}>{newRev >= p.newGoal ? `+${plain(newRev - p.newGoal)} ahead` : `-${plain(p.newGoal - newRev)} to go`}</span> : null}
-            </div>
-            <div className="ev-note">Revenue from clinics with no baseline: first order this year or returning after a long gap. Churn on existing clinics is in the root cause view.</div>
-          </div>
-        </div>
-      </section>
-
+        </section>
+      ) : null}
 
       {sc.ready ? (
         <section>
           <div className="ev-sechead">
             <div className="ev-sectitle">Pillar health</div>
-            <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. Solid needle is booked so far, dotted is where the window is heading, and the marker is the goal.</div>
+            <div className="ev-secsub">
+              {tab.label}, {shortDate(p.start)} – {shortDate(p.end)}.{" "}
+              {basis === "elapsed"
+                ? `Goal is for the days elapsed, through ${shortDate(p.end)}.`
+                : design === "dials"
+                ? "Solid needle is booked so far, dotted is where the window is heading, and the marker is the goal for the whole window."
+                : "Goal is for the whole window; heading is where the window is projected to finish."}
+            </div>
+          </div>
+          <div className="ev-ctrls">
+            <div className="ev-seg">
+              <button type="button" className={design === "dials" ? "is-on" : ""} onClick={() => setDesign("dials")}>Dials</button>
+              <button type="button" className={design === "cards" ? "is-on" : ""} onClick={() => setDesign("cards")}>Cards</button>
+            </div>
+            <div className="ev-seg">
+              <button type="button" className={basis === "window" ? "is-on" : ""} onClick={() => setBasis("window")}>Goal for the full window</button>
+              <button type="button" className={basis === "elapsed" ? "is-on" : ""} onClick={() => setBasis("elapsed")}>Goal to date</button>
+            </div>
           </div>
           {sc.scoped ? (
             <div className="rv-scope" style={{ marginBottom: 12 }}>
@@ -407,8 +419,20 @@ export function ExecutiveView({
               <button type="button" onClick={() => setFam("")}>Back to all products</button>
             </div>
           ) : null}
-          {sc.meters.some(m => m.pillar === "Combined") ? <div className="rv-outhero">{sc.meters.filter(m => m.pillar === "Combined").map(m => <Meter key={m.pillar} m={m} hero on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />)}</div> : null}
-          <div className="rv-outmeters">{sc.meters.filter(m => m.pillar !== "Combined").map(m => <Meter key={m.pillar} m={m} on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />)}</div>
+          {(() => {
+            const el = basis === "elapsed";
+            const Item = design === "dials" ? Meter : MeterCard;
+            const one = (m: MeterData, hero?: boolean) => (
+              <Item key={m.pillar} m={viewOf(m, el)} hero={hero} elapsed={el} on={open?.from === "dial" && open.sel.key === m.cell} onPick={() => openList("dial", m.cell)} />
+            );
+            const hero = sc.meters.filter(m => m.pillar === "Combined");
+            return (
+              <>
+                {hero.length ? <div className={design === "dials" ? "rv-outhero" : "ev-hero"}>{hero.map(m => one(m, true))}</div> : null}
+                <div className={design === "dials" ? "rv-outmeters" : "ev-grid4"}>{sc.meters.filter(m => m.pillar !== "Combined").map(m => one(m))}</div>
+              </>
+            );
+          })()}
           {open?.from === "dial" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={COMPANY} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
         </section>
       ) : null}
