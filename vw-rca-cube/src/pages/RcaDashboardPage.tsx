@@ -2065,6 +2065,8 @@ export function RcaDashboardPage() {
             windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
           />
         ) : view === "feed" ? (
+          <>
+          <div className="ev-banner" style={{ margin: "16px 0 0" }}><b>Work in progress.</b> The Business Feed has not been updated for the new goal / baseline definitions, the lifecycle stages or the To date / To period end switches yet, so its numbers can differ from the Overview.</div>
           <InsightsView
             teamLead={teamLead || undefined}
             onDrill={(focus, label) => {
@@ -2083,6 +2085,7 @@ export function RcaDashboardPage() {
               }, 150);
             }}
           />
+          </>
         ) : (
         <>
         <div className="rca-hero">
