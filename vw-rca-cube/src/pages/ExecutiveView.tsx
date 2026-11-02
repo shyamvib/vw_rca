@@ -99,7 +99,7 @@ function Meter({ m, hero, on, onPick }: { m: ViewMeter; hero?: boolean; on?: boo
   const tone = m.plan ? (m.heading >= m.plan ? "good" : m.heading >= m.plan * 0.95 ? "watch" : "bad") : "na";
   return (
     <button type="button" className={`rv-outm${hero ? " rv-outm-hero" : ""}${on ? " is-sel" : ""} ev-t-${tone}`} onClick={onPick} title="Click for the clinics behind this dial">
-      <div className="rv-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}{m.tag ? <em className="rv-allp"> · {m.tag}</em> : null}</div>
+      <div className="rv-eyebrow">{m.pillar}{m.tag ? <em className="rv-allp"> · {m.tag}</em> : null}</div>
       <b>{m.label}</b>
       <MiniMeter soFar={m.soFar} heading={m.heading} plan={m.plan} style="dial" big={hero} />
       <div className="rv-outm-nums">
@@ -132,7 +132,7 @@ function MeterCard({ m, hero, on, onPick }: { m: ViewMeter; hero?: boolean; on?:
   const key = (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } };
   return (
     <div className={`ev-card ev-outlook ev-click ev-t-${tone}${hero ? " ev-outlook-hero" : ""}${on ? " is-on" : ""}`} onClick={onPick} onKeyDown={key} role="button" tabIndex={0} title="Click for the clinics behind this card">
-      <div className="ev-eyebrow">{m.pillar === "Bundle growth" ? "AOV" : m.pillar}{m.tag ? ` · ${m.tag}` : ""}</div>
+      <div className="ev-eyebrow">{m.pillar}{m.tag ? ` · ${m.tag}` : ""}</div>
       <div className="ev-note" style={{ marginTop: -6 }}>{m.label}</div>
       <div className="ev-big"><b style={{ color }}>{m.soFarT}</b><span>{m.plan ? `of ${m.planT} ${m.planLbl}` : m.planLbl}</span></div>
       <div className="ev-track">
@@ -656,7 +656,7 @@ export function ExecutiveView({
           </div>
           {sc.rows.map(r => (
             <div className="ev-sc-row" key={r.pillar}>
-              <div className="ev-sc-pillar">{r.pillar === "Bundle growth" ? "AOV" : r.pillar}</div>
+              <div className="ev-sc-pillar">{r.pillar}</div>
               {r.cells.map(c => (
                 <div className={`ev-sc-cell ev-t-${c.tone}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
                   <div className="top"><span>{c.label}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
