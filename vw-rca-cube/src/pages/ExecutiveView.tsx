@@ -657,12 +657,18 @@ export function ExecutiveView({
               <span><i style={{ background: "var(--vw-gray-30)", borderRadius: "50%" }} />Where to act</span>
             </div>
           </div>
+          {sc.scoped ? (
+            <div className="ev-scope">
+              <span>Scorecard scoped to <b>{sc.family}</b>. <i className="ev-famkey" /> Blue bar = follows {sc.family}; "all products" = not family-specific yet (retention and expansion).</span>
+              <button type="button" className="ev-link" onClick={() => setFam("")}>Back to all products</button>
+            </div>
+          ) : null}
           {sc.rows.map(r => (
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar}</div>
               {r.cells.map(c => (
-                <div className={`ev-sc-cell ev-t-${c.tone}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
-                  <div className="top"><span>{c.label}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
+                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
+                  <div className="top"><span>{c.label}{sc.scoped && c.allProducts ? <em className="ev-rule">all products</em> : null}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
                   {c.ref ? <div className={`ev-ref${c.ref.startsWith("fixed") ? " fixed" : ""}`}>{c.ref}</div> : null}

@@ -118,3 +118,9 @@
 .ev-ref.fixed { opacity: 0.8; }
 .ev-rule { font-style: normal; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); border: 1px solid var(--border-subtle); border-radius: 3px; padding: 1px 5px; margin-left: 8px; }
 .ev-banner { border: 1px dashed var(--vw-warning); background: var(--vw-warning-bg); color: #795b35; border-radius: 8px; padding: 12px 16px; font-size: 13px; line-height: 1.4; }
+
+/* Scorecard scoped to a product family: the cells that follow the family get the same blue bar as the rep view. */
+.ev-sc-cell.is-fam { position: relative; }
+.ev-sc-cell.is-fam::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--vw-blue); }
+.ev-scope { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 20px; border-top: 1px solid var(--vw-gray-05); background: var(--vw-blue-tint); font-size: 12px; color: var(--text-secondary); }
+.ev-famkey { display: inline-block; width: 5px; height: 12px; background: var(--vw-blue); vertical-align: -2px; margin: 0 2px; }
