@@ -2333,3 +2333,10 @@ select.rca-select,
 .rq-dialog textarea, .rq-select { width: 100%; box-sizing: border-box; border: 1px solid #9ca3af; border-radius: 8px; padding: 9px 11px; font: inherit; background: #fff; }
 .rq-select { margin-bottom: 14px; }
 .rq-dialog textarea { resize: vertical; }
+
+/* Top bar view tabs: the bar is dark, so the selected tab is the brand blue (ink on ink was invisible). */
+.rca-topbar .rca-view-tabs .rca-tab.is-active {
+  background: var(--vw-blue);
+  border-color: var(--vw-blue);
+  color: var(--vw-white);
+}
