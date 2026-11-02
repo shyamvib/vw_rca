@@ -557,45 +557,6 @@ export function ExecutiveView({
             dot={o3.dot}
           />
         </div>
-        {sc.families.length ? (
-          <>
-            <div className="ev-sechead" style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
-              <div className="ev-secsub">Orders against the {refName}, by family. Click one to scope the dials and scorecard to it.</div>
-            </div>
-            <div className="ev-fams">
-              {sc.families.filter(x => !x.isNew).map(x => {
-                const toDate = baseOn ? x.baselineOrders : x.expectedOrders;
-                const shown = el ? toDate : toDate * sc.scale;
-                const g = toDate ? x.orders / toDate - 1 : null;
-                const pf = prevSc.families.find(y => y.family === x.family);
-                return (
-                  <Kpi
-                    key={x.family}
-                    onClick={() => setFam(f => (f === x.family ? "" : x.family))}
-                    on={sc.scoped && sc.family === x.family}
-                    name={x.family}
-                    value={`${int(x.orders)} orders`}
-                    sub={!toDate ? `no ${refName}` : el ? `${int(shown)} ${refName} · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs ${refName}` : `${int(shown)} ${refName} for the period · ${pct((x.orders / (shown || 1)) * 100)} reached`}
-                    color={g !== null && g < -0.05 ? BAD : undefined}
-                    dot={g === null ? "var(--vw-gray-10)" : g >= 0 ? GOOD : g > -0.05 ? WARN : BAD}
-                    trend={trendOf(x.orders / Math.max(1, sc.days), pf ? pf.orders / Math.max(1, prevSc.days) : null, true)}
-                  />
-                );
-              })}
-            </div>
-            {sc.families.some(x => x.isNew) ? (
-              <>
-                <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no goal or colour.</div>
-                <div className="ev-fams">
-                  {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </>
-        ) : null}
       </section>
 
       <div className="ev-split">
@@ -639,6 +600,48 @@ export function ExecutiveView({
           </div>
         ) : null}
       </div>
+
+      {sc.families.length ? (
+        <section>
+          <>
+            <div className="ev-sechead">
+              <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
+              <div className="ev-secsub">Orders against the {refName}, by family. Click one to scope the dials and scorecard to it.</div>
+            </div>
+            <div className="ev-fams">
+              {sc.families.filter(x => !x.isNew).map(x => {
+                const toDate = baseOn ? x.baselineOrders : x.expectedOrders;
+                const shown = el ? toDate : toDate * sc.scale;
+                const g = toDate ? x.orders / toDate - 1 : null;
+                const pf = prevSc.families.find(y => y.family === x.family);
+                return (
+                  <Kpi
+                    key={x.family}
+                    onClick={() => setFam(f => (f === x.family ? "" : x.family))}
+                    on={sc.scoped && sc.family === x.family}
+                    name={x.family}
+                    value={`${int(x.orders)} orders`}
+                    sub={!toDate ? `no ${refName}` : el ? `${int(shown)} ${refName} · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs ${refName}` : `${int(shown)} ${refName} for the period · ${pct((x.orders / (shown || 1)) * 100)} reached`}
+                    color={g !== null && g < -0.05 ? BAD : undefined}
+                    dot={g === null ? "var(--vw-gray-10)" : g >= 0 ? GOOD : g > -0.05 ? WARN : BAD}
+                    trend={trendOf(x.orders / Math.max(1, sc.days), pf ? pf.orders / Math.max(1, prevSc.days) : null, true)}
+                  />
+                );
+              })}
+            </div>
+            {sc.families.some(x => x.isNew) ? (
+              <>
+                <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no goal or colour.</div>
+                <div className="ev-fams">
+                  {sc.families.filter(x => x.isNew).map(x => (
+                    <Kpi key={x.family} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </>
+        </section>
+      ) : null}
 
       {sc.ready ? (
         <div className="ev-card" style={{ overflow: "hidden" }}>
