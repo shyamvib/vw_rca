@@ -1183,7 +1183,7 @@ function WindowTab({
           l: "AOV / price-mix",
           v: L.aovEffect,
           focus: L.aovEffect < 0 ? "aovneg" : "aovpos",
-          sub: `$${Math.round(b.kpi.aov ?? 0)} vs $${Math.round(b.kpi.baseAov ?? 0)} baseline`,
+          sub: b.kpi.baselineAov ? `$${Math.round(b.kpi.aov ?? 0)} vs $${Math.round(b.kpi.baselineAov)} baseline` : `$${Math.round(b.kpi.aov ?? 0)} · no baseline AOV`,
         },
       ],
       note: `Orders ${b.totals.orders.toFixed(0)} vs ${b.totals.expOrders.toFixed(0)} expected.`,
@@ -1906,9 +1906,9 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "AOV",
           value: k.aov ? K(k.aov) : "—",
-          sub: `${SK((k.aov ?? 0) - k.baseAov)} vs baseline`,
+          sub: k.baselineAov ? `${SK((k.aov ?? 0) - k.baselineAov)} vs baseline` : "no baseline AOV",
           ids: b.activeIds, n: k.aov, u: "$", better: 1,
-          tone: vsTone(k.aov && k.baseAov ? k.aov / k.baseAov : null, 0.97),
+          tone: vsTone(k.aov && k.baselineAov ? k.aov / k.baselineAov : null, 0.97),
         },
         NA("Stack penetration", "needs per-order panel mix"),
         { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids, n: k.lowAov, u: "n", better: -1 },
@@ -2317,8 +2317,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
     { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: scPace?.newHeading ?? (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
     scoped && selFam
-      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
-      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
+      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
+      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baselineAov ?? 0, fmt: K, planLbl: "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: tenureSel === "all" && scPace?.existingHeading !== undefined ? scPace.existingHeading : (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
