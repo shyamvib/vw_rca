@@ -363,8 +363,10 @@ export const scopeTotals = scopedQuery({
       expectedPatients = 0;
     const cohorts = new Map<string, { actual: number; expected: number; baseline: number; clinics: number }>();
     let baselineSum = 0;
+    let baselineOrders = 0;
     for (const r of res.rows) {
       actual += r.actual;
+      baselineOrders += r.baselineOrders;
       orders += r.orders;
       bundleDelta += r.bundleDelta;
       nonBundleDelta += r.nonBundleDelta;
@@ -437,6 +439,7 @@ export const scopeTotals = scopedQuery({
       newGoal,
       delta: actual - expected,
       baseline: baselineSum,
+      baselineOrders,
       realChange: actual - baselineSum,
       ambition: expected - baselineSum,
       orders,

@@ -34,6 +34,40 @@ export type ExecPeriod = {
 };
 
 const COMPANY = "team:*";
+const COHORTS: Record<string, string> = {
+  churned: "Churned clinics",
+  new: "New clinics (active)",
+  retained_top20: "Active — top 20%",
+  retained_rest: "Active — remaining 80%",
+  reactivated: "Reactivated clinics",
+};
+
+/** The company period re-expressed through one team lead's clinics (the same scopeTotals the root cause tree uses).
+ * Until the lead's numbers arrive `ready` is false, so the page never shows company figures under a lead's name. */
+function useScopedPeriod(base: ExecPeriod | null | undefined, lead?: string): { p: ExecPeriod | null | undefined; ready: boolean } {
+  const st = useRcaQuery(api.geo.scopeTotals, lead && base ? { password: pw(), periodId: base.id, teamLead: lead } : "skip");
+  return useMemo(() => {
+    if (!lead || !base) return { p: base, ready: true };
+    if (!st || !st.ready) return { p: base, ready: false };
+    return {
+      ready: true,
+      p: {
+        ...base,
+        actual: st.actual, expected: st.expected, delta: st.delta,
+        baseline: st.baseline, realChange: st.realChange, ambition: st.ambition, newGoal: st.newGoal,
+        orders: st.orders, expectedOrders: st.expectedOrders, baselineOrders: st.baselineOrders,
+        aov: st.aov, baseAov: st.baseAov, patients: st.patients, expectedPatients: st.expectedPatients,
+        lensA: [
+          { label: "Order volume", value: st.volume },
+          { label: "Average order value", value: st.aovEffect },
+          { label: "Patient traffic", value: st.patients - st.expectedPatients },
+        ],
+        lensC: (st.cohorts ?? []).map(c => ({ label: COHORTS[c.cohort] ?? c.cohort, value: c.delta, key: c.cohort, real: c.real })),
+        topStates: [],
+      },
+    };
+  }, [st, base, lead]);
+}
 const GOOD = "var(--vw-success)";
 const BAD = "var(--vw-error)";
 const WARN = "var(--vw-warning)";
@@ -257,14 +291,20 @@ export function ExecutiveView({
   windowLabel,
   onOpenFeed,
   onOpenTree,
+  teamLead,
 }: {
   periods: ExecPeriod[];
   windowLabel: string;
+  /** The top bar's team lead filter: the whole page is then that lead's team (the lead and every rep under them). */
+  teamLead?: string;
   onOpenFeed: () => void;
   onOpenTree: (periodId: string) => void;
 }) {
   const { tabs, tab, setSel } = usePeriodTabs(periods);
-  const p = tab.p;
+  const scope = teamLead ? `team:${teamLead}` : COMPANY;
+  const scopeName = teamLead ? `${teamLead}'s team` : "the whole company";
+  const sp = useScopedPeriod(tab.p, teamLead);
+  const p = sp.p!;
   const [cmp, setCmp] = useState<"goal" | "baseline">("goal");
   // How the pillar KPIs are drawn, and which goal they are measured against.
   const [design, setDesign] = useState<"dials" | "cards">("dials");
@@ -272,7 +312,9 @@ export function ExecutiveView({
   // The period before this one of the same kind (last week for this week, and so on); none for the full window.
   const sameKind = periods.filter(x => x.kind === p.kind);
   const at = sameKind.findIndex(x => x.id === p.id);
-  const prevP = tab.key !== "all" && at > 0 ? sameKind[at - 1] : null;
+  const prevP0 = tab.key !== "all" && at > 0 ? sameKind[at - 1] : null;
+  const prevScoped = useScopedPeriod(prevP0, teamLead);
+  const prevP = prevScoped.ready ? prevScoped.p ?? null : null;
   const PREV = ({ week: ["WoW", "last week"], month: ["MoM", "last month"], quarter: ["QoQ", "last quarter"] } as Record<string, [string, string]>)[tab.key];
   const baseOn = cmp === "baseline" && p.baseline !== undefined && p.baseline > 0;
   const runRepeat = useRcaAction(api.newClinicFunnel.repeatPatients);
@@ -280,10 +322,11 @@ export function ExecutiveView({
   useEffect(() => {
     let live = true;
     setRp(null);
+    if (teamLead) { setRp({ ready: false }); return () => { live = false; }; }
     runRepeat({ password: pw(), periodId: p.id }).then(r => live && setRp(r)).catch(() => live && setRp({ ready: false }));
     return () => { live = false; };
-  }, [p.id, runRepeat]);
-  const fun = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, { password: pw(), periodId: p.id, sales: COMPANY });
+  }, [p.id, runRepeat, teamLead]);
+  const fun = useRcaQuery(api.newClinicFunnel.orderRetentionFunnel, { password: pw(), periodId: p.id, sales: scope });
   const order3 = fun?.ready ? fun.stages.find(x => x.n === 3) : undefined;
   // Order 3 is judged like for like: of the new clinics old enough to have had `days` since order 1, the share that got
   // there in that time, against the same share for the baseline period's new clinics. Heading-vs-goal colours (95% = watch).
@@ -301,16 +344,16 @@ export function ExecutiveView({
     return { sub: `${mine} vs ${Math.round(base * 100)}% in the baseline`, dot: ratio >= 1 ? GOOD : ratio >= 0.95 ? WARN : BAD };
   })();
 
-  const proj = useRcaQuery(api.projection.summary, { password: pw() });
-  const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id });
-  const feed = useRcaQuery(api.feed.feed, { password: pw() });
-  const geo = useRcaQuery(api.geo.geoSummary, { password: pw(), periodId: p.id });
+  const proj = useRcaQuery(api.projection.summary, { password: pw(), teamLead: teamLead || undefined });
+  const reps = useRcaQuery(api.geo.salesReps, { password: pw(), periodId: p.id, teamLead: teamLead || undefined });
+  const feed = useRcaQuery(api.feed.feed, { password: pw(), teamLead: teamLead || undefined });
+  const geo = useRcaQuery(api.geo.geoSummary, { password: pw(), periodId: p.id, teamLead: teamLead || undefined });
   const [fam, setFam] = useState("");
   const mode: "goal" | "baseline" = baseOn ? "baseline" : "goal";
   const refName = baseOn ? "baseline" : "goal";
-  const sc = useExecScorecard(COMPANY, p.id, fam, { mode, elapsed: basis === "elapsed" });
+  const sc = useExecScorecard(scope, p.id, fam, { mode, elapsed: basis === "elapsed" });
   // The same scorecard a period earlier, for the WoW / MoM / QoQ chips (the same switches, so a chip compares like with like).
-  const prevSc = useExecScorecard(COMPANY, prevP?.id, fam, { mode, elapsed: basis === "elapsed" });
+  const prevSc = useExecScorecard(scope, prevP?.id, fam, { mode, elapsed: basis === "elapsed" });
   // One basis for the whole page: the days elapsed so far, or the whole period.
   const canBasis = !!sc.total && sc.windowDays > sc.elapsedDays;
   const el = basis === "elapsed" || !canBasis;
@@ -390,7 +433,8 @@ export function ExecutiveView({
   const projReady = proj && proj.ready ? proj : null;
 
   return (
-    <div className="ev">
+    <div className="ev" style={sp.ready ? undefined : { opacity: 0.45 }} aria-busy={!sp.ready}>
+      {teamLead ? <div className="ev-banner" style={{ borderStyle: "solid" }}>Showing <b>{teamLead}</b>'s team (the lead and every rep under them){sp.ready ? "" : ": loading, the figures below are still the company's"}. Repeat patients is company-wide only for now.</div> : null}
       <div>
         <div className="ev-eyebrow">Overview · {windowLabel}</div>
         <h2 className="ev-headline">{headline}</h2>
@@ -424,7 +468,7 @@ export function ExecutiveView({
         <section>
           <div className="ev-sechead">
             <div className="ev-sectitle">Outlook</div>
-            <div className="ev-secsub">Company-wide, through {shortDate(projReady.ytd.end)}.</div>
+            <div className="ev-secsub">{teamLead ? `${teamLead}'s team` : "Company-wide"}, through {shortDate(projReady.ytd.end)}.</div>
           </div>
           <div className="ev-card ev-outlook ev-outlook-wide">
             <div className="ev-outlook">
@@ -496,7 +540,7 @@ export function ExecutiveView({
               </>
             );
           })()}
-          {open?.from === "dial" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={COMPANY} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
+          {open?.from === "dial" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
         </section>
       ) : null}
 
@@ -538,7 +582,7 @@ export function ExecutiveView({
             rule
             name="Repeat patients"
             value={rp?.ready && rp.repeat !== undefined ? int(rp.repeat) : "—"}
-            sub={rp?.ready && rp.window ? `of ${int(rp.window)} patients had ordered before ${shortDate(p.start)} · ${Math.round(((rp.repeat ?? 0) / rp.window) * 100)}%` : rp === null ? "loading" : "not available"}
+            sub={teamLead ? "company-wide only for now" : rp?.ready && rp.window ? `of ${int(rp.window)} patients had ordered before ${shortDate(p.start)} · ${Math.round(((rp.repeat ?? 0) / rp.window) * 100)}%` : rp === null ? "loading" : "not available"}
             dot={rp?.ready && rp.window ? ((rp.repeat ?? 0) / rp.window >= 0.5 ? GOOD : WARN) : "var(--vw-gray-10)"}
           />
           <Kpi
@@ -648,7 +692,7 @@ export function ExecutiveView({
           <div className="ev-sc-head">
             <div>
               <div className="ev-sectitle">Scorecard</div>
-              <div className="ev-secsub" style={{ marginTop: 3 }}>Every pillar and metric for the whole company, {tab.label.toLowerCase()}. Cells that are a goal or baseline comparison follow the switches above; the ones tagged fixed keep their own rule.</div>
+              <div className="ev-secsub" style={{ marginTop: 3 }}>Every pillar and metric for {scopeName}, {tab.label.toLowerCase()}. Cells that are a goal or baseline comparison follow the switches above; the ones tagged fixed keep their own rule.</div>
             </div>
             <div className="ev-legend" style={{ margin: 0 }}>
               <span><i style={{ background: GOOD, borderRadius: "50%" }} />On track</span>
@@ -682,14 +726,14 @@ export function ExecutiveView({
           ))}
         </div>
       ) : null}
-      {open?.from === "cell" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={COMPANY} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
+      {open?.from === "cell" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
 
       <section>
         <div className="ev-sechead">
           <div className="ev-sectitle">New business funnel</div>
           <div className="ev-secsub">New clinics this window, signup to order 5, with the touches between each step.</div>
         </div>
-        <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={COMPANY} /></div>
+        <div className="ev-funnel"><ProviderRetentionFunnel periodId={p.id} sales={scope} /></div>
       </section>
 
       {signals.length ? (

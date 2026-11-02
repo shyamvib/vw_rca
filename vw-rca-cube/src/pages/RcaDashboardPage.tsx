@@ -2056,6 +2056,7 @@ export function RcaDashboardPage() {
           <ExecutiveView
             periods={periods as never}
             windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
+            teamLead={teamLead || undefined}
             onOpenFeed={() => setView("feed")}
             onOpenTree={id => { setSelected(id); setView("dashboard"); }}
           />
