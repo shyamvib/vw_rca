@@ -22,6 +22,7 @@ export type ExecPeriod = {
   newGoal?: number;
   orders: number;
   expectedOrders: number;
+  baselineOrders?: number;
   aov: number;
   baseAov: number;
   patients: number;
@@ -323,6 +324,7 @@ export function ExecutiveView({
   // Colour and sign always come from the days elapsed (are we on pace); the period-end view only restates the target.
   const goalDelta = p.actual - p.expected;
   const baseDelta = p.actual - (p.baseline ?? 0);
+  const ordRef = baseOn && p.baselineOrders ? p.baselineOrders : p.expectedOrders;
   const behindNow = (baseOn ? baseDelta : goalDelta) < 0;
   const attain = planNow ? (p.actual / planNow) * 100 : 0;
   // The clinic list behind a dial or a scorecard cell, shown under whichever was clicked.
@@ -359,8 +361,14 @@ export function ExecutiveView({
     : `${plain(p.actual)} booked against ${plain(planNow)} ${refName} for the whole period${baseOn ? " (scaled by the weekday shape)" : ""}`;
 
   // Every state's gap, from the geography query; the six worst from the bridge are the fallback while it loads.
-  const geoRows = ((geo?.rows ?? []) as Array<{ code: string; kind: string; delta: number }>).filter(r => r.kind === "state");
-  const states = new Map<string, number>(geoRows.length ? geoRows.map(r => [r.code, r.delta]) : p.topStates.map(s => [s.state, s.value]));
+  // Against the goal or the baseline (whichever the switch says), to date: the gap sets the colour. In the period-end view the tile
+  // shows the share of the whole period's reference reached instead, since a gap to a target that is still ahead is not a gap yet.
+  const refOf = (r: { expected: number; baseline: number }) => (baseOn ? r.baseline : r.expected);
+  const geoRows = ((geo?.rows ?? []) as Array<{ code: string; kind: string; actual: number; expected: number; baseline: number; delta: number }>).filter(r => r.kind === "state");
+  const states = new Map<string, number>(
+    geoRows.length ? geoRows.map(r => [r.code, r.actual - refOf(r)]) : baseOn ? [] : p.topStates.map(s => [s.state, s.value]),
+  );
+  const reached = new Map<string, number>(geoRows.filter(r => refOf(r) > 0).map(r => [r.code, (r.actual / (refOf(r) * wScale)) * 100]));
   const worst = [...states.values()].reduce((m, v) => Math.min(m, v), 0);
   const best = [...states.values()].reduce((m, v) => Math.max(m, v), 0);
   // Shade by size of the gap: deeper red for bigger shortfalls, deeper green for bigger leads.
@@ -370,9 +378,9 @@ export function ExecutiveView({
     return { background: `color-mix(in srgb, ${v < 0 ? BAD : GOOD} ${Math.round(a * 100)}%, var(--vw-white))`, color: a > 0.55 ? "var(--vw-white)" : "var(--text-primary)" };
   };
 
-  const repRows = ((reps ?? []) as Array<{ name: string; actual: number; expected: number; delta: number; clinics: number }>)
-    .filter(r => r.expected > 0)
-    .map(r => ({ ...r, pc: (r.delta / r.expected) * 100 }))
+  const repRows = ((reps ?? []) as Array<{ name: string; actual: number; expected: number; baseline: number; delta: number; clinics: number }>)
+    .filter(r => refOf(r) > 0)
+    .map(r => ({ ...r, pc: ((r.actual - refOf(r)) / refOf(r)) * 100, reached: (r.actual / (refOf(r) * wScale)) * 100 }))
     .sort((a, b) => b.pc - a.pc);
 
   const signals = ((feed?.items ?? []) as Feed[])
@@ -509,9 +517,9 @@ export function ExecutiveView({
           <Kpi
             name="Orders"
             value={int(p.orders)}
-            sub={`${int(p.expectedOrders * wScale)} ${el ? "goal" : "goal for the period"}${baseOn ? " (no baseline orders yet)" : ""}`}
-            color={p.orders < p.expectedOrders ? BAD : undefined}
-            dot={p.orders < p.expectedOrders ? BAD : GOOD}
+            sub={`${int(ordRef * wScale)} ${refName}${el ? "" : " for the period"}`}
+            color={p.orders < ordRef ? BAD : undefined}
+            dot={p.orders < ordRef ? BAD : GOOD}
             trend={prevP ? trendOf(perDay(p.orders, p), perDay(prevP.orders, prevP), true) : null}
           />
           {(() => {
@@ -593,29 +601,29 @@ export function ExecutiveView({
       <div className="ev-split">
         <div className="ev-card" style={{ padding: "18px 20px" }}>
           <div className="ev-sectitle">Revenue gap by state</div>
-          <div className="ev-secsub" style={{ marginTop: 3 }}>{tab.label}, against goal to date (does not follow the switches yet). Darker means a bigger gap.</div>
+          <div className="ev-secsub" style={{ marginTop: 3 }}>{tab.label}, against {refName}{el ? " to date" : ": share of the whole period's " + refName + " reached, coloured by the gap to date"}. Darker means a bigger gap.</div>
           <div className="ev-map">
             {Object.entries(TILES).map(([code, [c, r]]) => {
               const v = states.get(code);
               return (
                 <div key={code} className="ev-tile" style={{ gridColumn: c + 1, gridRow: r + 1, ...(v !== undefined ? tileColor(v) : {}) }}>
                   <span className="c">{code}</span>
-                  <span className="n">{v !== undefined ? money(v) : ""}</span>
+                  <span className="n">{v === undefined ? "" : el || !reached.has(code) ? money(v) : pct(reached.get(code)!)}</span>
                 </div>
               );
             })}
           </div>
           <div className="ev-legend">
-            <span><i style={{ background: BAD }} />Behind goal</span>
-            <span><i style={{ background: GOOD }} />Ahead of goal</span>
+            <span><i style={{ background: BAD }} />Behind {refName}</span>
+            <span><i style={{ background: GOOD }} />Ahead of {refName}</span>
             <span><i style={{ background: "var(--vw-gray-05)", border: "1px solid var(--vw-gray-10)" }} />No orders</span>
           </div>
         </div>
         {repRows.length ? (
           <div className="ev-card ev-team">
             <div className="ev-sectitle">Team performance</div>
-            <div className="ev-note" style={{ marginTop: 4, maxWidth: 640 }}>Revenue against each rep's own goal, {tab.label.toLowerCase()} ({shortDate(p.start)} – {shortDate(p.end)}). Bars run to ±50%.</div>
-            <div className="ev-team-head"><div>Rep</div><div style={{ textAlign: "right" }}>Clinics</div><div>Against goal</div><div style={{ textAlign: "right" }}>% to goal</div></div>
+            <div className="ev-note" style={{ marginTop: 4, maxWidth: 640 }}>Revenue against each rep's own {refName}, {tab.label.toLowerCase()} ({shortDate(p.start)} – {shortDate(p.end)}). Bars run to ±50% of the {refName} to date{el ? "" : "; the figure is the share of the whole period's " + refName + " reached"}.</div>
+            <div className="ev-team-head"><div>Rep</div><div style={{ textAlign: "right" }}>Clinics</div><div>Against {refName}</div><div style={{ textAlign: "right" }}>{el ? `vs ${refName}` : "of period"}</div></div>
             {repRows.map(r => {
               const w = (Math.min(Math.abs(r.pc), 50) / 50) * 50;
               const pos = r.pc >= 0;
@@ -624,7 +632,7 @@ export function ExecutiveView({
                   <div className="nm">{r.name}</div>
                   <div className="cl">{int(r.clinics)}</div>
                   <div className="ev-bar"><div className="mid" /><div className="fill" style={{ left: `${pos ? 50 : 50 - w}%`, width: `${w}%`, background: tone(r.pc) }} /></div>
-                  <div className="pc" style={{ color: tone(r.pc) }}>{pos ? "+" : "-"}{Math.abs(r.pc).toFixed(1)}%</div>
+                  <div className="pc" style={{ color: tone(r.pc) }}>{el ? `${pos ? "+" : "-"}${Math.abs(r.pc).toFixed(1)}%` : pct(r.reached)}</div>
                 </div>
               );
             })}

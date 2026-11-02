@@ -24,6 +24,8 @@ export type GeoRow = {
   label: string;
   actual: number;
   expected: number;
+  /** Baseline: the sum of the clinics' mean run rates over the baseline window (no goal factor, no top-down allocation). */
+  baseline: number;
   delta: number;
   orders: number;
   expectedOrders: number;
@@ -122,6 +124,7 @@ export const geoSummary = scopedQuery({
           ...g,
           actual: 0,
           expected: 0,
+          baseline: 0,
           delta: 0,
           orders: 0,
           expectedOrders: 0,
@@ -138,6 +141,7 @@ export const geoSummary = scopedQuery({
       }
       row.actual += r.actual;
       row.expected += r.expected;
+      row.baseline += r.baseline;
       row.delta += r.delta;
       row.orders += r.orders;
       row.expectedOrders += r.expectedOrders;
@@ -254,6 +258,7 @@ export const salesReps = scopedQuery({
       name: string;
       actual: number;
       expected: number;
+      baseline: number;
       delta: number;
       orders: number;
       clinics: number;
@@ -274,6 +279,7 @@ export const salesReps = scopedQuery({
       name: string;
       actual: number;
       expected: number;
+      baseline: number;
       delta: number;
       orders: number;
       clinics: number;
@@ -288,6 +294,7 @@ export const salesReps = scopedQuery({
         name,
         actual: 0,
         expected: 0,
+        baseline: 0,
         delta: 0,
         orders: 0,
         clinics: 0,
@@ -298,6 +305,7 @@ export const salesReps = scopedQuery({
       if (tl !== "—") row.leads.set(tl, (row.leads.get(tl) ?? 0) + 1);
       row.actual += r.actual;
       row.expected += r.expected;
+      row.baseline += r.baseline;
       row.delta += r.delta;
       row.orders += r.orders;
       row.clinics += 1;
