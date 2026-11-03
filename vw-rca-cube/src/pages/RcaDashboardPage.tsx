@@ -1782,7 +1782,9 @@ export function RcaDashboardPage() {
                         await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }), ...(bp === undefined ? {} : { bundlePenPoints: bp }) });
                       } catch (e) {
                         // Say why instead of failing silently (e.g. the backend has not been updated for a new setting yet).
-                        setTargetErr(String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300));
+                        const why = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+                        // Production Convex hides the reason; a new setting is the usual cause when the backend has not been deployed yet.
+                        setTargetErr(bp !== undefined && /Server Error/.test(why) ? `${why}. If the Convex backend has not been deployed with the bundle goal yet, that is why: deploy it, or save without changing the bundle field.` : why);
                         return;
                       }
                       setTargetErr(null);
