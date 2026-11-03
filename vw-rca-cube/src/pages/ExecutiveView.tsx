@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
-import { gzTourAvailable, overviewTourAvailable, startGzTour, startOverviewTour } from "@/lib/usertour";
+import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -449,7 +449,6 @@ export function ExecutiveView({
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           {overviewTourAvailable ? <button type="button" className="ev-link" data-tour="ov-take-tour" onClick={startOverviewTour}>Take a tour</button> : null}
-          {gzTourAvailable ? <button type="button" className="ev-link" data-tour="ov-gz-tour" onClick={startGzTour}>Find Gut Zoomer clinics</button> : null}
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
           <div className="ev-seg" data-tour="ov-compare">
             <button type="button" className={!baseOn ? "is-on" : ""} onClick={() => setCmp("goal")}>vs goal</button>
