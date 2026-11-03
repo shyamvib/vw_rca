@@ -39,6 +39,8 @@ const schema = defineSchema({
     annualTarget: v.optional(v.number()),
     /** New-business goal: the slice of the annual target given to new clinics (dollars); default 5% of the target. */
     newBusinessGoal: v.optional(v.number()),
+    /** Bundle-penetration goal: points added to each scope's own baseline share of bundle orders (e.g. 3 = +3 points). Unset means no goal. */
+    bundlePenPoints: v.optional(v.number()),
     p75: v.optional(
       v.object({
         day: v.array(v.number()),

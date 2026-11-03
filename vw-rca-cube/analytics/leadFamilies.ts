@@ -11,7 +11,7 @@ import {
 } from "./dateUtils";
 import { gatedQuery, scopedQuery } from "./gated";
 import type { QueryCtx } from "./_generated/server";
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 
 /**
  * Product-family level-2 lists for one team lead.
@@ -29,6 +29,9 @@ export type FamilyRow = {
   orders: number;
   expected: number;
   expectedOrders: number;
+  /** The baseline (mean run rate) over the same days, before the goal factor: revenue and orders. */
+  baseline: number;
+  baselineOrders: number;
   delta: number;
   orderDelta: number;
 };
@@ -77,10 +80,14 @@ export async function leadFamilyRows(
       .unique();
     if (!cfg) return empty;
     const gen = cfg.gen ?? 0;
+    const company = isCompanyLead(teamLead);
     const series = await ctx.db
       .query("familyLeadSeries")
       .withIndex("by_gen_lead", q => q.eq("gen", gen).eq("lead", teamLead))
-      .collect();
+      .collect()
+      .then(async rows =>
+        company ? await ctx.db.query("familyLeadSeries").withIndex("by_gen", q => q.eq("gen", gen)).collect() : rows,
+      );
     if (series.length === 0) return empty;
 
     const { days, kind } = daysOf(
@@ -103,11 +110,15 @@ export async function leadFamilyRows(
     for (const s of series) {
       let expected = 0;
       let expectedOrders = 0;
+      let baseline = 0;
+      let baselineOrders = 0;
       for (const d of days) {
         const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
         const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
         expected += (s.rates[dow(d)] ?? 0) * fR;
         expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
+        baseline += s.rates[dow(d)] ?? 0;
+        baselineOrders += s.ordRates[dow(d)] ?? 0;
       }
       let revenue = 0;
       let orders = 0;
@@ -122,9 +133,26 @@ export async function leadFamilyRows(
         orders,
         expected,
         expectedOrders,
+        baseline,
+        baselineOrders,
         delta: revenue - expected,
         orderDelta: orders - expectedOrders,
       });
+    }
+    if (company) {
+      // One row per lead and family: fold them into one row per family.
+      for (const k of Object.keys(byScope)) {
+        const m = new Map<string, FamilyRow>();
+        for (const r of byScope[k]) {
+          const t = m.get(r.family);
+          if (!t) m.set(r.family, { ...r });
+          else {
+            t.revenue += r.revenue; t.orders += r.orders; t.expected += r.expected;
+            t.expectedOrders += r.expectedOrders; t.baseline += r.baseline; t.baselineOrders += r.baselineOrders; t.delta += r.delta; t.orderDelta += r.orderDelta;
+          }
+        }
+        byScope[k] = [...m.values()];
+      }
     }
     for (const k of Object.keys(byScope)) {
       byScope[k].sort((a, b) => a.delta - b.delta);
@@ -189,11 +217,15 @@ export async function salesFamilyRows(
     for (const s of series) {
       let expected = 0;
       let expectedOrders = 0;
+      let baseline = 0;
+      let baselineOrders = 0;
       for (const d of days) {
         const fR = gf.found ? gf.rev : p75Scale(p75f, kind, d);
         const fO = gf.found ? gf.ord : p75Scale(p75f, kind, d);
         expected += (s.rates[dow(d)] ?? 0) * fR;
         expectedOrders += (s.ordRates[dow(d)] ?? 0) * fO;
+        baseline += s.rates[dow(d)] ?? 0;
+        baselineOrders += s.ordRates[dow(d)] ?? 0;
       }
       let revenue = 0;
       let orders = 0;
@@ -208,6 +240,8 @@ export async function salesFamilyRows(
         orders,
         expected,
         expectedOrders,
+        baseline,
+        baselineOrders,
         delta: revenue - expected,
         orderDelta: orders - expectedOrders,
       });

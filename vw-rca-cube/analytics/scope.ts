@@ -9,11 +9,16 @@ export const TEAM_PREFIX = "team:";
 /** "team:" with no name is not a team scope (it would otherwise match every clinic); it is treated as an unknown rep name. */
 export const isTeamScope = (s?: string | null): s is string => !!s && s.startsWith(TEAM_PREFIX) && s.slice(TEAM_PREFIX.length).trim() !== "";
 export const teamOf = (s: string) => s.slice(TEAM_PREFIX.length).trim();
+/** "team:*" is the whole company: every lead, every rep. Used by the executive overview's company-wide scorecard. */
+export const COMPANY_LEAD = "*";
+export const COMPANY_SCOPE = `${TEAM_PREFIX}${COMPANY_LEAD}`;
+export const isCompanyLead = (lead?: string | null) => lead === COMPANY_LEAD;
 
 /** Does a row with this `sales` belong to the scope? One rep: the name matches. A team: the rep sits under the lead. */
 export async function scopeMatcher(ctx: QueryCtx, gen: number, scope: string): Promise<(sales?: string | null) => boolean> {
   if (!isTeamScope(scope)) return s => s === scope;
   const lead = teamOf(scope);
+  if (isCompanyLead(lead)) return () => true;
   const meta = await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", gen).eq("teamLead", lead)).collect();
   const reps = new Set(meta.map(m => m.sales ?? "—"));
   return s => reps.has(s ?? "—");
@@ -23,6 +28,8 @@ export async function scopeMatcher(ctx: QueryCtx, gen: number, scope: string): P
 export async function repsInScope(ctx: QueryCtx, gen: number, scope: string): Promise<string[]> {
   if (!isTeamScope(scope)) return [scope];
   const lead = teamOf(scope);
-  const meta = await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", gen).eq("teamLead", lead)).collect();
+  const meta = isCompanyLead(lead)
+    ? await ctx.db.query("clinicMeta").withIndex("by_gen", q => q.eq("gen", gen)).collect()
+    : await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", gen).eq("teamLead", lead)).collect();
   return [...new Set(meta.map(m => m.sales ?? "—").filter(s => s !== "—"))];
 }

@@ -6,7 +6,7 @@ import { scopedAction } from "./gated";
 import { eq, ordersRows, rows as cubeRows } from "./cube";
 import { dow, eachDay, windowP75 } from "./dateUtils";
 import { familyOf, num, splitFamilies, TABLE } from "./powerbi";
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 
 /**
  * Product Growth pillar (Shyam, 2026-10-06): per-clinic product-family mix
@@ -40,7 +40,7 @@ export async function growthFor(ctx: any, args: { periodId: string; sales?: stri
     if (!cfg) return { ready: false, clinics: [] };
     const team = isTeamScope(args.sales) ? teamOf(args.sales) : null;
     const mine = (clinics as Array<{ clinic: string; name: string; sales: string; teamLead?: string }>).filter(
-      c => (team ? c.teamLead === team : c.sales === args.sales) && /^\d+$/.test(c.clinic),
+      c => (team ? isCompanyLead(team) || c.teamLead === team : c.sales === args.sales) && /^\d+$/.test(c.clinic),
     );
     if (!mine.length) return { ready: true, clinics: [] };
     const { start, end, days } = periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);

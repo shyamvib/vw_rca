@@ -30,7 +30,13 @@ export function newClinicFunnelGroups(
 import { scopeMatcher, repsInScope } from "./scope";
 import { v } from "convex/values";
 import { addDays, diffDays, monthKey, prevMonthKey, quarterKey, prevQuarterKey, quarterStart } from "./dateUtils";
-import { scopedQuery } from "./gated";
+import { gatedAction, scopedQuery } from "./gated";
+import { internal } from "./_generated/api";
+import { viewerCfgKey } from "./config";
+import { periodRange } from "./families";
+import { ordersRows } from "./cube";
+import { DATA_START } from "./familyLaunch";
+import { num } from "./powerbi";
 import { loadCfg } from "./config";
 import { periodDays } from "./clinics";
 function median(nums: number[]): number {
@@ -242,8 +248,24 @@ export const orderRetentionFunnel = scopedQuery({
       qoqPct: curQCounts && prevQCounts ? pctChange(curQCounts[i], prevQCounts[i]) : null,
     }));
 
+    // Early-retention benchmark for "reached order 3" (2026-10-26). A clinic that signed up last week cannot have reached
+    // order 3 yet, so raw counts always look low. The like-for-like read is: of the new clinics old enough to have had
+    // `order3.days` since order 1 (45, the same cut the churn rule uses for new clinics), how many reached order 3 inside
+    // that time. The baseline is the same rate over the baseline period's own new clinics.
+    const ORDER3_DAYS = 45;
+    const dataEnd = cfg.currentEnd;
+    const o3Rate = (rows: typeof cohort) => {
+      const mature = rows.filter(r => r.orderDates.length >= 1 && diffDays(r.orderDates[0], dataEnd) >= ORDER3_DAYS);
+      return { of: mature.length, n: mature.filter(r => r.orderDates.length >= 3 && diffDays(r.orderDates[0], r.orderDates[2]) <= ORDER3_DAYS).length };
+    };
+    const baseCohort = cfg.baselineStart && cfg.baselineEnd
+      ? seqRows.filter(r => inScope(r.sales) && r.firstOrder >= cfg.baselineStart && r.firstOrder <= cfg.baselineEnd)
+      : [];
+    const order3 = { days: ORDER3_DAYS, cur: o3Rate(cohort), base: baseCohort.length ? o3Rate(baseCohort) : null };
+
     return {
       ready: true as const,
+      order3,
       start,
       end,
       signups,
@@ -272,6 +294,35 @@ export const seqFor = scopedQuery({
     const rows = await ctx.db.query("newClinicOrderSeq").withIndex("by_gen", q => q.eq("gen", gen)).collect();
     const out: Record<string, { signup?: string; orders: string[] }> = {};
     for (const r of rows) if (want.has(r.clinic)) out[r.clinic] = { signup: r.signupDate, orders: r.orderDates };
+    return out;
+  },
+});
+
+
+/**
+ * Repeat patients (Shyam, 2026-10-25): of the distinct patients who ordered in the window, how many had already ordered
+ * before it (any time since the data starts). Three distinct-patient counts, so the overlap is exact without pulling ids:
+ * repeat = |window| + |before| - |before or window|. Company-wide; team logins only.
+ */
+export const repeatPatients = gatedAction({
+  args: { periodId: v.string() },
+  handler: async (ctx, args): Promise<{ ready: boolean; window?: number; repeat?: number; since?: string }> => {
+    const cfgKey = viewerCfgKey(ctx);
+    const key = `${cfgKey ?? ""}rp1|${args.periodId}`;
+    const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
+    if (hit) return JSON.parse(hit);
+    const { cfg } = await ctx.runQuery(internal.families.context, { cfgKey, periodId: args.periodId });
+    if (!cfg) return { ready: false };
+    const { start, end } = periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);
+    const count = async (s: string, e: string) => num((await ordersRows({ start: s, end: e, m: { pat: "patients" } }))[0] ?? {}, "pat");
+    let out: { ready: boolean; window: number; repeat: number; since: string };
+    if (start <= DATA_START) {
+      out = { ready: true, window: await count(start, end), repeat: 0, since: DATA_START };
+    } else {
+      const [win, before, both] = await Promise.all([count(start, end), count(DATA_START, addDays(start, -1)), count(DATA_START, end)]);
+      out = { ready: true, window: win, repeat: Math.max(0, Math.min(win, win + before - both)), since: DATA_START };
+    }
+    await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(out) });
     return out;
   },
 });

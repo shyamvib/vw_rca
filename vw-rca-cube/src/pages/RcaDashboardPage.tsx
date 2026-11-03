@@ -9,6 +9,7 @@ import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
+import { ExecutiveView, TeamsView } from "./ExecutiveView";
 import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
@@ -1228,6 +1229,10 @@ export function RcaDashboardPage() {
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
   const [targetSaved, setTargetSaved] = useState(false);
   const [newGoalDraft, setNewGoalDraft] = useState<string | null>(null);
+  const [bundleDraft, setBundleDraft] = useState<string | null>(null);
+  // The analytics service picks a saved setting up on its next sync (up to a minute), so the value just saved stays on screen until then.
+  const [bundleSaved, setBundleSaved] = useState<{ v: string; at: number } | null>(null);
+  const [targetErr, setTargetErr] = useState<string | null>(null);
   const [scope, setScope] = useState<"month" | "week" | "day">("week");
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
@@ -1264,7 +1269,7 @@ export function RcaDashboardPage() {
   const repLogin = useMemo(() => repSession(), []);
   const isRep = repLogin !== null;
   // Reps only get their own view: no company dashboard, no Business Feed.
-  const [view, setView] = useState<"dashboard" | "feed" | "rep">(isRep ? "rep" : "dashboard");
+  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
   const isLead = repLogin?.all === true; // rep-view only, but any rep's book
   const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
   // Admin: with a team lead picked in the top bar and no rep chosen, the rep view is that lead's whole team as one book.
@@ -1743,18 +1748,50 @@ export function RcaDashboardPage() {
                       }}
                     />
                   </label>
+                  <label>
+                    Bundle penetration goal (points over baseline)
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={0}
+                      max={100}
+                      placeholder="none"
+                      value={bundleDraft ?? (bundleSaved && Date.now() - bundleSaved.at < 180_000 ? bundleSaved.v : String((cfg as { bundlePenPoints?: number }).bundlePenPoints ?? ""))}
+                      onChange={e => {
+                        setBundleDraft(e.target.value);
+                        setTargetSaved(false);
+                      }}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="rca-btn"
-                    disabled={targetDraft === null && newGoalDraft === null}
+                    disabled={targetDraft === null && newGoalDraft === null && bundleDraft === null}
                     onClick={async () => {
                       const n = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
                       if (!Number.isFinite(n) || n <= 0) return;
                       const g = newGoalDraft === null ? undefined : Number(newGoalDraft);
                       if (g !== undefined && (!Number.isFinite(g) || g < 0 || g > n)) return;
-                      await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }) });
+                      // Empty clears the bundle goal; no edit leaves it alone.
+                      const bp = bundleDraft === null ? undefined : bundleDraft.trim() === "" ? null : Number(bundleDraft);
+                      if (typeof bp === "number" && (!Number.isFinite(bp) || bp < 0 || bp > 100)) {
+                        setTargetErr("The bundle penetration goal is a number of points between 0 and 100.");
+                        return;
+                      }
+                      try {
+                        await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }), ...(bp === undefined ? {} : { bundlePenPoints: bp }) });
+                      } catch (e) {
+                        // Say why instead of failing silently (e.g. the backend has not been updated for a new setting yet).
+                        const why = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+                        // Production Convex hides the reason; a new setting is the usual cause when the backend has not been deployed yet.
+                        setTargetErr(bp !== undefined && /Server Error/.test(why) ? `${why}. If the Convex backend has not been deployed with the bundle goal yet, that is why: deploy it, or save without changing the bundle field.` : why);
+                        return;
+                      }
+                      setTargetErr(null);
+                      if (bundleDraft !== null) setBundleSaved({ v: bundleDraft, at: Date.now() });
                       setTargetDraft(null);
                       setNewGoalDraft(null);
+                      setBundleDraft(null);
                       setTargetSaved(true);
                     }}
                   >
@@ -1768,10 +1805,19 @@ export function RcaDashboardPage() {
                   new-business goal is the slice of it given to this year's new
                   clinics as a group (default: last year's new-clinic revenue,
                   phased by last year's monthly shape and split over reps by
-                  their baseline share); existing clinics carry the rest. It applies
-                  instantly — no Power BI refresh needed.
-                  {targetSaved ? " Saved." : ""}
+                  their baseline share); existing clinics carry the rest. The bundle
+                  penetration goal is the number of points added to each scope's
+                  own baseline share of bundle orders; AOV's goal is what AOV
+                  would be at that share, with bundle and non-bundle order values
+                  held at the baseline (empty means no goal, baseline only). It
+                  applies instantly — no Power BI refresh needed.
+                  {targetSaved ? " Saved. The dashboards pick it up within about a minute." : ""}
                 </div>
+                {targetErr ? (
+                  <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
+                    Could not save: {targetErr}
+                  </div>
+                ) : null}
                 {(() => {
                   const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
                   const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
@@ -1826,10 +1872,24 @@ export function RcaDashboardPage() {
         <div className="rca-view-tabs">
           <button
             type="button"
+            className={`rca-tab${view === "overview" ? " is-active" : ""}`}
+            onClick={() => setView("overview")}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={`rca-tab${view === "teams" ? " is-active" : ""}`}
+            onClick={() => setView("teams")}
+          >
+            Teams
+          </button>
+          <button
+            type="button"
             className={`rca-tab${view === "dashboard" ? " is-active" : ""}`}
             onClick={() => setView("dashboard")}
           >
-            Dashboard
+            Root cause
           </button>
           <button
             type="button"
@@ -2037,7 +2097,22 @@ export function RcaDashboardPage() {
             provTerm={provSearch}
             onClearSearch={() => { setSearch(""); setProvSearch(""); }}
           />
+        ) : view === "overview" ? (
+          <ExecutiveView
+            periods={periods as never}
+            windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
+            teamLead={teamLead || undefined}
+            onOpenFeed={() => setView("feed")}
+            onOpenTree={id => { setSelected(id); setView("dashboard"); }}
+          />
+        ) : view === "teams" ? (
+          <TeamsView
+            periods={periods as never}
+            windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
+          />
         ) : view === "feed" ? (
+          <>
+          <div className="ev-banner" style={{ margin: "16px 0 0" }}><b>Work in progress.</b> The Business Feed has not been updated for the new goal / baseline definitions, the lifecycle stages or the To date / To period end switches yet, so its numbers can differ from the Overview.</div>
           <InsightsView
             teamLead={teamLead || undefined}
             onDrill={(focus, label) => {
@@ -2056,6 +2131,7 @@ export function RcaDashboardPage() {
               }, 150);
             }}
           />
+          </>
         ) : (
         <>
         <div className="rca-hero">
