@@ -6,6 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
+import { startUsertour } from "@/lib/usertour";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
@@ -1271,6 +1272,11 @@ export function RcaDashboardPage() {
   // Reps only get their own view: no company dashboard, no Business Feed.
   const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
   const isLead = repLogin?.all === true; // rep-view only, but any rep's book
+  // Guided tours (Usertour): signed-in work email and role only; inert unless the token is configured.
+  useEffect(() => {
+    const who = repLogin?.email || gateEmail();
+    if (who) startUsertour({ email: who, role: isRep ? (isLead ? "lead" : "rep") : "team" });
+  }, [repLogin, isRep, isLead]);
   const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
   // Admin: with a team lead picked in the top bar and no rep chosen, the rep view is that lead's whole team as one book.
   const repScope = !isRep && !salesRep && teamLead ? `team:${teamLead}` : salesRep;
@@ -1873,6 +1879,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "overview" ? " is-active" : ""}`}
+            data-tour="nav-overview"
             onClick={() => setView("overview")}
           >
             Overview
@@ -1880,6 +1887,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "teams" ? " is-active" : ""}`}
+            data-tour="nav-teams"
             onClick={() => setView("teams")}
           >
             Teams
@@ -1887,6 +1895,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "dashboard" ? " is-active" : ""}`}
+            data-tour="nav-root-cause"
             onClick={() => setView("dashboard")}
           >
             Root cause
@@ -1894,6 +1903,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "rep" ? " is-active" : ""}`}
+            data-tour="nav-rep-view"
             onClick={() => setView("rep")}
           >
             Rep view
@@ -1902,6 +1912,7 @@ export function RcaDashboardPage() {
             <button
               type="button"
               className={`rca-tab${view === "feed" ? " is-active" : ""}`}
+            data-tour="nav-feed"
               onClick={() => setView("feed")}
             >
               Business Feed
@@ -1964,6 +1975,7 @@ export function RcaDashboardPage() {
           <select
             className="rca-lead-select"
             aria-label="Filter by sales supervisor"
+            data-tour="ov-lead-filter"
             value={teamLead}
             onChange={e => {
               setTeamLead(e.target.value);
