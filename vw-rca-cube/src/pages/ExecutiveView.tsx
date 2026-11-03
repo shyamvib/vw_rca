@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
+import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -275,9 +276,11 @@ type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"
 /** Same fills as the rep view: green on track, amber watch, red behind, blue where to act, dashed white for new releases. */
 const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch" : dot === BAD ? "bad" : dot === "var(--vw-gray-30)" ? "act" : "na");
 
-function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule }: { name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour }: { tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
   return (
-    <div className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
+    <div data-tour={tour} className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
       <div className="top"><span>{name}{rule ? <em className="ev-rule">own rule</em> : null}</span><i className="dot" style={{ background: dot }} /></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
@@ -437,7 +440,7 @@ export function ExecutiveView({
       {teamLead ? <div className="ev-banner" style={{ borderStyle: "solid" }}>Showing <b>{teamLead}</b>'s team (the lead and every rep under them){sp.ready ? "" : ": loading, the figures below are still the company's"}. Repeat patients is company-wide only for now.</div> : null}
       <div>
         <div className="ev-eyebrow">Overview · {windowLabel}</div>
-        <h2 className="ev-headline">{headline}</h2>
+        <h2 className="ev-headline" data-tour="ov-headline">{headline}</h2>
       </div>
 
       <div className="ev-periodbar">
@@ -445,18 +448,19 @@ export function ExecutiveView({
           {shortDate(p.start)} – {shortDate(p.end)} · {caption}
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          {overviewTourAvailable ? <button type="button" className="ev-link" data-tour="ov-take-tour" onClick={startOverviewTour}>Take a tour</button> : null}
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
-          <div className="ev-seg">
+          <div className="ev-seg" data-tour="ov-compare">
             <button type="button" className={!baseOn ? "is-on" : ""} onClick={() => setCmp("goal")}>vs goal</button>
             {p.baseline !== undefined ? <button type="button" className={baseOn ? "is-on" : ""} onClick={() => setCmp("baseline")}>vs baseline</button> : null}
           </div>
           {canBasis ? (
-            <div className="ev-seg" title="Measure the whole page over the days elapsed, or over the whole period">
+            <div className="ev-seg" data-tour="ov-basis" title="Measure the whole page over the days elapsed, or over the whole period">
               <button type="button" className={el ? "is-on" : ""} onClick={() => setBasis("elapsed")}>To date</button>
               <button type="button" className={!el ? "is-on" : ""} onClick={() => setBasis("window")}>To period end</button>
             </div>
           ) : null}
-          <div className="ev-seg">
+          <div className="ev-seg" data-tour="ov-period">
             {tabs.map(t => (
               <button key={t.key} type="button" className={t.key === tab.key ? "is-on" : ""} onClick={() => setSel(t.key)}>{t.label}</button>
             ))}
@@ -470,7 +474,7 @@ export function ExecutiveView({
             <div className="ev-sectitle">Outlook</div>
             <div className="ev-secsub">{teamLead ? `${teamLead}'s team` : "Company-wide"}, through {shortDate(projReady.ytd.end)}.</div>
           </div>
-          <div className="ev-card ev-outlook ev-outlook-wide">
+          <div className="ev-card ev-outlook ev-outlook-wide" data-tour="ov-outlook">
             <div className="ev-outlook">
               <div className="ev-eyebrow">Year-end outlook</div>
               <div className="ev-big"><b style={{ color: projReady.gap > 0 ? BAD : GOOD }}>{plain(projReady.projected.close)}</b><span>projected close</span></div>
@@ -493,7 +497,7 @@ export function ExecutiveView({
       ) : null}
 
       {sc.ready ? (
-        <section>
+        <section data-tour="ov-pillars">
           <div className="ev-sechead">
             <div className="ev-sectitle">Pillar health</div>
             <div className="ev-secsub">
@@ -505,7 +509,7 @@ export function ExecutiveView({
             </div>
           </div>
           <div className="ev-ctrls">
-            <div className="ev-seg">
+            <div className="ev-seg" data-tour="ov-design">
               <button type="button" className={design === "dials" ? "is-on" : ""} onClick={() => setDesign("dials")}>Dials</button>
               <button type="button" className={design === "cards" ? "is-on" : ""} onClick={() => setDesign("cards")}>Cards</button>
             </div>
@@ -544,7 +548,7 @@ export function ExecutiveView({
         </section>
       ) : null}
 
-      <section>
+      <section data-tour="ov-kpis">
         <div className="ev-sechead">
           <div className="ev-sectitle">Overall KPIs</div>
           <div className="ev-secsub">{tab.label}, {shortDate(p.start)} – {shortDate(p.end)}. Counts of clinics are as of the latest data. Tagged "own rule" use their own benchmark, whatever the switches say.</div>
@@ -605,7 +609,7 @@ export function ExecutiveView({
       </section>
 
       <div className="ev-split">
-        <div className="ev-card" style={{ padding: "18px 20px" }}>
+        <div className="ev-card" style={{ padding: "18px 20px" }} data-tour="ov-map">
           <div className="ev-sectitle">Revenue gap by state</div>
           <div className="ev-secsub" style={{ marginTop: 3 }}>{tab.label}, against {refName}{el ? " to date" : ": share of the whole period's " + refName + " reached, coloured by the gap to date"}. Darker means a bigger gap.</div>
           <div className="ev-map">
@@ -626,7 +630,7 @@ export function ExecutiveView({
           </div>
         </div>
         {repRows.length ? (
-          <div className="ev-card ev-team">
+          <div className="ev-card ev-team" data-tour="ov-team">
             <div className="ev-sectitle">Team performance</div>
             <div className="ev-note" style={{ marginTop: 4, maxWidth: 640 }}>Revenue against each rep's own {refName}, {tab.label.toLowerCase()} ({shortDate(p.start)} – {shortDate(p.end)}). Bars run to ±50% of the {refName} to date{el ? "" : "; the figure is the share of the whole period's " + refName + " reached"}.</div>
             <div className="ev-team-head"><div>Rep</div><div style={{ textAlign: "right" }}>Clinics</div><div>Against {refName}</div><div style={{ textAlign: "right" }}>{el ? `vs ${refName}` : "of period"}</div></div>
@@ -647,7 +651,7 @@ export function ExecutiveView({
       </div>
 
       {sc.families.length ? (
-        <section>
+        <section data-tour="ov-families">
           <>
             <div className="ev-sechead">
               <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
@@ -662,6 +666,7 @@ export function ExecutiveView({
                 return (
                   <Kpi
                     key={x.family}
+                    tour={`ov-fam-${slug(x.family)}`}
                     onClick={() => setFam(f => (f === x.family ? "" : x.family))}
                     on={sc.scoped && sc.family === x.family}
                     name={x.family}
@@ -679,7 +684,7 @@ export function ExecutiveView({
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no goal or colour.</div>
                 <div className="ev-fams">
                   {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
+                    <Kpi key={x.family} tour={`ov-fam-${slug(x.family)}`} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
                   ))}
                 </div>
               </>
@@ -689,7 +694,7 @@ export function ExecutiveView({
       ) : null}
 
       {sc.ready ? (
-        <div className="ev-card" style={{ overflow: "hidden" }}>
+        <div className="ev-card" style={{ overflow: "hidden" }} data-tour="ov-scorecard">
           <div className="ev-sc-head">
             <div>
               <div className="ev-sectitle">Scorecard</div>
@@ -712,7 +717,7 @@ export function ExecutiveView({
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar}</div>
               {r.cells.map(c => (
-                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
+                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} data-tour={`sc-${slug(c.label)}`} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
                   <div className="top"><span>{c.label}{sc.scoped && c.allProducts ? <em className="ev-rule">all products</em> : null}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
@@ -727,9 +732,9 @@ export function ExecutiveView({
           ))}
         </div>
       ) : null}
-      {open?.from === "cell" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
+      {open?.from === "cell" ? <div className="ev-list" data-tour="ov-cell-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
 
-      <section>
+      <section data-tour="ov-funnel">
         <div className="ev-sechead">
           <div className="ev-sectitle">New business funnel</div>
           <div className="ev-secsub">New clinics this window, signup to order 5, with the touches between each step.</div>
@@ -738,7 +743,7 @@ export function ExecutiveView({
       </section>
 
       {signals.length ? (
-        <section>
+        <section data-tour="ov-signals">
           <div className="ev-sechead">
             <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
               <div className="ev-sectitle">Growth signals</div>

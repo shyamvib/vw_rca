@@ -6,6 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
+import { gzTourAvailable, startGzTour, startUsertour } from "@/lib/usertour";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
@@ -674,10 +675,13 @@ export function InsightCard({
   item,
   onDrill,
   onHistory,
+  onFindGz,
 }: {
   item: Insight;
   onDrill?: (focus: string, label: string) => void;
   onHistory?: () => void;
+  /** Gut Zoomer card only: replaces "Open the clinics" with a guided tour from the Overview. */
+  onFindGz?: () => void;
 }) {
   const update = useMutation(api.insights.update);
   const [editing, setEditing] = useState(false);
@@ -729,9 +733,10 @@ export function InsightCard({
         <div className="rca-ic-title">
           <div className="rca-ic-tag">{item.domain} · {item.topic}</div>
           <div
-            className={`rca-insight-question${item.focus && onDrill ? " rca-insight-question-clickable" : ""}`}
+            className={`rca-insight-question${(item.focus && onDrill) || onFindGz ? " rca-insight-question-clickable" : ""}`}
             onClick={() => {
-              if (item.focus && onDrill) onDrill(item.focus, item.focusLabel ?? item.question ?? item.topic);
+              if (onFindGz) onFindGz();
+              else if (item.focus && onDrill) onDrill(item.focus, item.focusLabel ?? item.question ?? item.topic);
             }}
           >
             {item.question ?? `${item.domain} · ${item.topic}`}
@@ -797,7 +802,11 @@ export function InsightCard({
             <div className="rca-ic-gut"><span className="rca-ic-chip is-act">Action</span></div>
             <div className="rca-ic-body">
               {item.action}{edited.has("action") ? " (edited)" : ""}
-              {item.focus && onDrill ? (
+              {onFindGz ? (
+                <div className="rca-ic-btns">
+                  <button type="button" className="rca-ic-btn" onClick={onFindGz}>Find Gut Zoomer clinics</button>
+                </div>
+              ) : item.focus && onDrill ? (
                 <div className="rca-ic-btns">
                   <button type="button" className="rca-ic-btn" onClick={() => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic)}>Open the clinics</button>
                 </div>
@@ -830,10 +839,14 @@ type Cadence = (typeof CADENCE_OPTS)[number]["key"];
 function InsightsView({
   teamLead,
   onDrill,
+  onFindGz,
 }: {
   teamLead?: string;
   onDrill?: (focus: string, label: string) => void;
+  /** Switch to the Overview and start the Gut Zoomer tour. */
+  onFindGz?: () => void;
 }) {
+  const gzHandler = (item: Insight) => (item.sourceFeedId === "gz-loss" && gzTourAvailable ? onFindGz : undefined);
   const [cadence, setCadence] = useState<Cadence>("daily");
   const [snapDate, setSnapDate] = useState<string | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
@@ -938,7 +951,8 @@ function InsightsView({
             evidence: item.evidence,
             action: item.action,
             last: item.status,
-            onOpen: item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined,
+            onOpen: gzHandler(item) ?? (item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined),
+            openLabel: gzHandler(item) ? "Find Gut Zoomer clinics" : undefined,
             ask: { id: item.insightId, question: item.question ?? `${item.domain} · ${item.topic}`, fact: item.fact },
           }))}
           askContext="Business Feed (company)"
@@ -950,6 +964,7 @@ function InsightsView({
               key={item.insightId}
               item={item}
               onDrill={onDrill}
+              onFindGz={gzHandler(item)}
               onHistory={cadence !== "daily" ? () => setHistoryOf(item.sourceFeedId) : undefined}
             />
           ))}
@@ -1271,6 +1286,11 @@ export function RcaDashboardPage() {
   // Reps only get their own view: no company dashboard, no Business Feed.
   const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
   const isLead = repLogin?.all === true; // rep-view only, but any rep's book
+  // Guided tours (Usertour): signed-in work email and role only; inert unless the token is configured.
+  useEffect(() => {
+    const who = repLogin?.email || gateEmail();
+    if (who) startUsertour({ email: who, role: isRep ? (isLead ? "lead" : "rep") : "team" });
+  }, [repLogin, isRep, isLead]);
   const [salesRep, setSalesRep] = useState<string>(isLead ? "" : repLogin?.rep ?? "");
   // Admin: with a team lead picked in the top bar and no rep chosen, the rep view is that lead's whole team as one book.
   const repScope = !isRep && !salesRep && teamLead ? `team:${teamLead}` : salesRep;
@@ -1873,6 +1893,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "overview" ? " is-active" : ""}`}
+            data-tour="nav-overview"
             onClick={() => setView("overview")}
           >
             Overview
@@ -1880,6 +1901,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "teams" ? " is-active" : ""}`}
+            data-tour="nav-teams"
             onClick={() => setView("teams")}
           >
             Teams
@@ -1887,6 +1909,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "dashboard" ? " is-active" : ""}`}
+            data-tour="nav-root-cause"
             onClick={() => setView("dashboard")}
           >
             Root cause
@@ -1894,6 +1917,7 @@ export function RcaDashboardPage() {
           <button
             type="button"
             className={`rca-tab${view === "rep" ? " is-active" : ""}`}
+            data-tour="nav-rep-view"
             onClick={() => setView("rep")}
           >
             Rep view
@@ -1902,6 +1926,7 @@ export function RcaDashboardPage() {
             <button
               type="button"
               className={`rca-tab${view === "feed" ? " is-active" : ""}`}
+            data-tour="nav-feed"
               onClick={() => setView("feed")}
             >
               Business Feed
@@ -1964,6 +1989,7 @@ export function RcaDashboardPage() {
           <select
             className="rca-lead-select"
             aria-label="Filter by sales supervisor"
+            data-tour="ov-lead-filter"
             value={teamLead}
             onChange={e => {
               setTeamLead(e.target.value);
@@ -2115,6 +2141,7 @@ export function RcaDashboardPage() {
           <div className="ev-banner" style={{ margin: "16px 0 0" }}><b>Work in progress.</b> The Business Feed has not been updated for the new goal / baseline definitions, the lifecycle stages or the To date / To period end switches yet, so its numbers can differ from the Overview.</div>
           <InsightsView
             teamLead={teamLead || undefined}
+            onFindGz={() => { setView("overview"); startGzTour(); }}
             onDrill={(focus, label) => {
               setDrillLimit(25);
               setSelected("all");
