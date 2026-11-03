@@ -9,7 +9,7 @@ import { loadStops } from "./familyStops";
 import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
-import { isCompanyLead, isTeamScope, repsInScope, teamOf } from "./scope";
+import { COMPANY_SCOPE, TEAM_PREFIX, isCompanyLead, isTeamScope, repsInScope, teamOf } from "./scope";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -659,6 +659,32 @@ export async function build(
         detail: [`Gut Zoomer: ${trend("Gut Zoomer")}`, `Total Tox: ${trend("Total Tox")}`, ...top].join(" | "),
       });
     }
+  }
+
+  // Where Gut Zoomer orders are going: the same question the rep Business feed carries (repQuestions), over the company or the
+  // picked team. Live feed only: stops and declines are rebuilt at refresh, so historical snapshots must not read them.
+  if (!configKey || configKey === "main") {
+    const scope = teamLead ? `${TEAM_PREFIX}${teamLead}` : COMPANY_SCOPE;
+    const inScope = (r: { teamLead?: string | null }) => isCompanyLead(teamOf(scope)) || r.teamLead === teamOf(scope);
+    const gzRow = (await salesFamilyRows(ctx, "all", scope)).all.find(f => f.family === "Gut Zoomer");
+    const stopRows = (await loadStops(ctx, teamLead))
+      .filter(r => r.family === "Gut Zoomer")
+      .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, priorOrders: r.priorOrders, lastOrder: r.lastOrder }));
+    const gzReps: Array<{ name: string; delta: number; orderDelta: number }> = [];
+    for (const rep of await repsInScope(ctx, gen, scope)) {
+      const g = (await salesFamilyRows(ctx, "all", rep)).all.find(f => f.family === "Gut Zoomer");
+      if (g) gzReps.push({ name: rep, delta: g.delta, orderDelta: g.orderDelta });
+    }
+    const decRows = (await ctx.db.query("familyDecline").withIndex("by_family", q => q.eq("family", "Gut Zoomer")).collect())
+      .filter(inScope)
+      .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, orders: r.orders, expected: r.expected, status: r.status }));
+    const dLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const built = !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first());
+    const gl = gzLossItem(
+      gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), built,
+      `${dLabel(cfg.currentStart)} – ${dLabel(cfg.currentEnd)}, ${cfg.currentEnd.slice(0, 4)}`,
+    );
+    if (gl) items.push({ ...gl, q: "Where are we losing Gut Zoomer orders?" });
   }
 
   // Product families — worst and best. Company-wide only: famBase/famPeriod

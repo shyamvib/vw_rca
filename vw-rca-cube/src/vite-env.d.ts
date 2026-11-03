@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_VIKTOR_SPACES_SPACE_ID?: string;
   readonly VITE_USERTOUR_TOKEN?: string;
   readonly VITE_USERTOUR_OVERVIEW_FLOW?: string;
+  readonly VITE_USERTOUR_GZ_FLOW?: string;
 }
 
 interface ImportMeta {

@@ -6,7 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
-import { startUsertour } from "@/lib/usertour";
+import { gzTourAvailable, startGzTour, startUsertour } from "@/lib/usertour";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
@@ -675,10 +675,13 @@ export function InsightCard({
   item,
   onDrill,
   onHistory,
+  onFindGz,
 }: {
   item: Insight;
   onDrill?: (focus: string, label: string) => void;
   onHistory?: () => void;
+  /** Gut Zoomer card only: replaces "Open the clinics" with a guided tour from the Overview. */
+  onFindGz?: () => void;
 }) {
   const update = useMutation(api.insights.update);
   const [editing, setEditing] = useState(false);
@@ -730,9 +733,10 @@ export function InsightCard({
         <div className="rca-ic-title">
           <div className="rca-ic-tag">{item.domain} · {item.topic}</div>
           <div
-            className={`rca-insight-question${item.focus && onDrill ? " rca-insight-question-clickable" : ""}`}
+            className={`rca-insight-question${(item.focus && onDrill) || onFindGz ? " rca-insight-question-clickable" : ""}`}
             onClick={() => {
-              if (item.focus && onDrill) onDrill(item.focus, item.focusLabel ?? item.question ?? item.topic);
+              if (onFindGz) onFindGz();
+              else if (item.focus && onDrill) onDrill(item.focus, item.focusLabel ?? item.question ?? item.topic);
             }}
           >
             {item.question ?? `${item.domain} · ${item.topic}`}
@@ -798,7 +802,11 @@ export function InsightCard({
             <div className="rca-ic-gut"><span className="rca-ic-chip is-act">Action</span></div>
             <div className="rca-ic-body">
               {item.action}{edited.has("action") ? " (edited)" : ""}
-              {item.focus && onDrill ? (
+              {onFindGz ? (
+                <div className="rca-ic-btns">
+                  <button type="button" className="rca-ic-btn" onClick={onFindGz}>Find Gut Zoomer clinics</button>
+                </div>
+              ) : item.focus && onDrill ? (
                 <div className="rca-ic-btns">
                   <button type="button" className="rca-ic-btn" onClick={() => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic)}>Open the clinics</button>
                 </div>
@@ -831,10 +839,14 @@ type Cadence = (typeof CADENCE_OPTS)[number]["key"];
 function InsightsView({
   teamLead,
   onDrill,
+  onFindGz,
 }: {
   teamLead?: string;
   onDrill?: (focus: string, label: string) => void;
+  /** Switch to the Overview and start the Gut Zoomer tour. */
+  onFindGz?: () => void;
 }) {
+  const gzHandler = (item: Insight) => (item.sourceFeedId === "gz-loss" && gzTourAvailable ? onFindGz : undefined);
   const [cadence, setCadence] = useState<Cadence>("daily");
   const [snapDate, setSnapDate] = useState<string | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
@@ -939,7 +951,8 @@ function InsightsView({
             evidence: item.evidence,
             action: item.action,
             last: item.status,
-            onOpen: item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined,
+            onOpen: gzHandler(item) ?? (item.focus && onDrill ? () => onDrill(item.focus!, item.focusLabel ?? item.question ?? item.topic) : undefined),
+            openLabel: gzHandler(item) ? "Find Gut Zoomer clinics" : undefined,
             ask: { id: item.insightId, question: item.question ?? `${item.domain} · ${item.topic}`, fact: item.fact },
           }))}
           askContext="Business Feed (company)"
@@ -951,6 +964,7 @@ function InsightsView({
               key={item.insightId}
               item={item}
               onDrill={onDrill}
+              onFindGz={gzHandler(item)}
               onHistory={cadence !== "daily" ? () => setHistoryOf(item.sourceFeedId) : undefined}
             />
           ))}
@@ -2127,6 +2141,7 @@ export function RcaDashboardPage() {
           <div className="ev-banner" style={{ margin: "16px 0 0" }}><b>Work in progress.</b> The Business Feed has not been updated for the new goal / baseline definitions, the lifecycle stages or the To date / To period end switches yet, so its numbers can differ from the Overview.</div>
           <InsightsView
             teamLead={teamLead || undefined}
+            onFindGz={() => { setView("overview"); startGzTour(); }}
             onDrill={(focus, label) => {
               setDrillLimit(25);
               setSelected("all");

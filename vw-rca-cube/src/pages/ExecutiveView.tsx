@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
-import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
+import { gzTourAvailable, overviewTourAvailable, startGzTour, startOverviewTour } from "@/lib/usertour";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -276,9 +276,11 @@ type Feed = { id: string; tag: string; tone: "alert" | "watch" | "good" | "info"
 /** Same fills as the rep view: green on track, amber watch, red behind, blue where to act, dashed white for new releases. */
 const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch" : dot === BAD ? "bad" : dot === "var(--vw-gray-30)" ? "act" : "na");
 
-function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule }: { name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour }: { tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
   return (
-    <div className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
+    <div data-tour={tour} className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
       <div className="top"><span>{name}{rule ? <em className="ev-rule">own rule</em> : null}</span><i className="dot" style={{ background: dot }} /></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
@@ -447,6 +449,7 @@ export function ExecutiveView({
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           {overviewTourAvailable ? <button type="button" className="ev-link" data-tour="ov-take-tour" onClick={startOverviewTour}>Take a tour</button> : null}
+          {gzTourAvailable ? <button type="button" className="ev-link" data-tour="ov-gz-tour" onClick={startGzTour}>Find Gut Zoomer clinics</button> : null}
           <button type="button" className="ev-link" onClick={() => onOpenTree(p.id)}>Open root cause for this window</button>
           <div className="ev-seg" data-tour="ov-compare">
             <button type="button" className={!baseOn ? "is-on" : ""} onClick={() => setCmp("goal")}>vs goal</button>
@@ -664,6 +667,7 @@ export function ExecutiveView({
                 return (
                   <Kpi
                     key={x.family}
+                    tour={`ov-fam-${slug(x.family)}`}
                     onClick={() => setFam(f => (f === x.family ? "" : x.family))}
                     on={sc.scoped && sc.family === x.family}
                     name={x.family}
@@ -681,7 +685,7 @@ export function ExecutiveView({
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no goal or colour.</div>
                 <div className="ev-fams">
                   {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
+                    <Kpi key={x.family} tour={`ov-fam-${slug(x.family)}`} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
                   ))}
                 </div>
               </>
@@ -714,7 +718,7 @@ export function ExecutiveView({
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar}</div>
               {r.cells.map(c => (
-                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
+                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} data-tour={`sc-${slug(c.label)}`} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
                   <div className="top"><span>{c.label}{sc.scoped && c.allProducts ? <em className="ev-rule">all products</em> : null}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>
@@ -729,7 +733,7 @@ export function ExecutiveView({
           ))}
         </div>
       ) : null}
-      {open?.from === "cell" ? <div className="ev-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
+      {open?.from === "cell" ? <div className="ev-list" data-tour="ov-cell-list"><ExecClinicList sel={open.sel} sales={scope} periodId={p.id} onClose={() => setOpen(null)} /></div> : null}
 
       <section data-tour="ov-funnel">
         <div className="ev-sechead">
