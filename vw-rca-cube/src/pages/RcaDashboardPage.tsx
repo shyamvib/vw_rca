@@ -1230,6 +1230,9 @@ export function RcaDashboardPage() {
   const [targetSaved, setTargetSaved] = useState(false);
   const [newGoalDraft, setNewGoalDraft] = useState<string | null>(null);
   const [bundleDraft, setBundleDraft] = useState<string | null>(null);
+  // The analytics service picks a saved setting up on its next sync (up to a minute), so the value just saved stays on screen until then.
+  const [bundleSaved, setBundleSaved] = useState<{ v: string; at: number } | null>(null);
+  const [targetErr, setTargetErr] = useState<string | null>(null);
   const [scope, setScope] = useState<"month" | "week" | "day">("week");
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
@@ -1753,7 +1756,7 @@ export function RcaDashboardPage() {
                       min={0}
                       max={100}
                       placeholder="none"
-                      value={bundleDraft ?? String((cfg as { bundlePenPoints?: number }).bundlePenPoints ?? "")}
+                      value={bundleDraft ?? (bundleSaved && Date.now() - bundleSaved.at < 180_000 ? bundleSaved.v : String((cfg as { bundlePenPoints?: number }).bundlePenPoints ?? ""))}
                       onChange={e => {
                         setBundleDraft(e.target.value);
                         setTargetSaved(false);
@@ -1771,8 +1774,19 @@ export function RcaDashboardPage() {
                       if (g !== undefined && (!Number.isFinite(g) || g < 0 || g > n)) return;
                       // Empty clears the bundle goal; no edit leaves it alone.
                       const bp = bundleDraft === null ? undefined : bundleDraft.trim() === "" ? null : Number(bundleDraft);
-                      if (typeof bp === "number" && (!Number.isFinite(bp) || bp < 0 || bp > 100)) return;
-                      await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }), ...(bp === undefined ? {} : { bundlePenPoints: bp }) });
+                      if (typeof bp === "number" && (!Number.isFinite(bp) || bp < 0 || bp > 100)) {
+                        setTargetErr("The bundle penetration goal is a number of points between 0 and 100.");
+                        return;
+                      }
+                      try {
+                        await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }), ...(bp === undefined ? {} : { bundlePenPoints: bp }) });
+                      } catch (e) {
+                        // Say why instead of failing silently (e.g. the backend has not been updated for a new setting yet).
+                        setTargetErr(String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300));
+                        return;
+                      }
+                      setTargetErr(null);
+                      if (bundleDraft !== null) setBundleSaved({ v: bundleDraft, at: Date.now() });
                       setTargetDraft(null);
                       setNewGoalDraft(null);
                       setBundleDraft(null);
@@ -1795,8 +1809,13 @@ export function RcaDashboardPage() {
                   would be at that share, with bundle and non-bundle order values
                   held at the baseline (empty means no goal, baseline only). It
                   applies instantly — no Power BI refresh needed.
-                  {targetSaved ? " Saved." : ""}
+                  {targetSaved ? " Saved. The dashboards pick it up within about a minute." : ""}
                 </div>
+                {targetErr ? (
+                  <div className="rca-control-note" style={{ color: "var(--bad, #b42318)" }}>
+                    Could not save: {targetErr}
+                  </div>
+                ) : null}
                 {(() => {
                   const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
                   const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
