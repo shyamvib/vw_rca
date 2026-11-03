@@ -80,7 +80,7 @@ async function syncAppState() {
     const db = current.host.db;
     // The config row mixes user-edited settings with pointers the build derives
     // (gen, p75, rolling window ends), so only the settings that are read at query
-    // time (annualTarget, newBusinessGoal) are overlaid. Window changes take effect on the next rebuild.
+    // time (annualTarget, newBusinessGoal, bundlePenPoints) are overlaid. Window changes take effect on the next rebuild.
     const mine = await db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
     const theirs = seed.config.find(r => r.key === "main");
     if (mine && theirs?.annualTarget !== undefined && mine.annualTarget !== theirs.annualTarget) {
@@ -88,6 +88,9 @@ async function syncAppState() {
     }
     if (mine && theirs && mine.newBusinessGoal !== theirs.newBusinessGoal) {
       await db.patch(mine._id, { newBusinessGoal: theirs.newBusinessGoal });
+    }
+    if (mine && theirs && mine.bundlePenPoints !== theirs.bundlePenPoints) {
+      await db.patch(mine._id, { bundlePenPoints: theirs.bundlePenPoints });
     }
     db.load("productEligible", seed.productEligible);
     db.load("clinicPlan", seed.clinicPlan);

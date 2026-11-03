@@ -110,6 +110,7 @@ export const write = internalMutation({
     baselineMode: v.optional(v.string()),
     annualTarget: v.optional(v.number()),
     newBusinessGoal: v.optional(v.number()),
+    bundlePenPoints: v.optional(v.number()),
     p75: v.optional(
       v.object({ day: v.array(v.number()), week: v.number(), month: v.number() }),
     ),
@@ -213,7 +214,7 @@ export const setWindow = gatedMutation({
 
 /** Year-end revenue target (dollars). Cheap: no refresh needed, applied at read time. */
 export const setTarget = gatedMutation({
-  args: { annualTarget: v.number(), newBusinessGoal: v.optional(v.number()) },
+  args: { annualTarget: v.number(), newBusinessGoal: v.optional(v.number()), bundlePenPoints: v.optional(v.union(v.number(), v.null())) },
   handler: async (ctx, args) => {
     if (!Number.isFinite(args.annualTarget) || args.annualTarget <= 0) {
       throw new Error("Target must be a positive number.");
@@ -221,11 +222,15 @@ export const setTarget = gatedMutation({
     if (args.newBusinessGoal !== undefined && (!Number.isFinite(args.newBusinessGoal) || args.newBusinessGoal < 0 || args.newBusinessGoal > args.annualTarget)) {
       throw new Error("The new-business goal must be between 0 and the target.");
     }
+    if (typeof args.bundlePenPoints === "number" && (!Number.isFinite(args.bundlePenPoints) || args.bundlePenPoints < 0 || args.bundlePenPoints > 100)) {
+      throw new Error("The bundle-penetration goal is a number of points between 0 and 100.");
+    }
     const row = await ctx.db
       .query("config")
       .withIndex("by_key", q => q.eq("key", "main"))
       .unique();
-    if (row) await ctx.db.patch(row._id, { annualTarget: args.annualTarget, ...(args.newBusinessGoal === undefined ? {} : { newBusinessGoal: args.newBusinessGoal }) });
+    // null clears the goal; undefined leaves it as it is.
+    if (row) await ctx.db.patch(row._id, { annualTarget: args.annualTarget, ...(args.newBusinessGoal === undefined ? {} : { newBusinessGoal: args.newBusinessGoal }), ...(args.bundlePenPoints === undefined ? {} : { bundlePenPoints: args.bundlePenPoints ?? undefined }) });
     else
       await ctx.db.insert("config", {
         ...DEFAULTS,

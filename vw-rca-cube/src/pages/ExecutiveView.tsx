@@ -567,12 +567,13 @@ export function ExecutiveView({
             trend={prevP ? trendOf(perDay(p.orders, p), perDay(prevP.orders, prevP), true) : null}
           />
           {(() => {
-            const ref = baseOn ? sc.aov.base : sc.aov.goal || p.baseAov;
+            const ref = baseOn ? sc.aov.base : sc.aov.goal;
+            const bp = baseOn ? sc.bundle.base : sc.bundle.goal;
             return (
               <Kpi
                 name="Avg order value"
                 value={`$${int(p.aov)}`}
-                sub={ref ? `${refName} AOV $${int(ref)}` : "no baseline AOV"}
+                sub={ref ? `${refName} AOV $${int(ref)}${sc.bundle.cur !== null && bp !== null ? ` · bundles ${pct(sc.bundle.cur * 100, 1)} vs ${pct(bp * 100, 1)}` : ""}` : baseOn ? "no baseline AOV" : "no goal set: add the bundle penetration goal in Settings"}
                 dot={ref ? (p.aov >= ref ? GOOD : WARN) : "var(--vw-gray-10)"}
                 trend={prevP ? trendOf(p.aov, prevP.aov) : null}
               />

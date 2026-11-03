@@ -1229,6 +1229,7 @@ export function RcaDashboardPage() {
   const [targetDraft, setTargetDraft] = useState<string | null>(null);
   const [targetSaved, setTargetSaved] = useState(false);
   const [newGoalDraft, setNewGoalDraft] = useState<string | null>(null);
+  const [bundleDraft, setBundleDraft] = useState<string | null>(null);
   const [scope, setScope] = useState<"month" | "week" | "day">("week");
   const [selected, setSelected] = useState<string>("all");
   const [busy, setBusy] = useState(false);
@@ -1744,18 +1745,37 @@ export function RcaDashboardPage() {
                       }}
                     />
                   </label>
+                  <label>
+                    Bundle penetration goal (points over baseline)
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={0}
+                      max={100}
+                      placeholder="none"
+                      value={bundleDraft ?? String((cfg as { bundlePenPoints?: number }).bundlePenPoints ?? "")}
+                      onChange={e => {
+                        setBundleDraft(e.target.value);
+                        setTargetSaved(false);
+                      }}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="rca-btn"
-                    disabled={targetDraft === null && newGoalDraft === null}
+                    disabled={targetDraft === null && newGoalDraft === null && bundleDraft === null}
                     onClick={async () => {
                       const n = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
                       if (!Number.isFinite(n) || n <= 0) return;
                       const g = newGoalDraft === null ? undefined : Number(newGoalDraft);
                       if (g !== undefined && (!Number.isFinite(g) || g < 0 || g > n)) return;
-                      await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }) });
+                      // Empty clears the bundle goal; no edit leaves it alone.
+                      const bp = bundleDraft === null ? undefined : bundleDraft.trim() === "" ? null : Number(bundleDraft);
+                      if (typeof bp === "number" && (!Number.isFinite(bp) || bp < 0 || bp > 100)) return;
+                      await setTarget({ password: pw(), annualTarget: n, ...(g === undefined ? {} : { newBusinessGoal: g }), ...(bp === undefined ? {} : { bundlePenPoints: bp }) });
                       setTargetDraft(null);
                       setNewGoalDraft(null);
+                      setBundleDraft(null);
                       setTargetSaved(true);
                     }}
                   >
@@ -1769,8 +1789,12 @@ export function RcaDashboardPage() {
                   new-business goal is the slice of it given to this year's new
                   clinics as a group (default: last year's new-clinic revenue,
                   phased by last year's monthly shape and split over reps by
-                  their baseline share); existing clinics carry the rest. It applies
-                  instantly — no Power BI refresh needed.
+                  their baseline share); existing clinics carry the rest. The bundle
+                  penetration goal is the number of points added to each scope's
+                  own baseline share of bundle orders; AOV's goal is what AOV
+                  would be at that share, with bundle and non-bundle order values
+                  held at the baseline (empty means no goal, baseline only). It
+                  applies instantly — no Power BI refresh needed.
                   {targetSaved ? " Saved." : ""}
                 </div>
                 {(() => {

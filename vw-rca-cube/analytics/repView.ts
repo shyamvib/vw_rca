@@ -217,9 +217,21 @@ export const book = scopedQuery({
     const aovGap = active.filter(r => r.baseAov > 0 && r.aov < r.baseAov);
     const aovOpp = sum(aovGap, r => (r.baseAov - r.aov) * r.orders);
     const baseAov = expOrders ? exGoal / expOrders : 0;
-    // The real baseline AOV (baseline revenue over baseline orders). `baseAov` above is the goal's AOV (goal revenue over goal orders).
-    const baseOrdTot = sum(rows, r => (r.baseOrdersPerDay ?? 0) * days);
-    const baselineAov = baseOrdTot ? sum(rows, r => r.baseline) / baseOrdTot : null;
+    // AOV reads against bundle penetration (Shyam, 2026-11-02). Baseline: the book's baseline revenue over baseline orders, which is
+    // the baseline bundle share times the baseline bundle order value plus the rest at the baseline non-bundle order value.
+    // Goal: the same two order values with the bundle share raised by the Settings points. `baseAov` above is goal revenue over goal
+    // orders and stays for the volume / price split.
+    const baseOrdTot = sum(rows, r => r.baselineOrders);
+    const baseRevTot = sum(rows, r => r.baseline);
+    const baseBO = sum(rows, r => r.baseBundleOrders);
+    const baseBR = sum(rows, r => r.baseBundleRevenue);
+    const baselineAov = baseOrdTot ? baseRevTot / baseOrdTot : null;
+    const baseBundlePen = baseOrdTot ? baseBO / baseOrdTot : null;
+    const bundleAovBase = baseBO ? baseBR / baseBO : null;
+    const nonBundleAovBase = baseOrdTot - baseBO > 0 ? (baseRevTot - baseBR) / (baseOrdTot - baseBO) : null;
+    const bundlePenPoints = (await mainSettings(ctx)).bundlePenPoints ?? null;
+    const goalBundlePen = baseBundlePen !== null && bundlePenPoints !== null ? Math.min(1, Math.max(0, baseBundlePen + bundlePenPoints / 100)) : null;
+    const goalAov = goalBundlePen !== null && bundleAovBase !== null && nonBundleAovBase !== null ? goalBundlePen * bundleAovBase + (1 - goalBundlePen) * nonBundleAovBase : null;
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
@@ -683,6 +695,10 @@ export const book = scopedQuery({
         aov: orders ? actual / orders : null,
         baseAov,
         baselineAov,
+        baseBundlePen,
+        goalBundlePen,
+        goalAov,
+        bundlePenPoints,
         existingAov: exOrd ? exAct / exOrd : null,
         existingBaseAov: exExpOrd ? exExp / exExpOrd : null,
         bundlePen: orders ? bundleOrders / orders : null,

@@ -1802,6 +1802,17 @@ const scaledLevels = (kind: "retention" | "repeat", tenure: "all" | "pre" | "mid
   const f = windowScale(kind, days), [g, w] = TENURE_TARGETS[kind][tenure];
   return [g * f, w * f];
 };
+/** AOV read against bundle penetration. Baseline AOV is the baseline bundle share at the baseline bundle and non-bundle order values; the goal
+ * is the same with the Settings points added to the bundle share. `auto` compares with the goal when one is set, otherwise the baseline. */
+type AovK = { aov?: number | null; bundlePen?: number | null; baselineAov?: number | null; baseBundlePen?: number | null; goalAov?: number | null; goalBundlePen?: number | null };
+function aovVs(k: AovK, mode: "goal" | "baseline" | "auto"): { sub: string; tone: Tone; word: "goal" | "baseline" } {
+  const word: "goal" | "baseline" = mode === "auto" ? (k.goalAov ? "goal" : "baseline") : mode;
+  const ref = word === "goal" ? k.goalAov : k.baselineAov;
+  const refPen = word === "goal" ? k.goalBundlePen : k.baseBundlePen;
+  if (!ref || k.aov == null) return { sub: word === "goal" ? "no goal set: add the bundle penetration goal in Settings" : "no baseline AOV", tone: "na", word };
+  const pen = k.bundlePen != null && refPen != null ? ` · bundles ${P(k.bundlePen, 1)} vs ${P(refPen, 1)}` : "";
+  return { sub: `${SK(k.aov - ref)} vs ${word}${pen}`, tone: vsTone(k.aov / ref, 0.97), word };
+}
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
 
@@ -1906,9 +1917,9 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "AOV",
           value: k.aov ? K(k.aov) : "—",
-          sub: k.baselineAov ? `${SK((k.aov ?? 0) - k.baselineAov)} vs baseline` : "no baseline AOV",
+          sub: aovVs(k, "auto").sub,
           ids: b.activeIds, n: k.aov, u: "$", better: 1,
-          tone: vsTone(k.aov && k.baselineAov ? k.aov / k.baselineAov : null, 0.97),
+          tone: aovVs(k, "auto").tone,
         },
         NA("Stack penetration", "needs per-order panel mix"),
         { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids, n: k.lowAov, u: "n", better: -1 },
@@ -2318,7 +2329,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: scPace?.newHeading ?? (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
     scoped && selFam
       ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
-      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baselineAov ?? 0, fmt: K, planLbl: "baseline AOV" },
+      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.goalAov ?? k.baselineAov ?? 0, fmt: K, planLbl: k.goalAov ? "goal AOV" : "baseline AOV" },
     ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
     // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
     { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: tenureSel === "all" && scPace?.existingHeading !== undefined ? scPace.existingHeading : (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
@@ -4631,6 +4642,8 @@ export type ExecScorecard = {
   /** Days of the book and the overall AOV against the goal's and the baseline's, whichever family the dials follow. */
   days: number;
   aov: { cur: number | null; goal: number; base: number | null };
+  /** Share of orders that are bundles now, in the baseline and at the goal (baseline plus the Settings points); AOV's baseline and goal are built from these. */
+  bundle: { cur: number | null; goal: number | null; base: number | null };
   /** Family the dials and matrix follow; scoped is false for all products. */
   family: string;
   scoped: boolean;
@@ -4684,7 +4697,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
       mk("New Business", "New Revenue", newRev, pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0, pace?.newGoal ?? 0, 0, K, pace?.newPlan ? "goal" : "no goal", count([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], "new + reactivated"), allP),
       scoped && selFam
         ? mk("Bundle growth", `${selFam.family} AOV`, selFam.orders ? selFam.revenue / selFam.orders : 0, selFam.orders ? selFam.revenue / selFam.orders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, K, famLaunch ? noBase : "goal AOV", { n: famBuyers, why: `ordered ${family}` })
-        : mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.baseAov ?? 0, k.baseAov ?? 0, k.baselineAov ?? 0, K, "goal AOV", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
+        : mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.goalAov ?? 0, k.goalAov ?? 0, k.baselineAov ?? 0, K, k.goalAov ? "goal AOV" : "no goal set", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
       ...(selFam ? [mk("Product Growth", `${selFam.family} orders`, selFam.orders, selFam.orders * scale, famLaunch ? 0 : selFam.expectedOrders * scale, famLaunch ? 0 : selFam.expectedOrders, famLaunch ? 0 : selFam.baselineOrders ?? 0, num, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })] : []),
       mk("Existing business", "Existing business revenue", k.existingRevenue ?? 0, pace?.existingHeading !== undefined ? pace.existingHeading : (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale, k.existingGoal ?? k.existingBaseline ?? 0, k.existingBaseline ?? 0, K, k.existingGoal !== undefined ? "goal" : "baseline", count(b.existingIds ?? [], "existing: ordered in the baseline"), allP),
       ...(scoped && selFam
@@ -4720,14 +4733,18 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
         if (mode !== "baseline" || !(bw > 0) || c.n == null) return out;
         return { ...out, sub: `${scoped ? `${family} · ` : ""}baseline ${K(bw)}/wk`, tone: vsTone(c.n / bw) };
       }
-      // AOV: the unscoped sub said "vs baseline" but compares with the goal's AOV, so name it for what it is.
+      // AOV, whole book: baseline and goal both come from bundle penetration (aovVs). A family has no bundle share, so it keeps its own AOV.
+      if (!scoped) {
+        const v = aovVs(k, mode);
+        return { ...c, ref: v.word, sub: v.sub, tone: v.tone };
+      }
       const aovBase = scoped ? (selFam && selFam.baselineOrders ? (selFam.baseline ?? 0) / selFam.baselineOrders : 0) : k.baselineAov ?? 0;
       if (mode === "baseline") {
         const out = { ...c, ref: "baseline" };
         if (!(aovBase > 0) || c.n == null) return { ...out, sub: "no baseline AOV", tone: "na" as const };
         return { ...out, sub: `${scoped ? `${family} · ` : ""}${SK(c.n - aovBase)} vs baseline`, tone: vsTone(c.n / aovBase, 0.97) };
       }
-      return { ...c, ref: "goal", sub: scoped ? c.sub : `${SK((k.aov ?? 0) - k.baseAov)} vs goal` };
+      return { ...c, ref: "goal", sub: c.sub };
     };
     const viewRows = rows.map(r => ({ ...r, cells: r.cells.map(viewCell) }));
     const families = ((fams?.all ?? []) as Fam[])
@@ -4738,7 +4755,8 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
       rows: viewRows,
       meters,
       days: b.days ?? 0,
-      aov: { cur: k.aov ?? null, goal: k.baseAov ?? 0, base: k.baselineAov ?? null },
+      aov: { cur: k.aov ?? null, goal: k.goalAov ?? 0, base: k.baselineAov ?? null },
+      bundle: { cur: k.bundlePen ?? null, goal: k.goalBundlePen ?? null, base: k.baseBundlePen ?? null },
       elapsedDays: pace?.elapsedDays ?? 0,
       windowDays: pace ? pace.elapsedDays + pace.remainingDays : 0,
       scale,
@@ -4756,7 +4774,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
     const ids = contrib ? contrib.universe(b) : c.ids;
     return { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids.length} clinics`, ids: ids.length ? ids : c.ids, tone: c.tone, contrib };
   };
-  return base ? { ...base, family, scoped, pick } : { ready: false, rows: [], meters: [], days: 0, aov: { cur: null, goal: 0, base: null }, elapsedDays: 0, windowDays: 0, scale: 1, total: null, overdue: null, repeat: null, families: [], family, scoped, pick };
+  return base ? { ...base, family, scoped, pick } : { ready: false, rows: [], meters: [], days: 0, aov: { cur: null, goal: 0, base: null }, bundle: { cur: null, goal: null, base: null }, elapsedDays: 0, windowDays: 0, scale: 1, total: null, overdue: null, repeat: null, families: [], family, scoped, pick };
 }
 
 /** The clinic list for a picked dial or scorecard cell: up / down tabs, map and list, as in the rep scorecard. */
