@@ -26,11 +26,25 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
 import { checkJira } from "../analytics/jira";
 import type { Mode } from "./builder";
+
+/** Which code is running. engine/VERSION is filled in by `git archive` (export-subst), so a tarball or image built from a commit
+ * carries that commit. A plain checkout still holds the placeholder and reports "working tree". */
+function codeVersion(): { commit: string; date: string | null } {
+  try {
+    const raw = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "VERSION"), "utf8").trim();
+    const m = raw.match(/^([0-9a-f]{40})\s+(\d{4}-\d{2}-\d{2})/);
+    return m ? { commit: m[1].slice(0, 10), date: m[2] } : { commit: "working tree", date: null };
+  } catch {
+    return { commit: "unknown", date: null };
+  }
+}
+const CODE = codeVersion();
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR ?? "./data");
@@ -302,6 +316,7 @@ const server = http.createServer(async (req, res) => {
       const admin = !!ADMIN_SECRET && req.headers["x-admin-secret"] === ADMIN_SECRET;
       return send(res, 200, {
         ok: !!current,
+        code: CODE,
         snapshot: current && (admin ? { builtAt: current.builtAt, dataThrough: current.dataThrough, rows: current.rows } : { builtAt: current.builtAt, dataThrough: current.dataThrough }),
         building: building && { startedAt: building.startedAt },
         lastBuild: lastBuild && (admin ? lastBuild : { ok: lastBuild.ok, at: lastBuild.at }),

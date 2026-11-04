@@ -1,0 +1,2 @@
+# `git archive` fills in the commit and date, so a tarball or image built from a commit says which code it is.
+engine/VERSION export-subst

@@ -32,3 +32,6 @@ test-results/
 playwright-report/
 # Local Convex dev backend state (npx convex dev, anonymous mode)
 .convex/
+
+# Local engine snapshot (clinic-level data): never commit
+/data/
