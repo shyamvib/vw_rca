@@ -1,0 +1,33 @@
+# A second, independent copy of the analytics service, run alongside production's `rca-engine`
+# on the same host (or your own) without colliding with it. See ../../LOCAL_DEV.md for the full
+# walkthrough (Convex, snapshot, Vercel) and the complete env var list — this file only adds the
+# Docker packaging LOCAL_DEV.md doesn't cover.
+#
+# Every name below is suffixed with $DEV_NAME so two developers' containers never collide.
+# Usage:
+#   cd vw-rca-cube
+#   cp engine/deploy/env.dev.example .env.dev   # fill in your own values, chmod 600
+#   DEV_NAME=thiru docker compose -f engine/deploy/docker-compose.dev.yml --env-file .env.dev up -d --build
+#
+# Unlike production, this does NOT join the `cube-rca_default` docker network (a second compose
+# project can't join a network it didn't create). Point CUBE_API_URL in your .env.dev at the
+# shared Cube's published host port instead, e.g. http://10.6.2.34:4002 (not http://cube-rca:4000).
+services:
+  rca-engine-dev:
+    build:
+      context: ../..
+      dockerfile: engine/deploy/Dockerfile
+    container_name: rca-engine-${DEV_NAME:-dev}
+    restart: unless-stopped
+    env_file: .env.dev        # secrets live here (chmod 600), never in git
+    environment:
+      TUNNEL: "1"
+      DATA_DIR: /data
+      DISABLE_SCHEDULER: ${DISABLE_SCHEDULER:-1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    volumes:
+      - rca_engine_data_dev:/data
+    mem_limit: 3g
+volumes:
+  rca_engine_data_dev:
+    name: rca_engine_data_${DEV_NAME:-dev}
