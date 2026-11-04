@@ -16,7 +16,7 @@ Status: the engine start-up, `/health` and the version stamp were run for this d
 
 ## You need
 - Node 22 and npm. `cloudflared` only if you want your Vercel project to reach an engine on your laptop (step 4).
-- The Cube URL and API secret (ask whoever runs `cube-rca`). The Cube host is on the internal network, so be on the VPN or have a tunnel to it.
+- A snapshot (step 2). Either copy one from the production server, or build your own, which needs the Cube URL and API secret (ask whoever runs `cube-rca`; the Cube host is on the internal network, so be on the VPN or have a tunnel to it). Copying needs ssh to the server and no Cube access at all.
 - Your own Convex account and, optionally, your own Vercel project.
 
 ## 1. Your own Convex
@@ -36,10 +36,25 @@ The engine needs this deployment's admin key to read your settings every minute.
 A new Convex starts with a built-in window and a $130M target, so your numbers will not match production until you set your own in Settings (it asks for the admin password above).
 
 ## 2. Your own engine and snapshot
+
+**Get a snapshot: copy one (quickest) or build one.**
+
+*Option A: copy the production snapshot.* It is a folder of about 33 MB, in the server's Docker volume. On the server:
+```bash
+docker run --rm -v rca_engine_data:/data -v "$PWD":/out alpine tar czf /out/snapshot.tgz -C /data snapshot
+```
+Copy `snapshot.tgz` to your machine and unpack it so that `meta.json` ends up at `vw-rca-cube/data/snapshot/meta.json`:
+```bash
+mkdir -p vw-rca-cube/data && tar -xzf snapshot.tgz -C vw-rca-cube/data
+```
+You get production's data as of its last build (see `dataThrough` in `/health`), without touching Cube. It only reads a copy: nothing you do changes the server. Settings, logins and plans come from your own Convex, not from the snapshot, so they start empty. You only need the Cube lines below if you later want a fresher snapshot (Option B).
+
+*Option B: build your own from Cube* (needs the Cube lines in the env file below, then the rebuild call).
+
 Create `.env.engine.local` in `vw-rca-cube/` (it is git-ignored through `.env.*.local`):
 ```bash
-CUBE_API_URL=https://<the shared cube host>      # no trailing /cubejs-api
-CUBE_API_SECRET=<the cube secret>
+CUBE_API_URL=https://<the shared cube host>      # Option B only; no trailing /cubejs-api
+CUBE_API_SECRET=<the cube secret>                # Option B only
 CONVEX_URL=https://<your-dev>.convex.cloud       # YOUR Convex, from .env.local
 CONVEX_ADMIN_KEY=<your dev deployment's key>
 DASHBOARD_PASSWORD_SHA256=<same hash you set in Convex>
@@ -50,15 +65,16 @@ PORT=8787
 DISABLE_SCHEDULER=1                              # rebuild only when you ask (see below)
 # TUNNEL=1                                       # only for step 4, and only with YOUR Convex
 ```
-Start it and build the first snapshot:
+Start it. With a copied snapshot it loads in seconds; with Option B, call the rebuild once:
 ```bash
 node --env-file=.env.engine.local --import tsx engine/server.ts
-curl -XPOST localhost:8787/admin/rebuild -H "x-admin-secret: any-random-string"
-curl -s localhost:8787/health                    # ok:true once the snapshot is in; a rebuild takes about a minute
+curl -XPOST localhost:8787/admin/rebuild -H "x-admin-secret: any-random-string"   # Option B only; takes about a minute
+curl -s localhost:8787/health                    # ok:true once a snapshot is loaded
 ```
 Notes:
-- With `DISABLE_SCHEDULER` unset, the engine rebuilds by itself at start-up when it has no snapshot (and after 13:00 UTC each day). That is what production does; for development, leave it set so you rebuild on purpose.
-- Every rebuild queries the shared Cube and, behind it, BigQuery. Rebuild when you need fresh data, not on every restart. A restart reloads the snapshot from `./data` in seconds without touching Cube.
+- With `DISABLE_SCHEDULER` unset, the engine rebuilds by itself at start-up when it has no snapshot or the snapshot is older than the last 13:00 UTC refresh, and again each day after 13:00 UTC. That is what production does, and it needs Cube. With a copied snapshot and no Cube access, leave `DISABLE_SCHEDULER=1` set, or the engine will try to rebuild and fail (it keeps the copied snapshot).
+- A copied snapshot goes stale. To refresh it, copy a new one or switch to Option B.
+- Every Option B rebuild queries the shared Cube and, behind it, BigQuery. Rebuild when you need fresh data, not on every restart. A restart reloads the snapshot from `./data` in seconds without touching Cube.
 - If Cube is unreachable, pages that only need the snapshot keep working; a rebuild fails and keeps the old snapshot.
 - Settings you save (target, new-business goal, bundle penetration goal) reach the engine within a minute through the Convex bridge. A change of window or baseline needs a rebuild.
 
@@ -102,7 +118,7 @@ rsync -rnci shyam@10.6.2.34:/home/shyam/rca-engine/analytics/ /tmp/engine-expect
 
 ## Rules
 - Never put a production key or the production `CONVEX_URL` in your engine's env, and never set `TUNNEL=1` against production Convex: the engine publishes its address there and every user's dashboard would start calling your machine.
-- The snapshot in `./data` holds clinic-level data. It is git-ignored; keep it on an encrypted disk, do not share it, and delete it when you are done.
+- The snapshot in `./data` holds clinic-level data. Having it on a developer machine is fine for this team. It is git-ignored; do not commit it or put it on a shared or public drive.
 - Do not edit code on the production server. Change the repo, build the tarball with the script, and deploy that.
 
 ## Troubleshooting
