@@ -22,6 +22,9 @@ import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 import { RaiseQuestionDialog } from "./RaiseQuestion";
 import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
+import { gzRepTourAvailable, startGzRepTour } from "@/lib/usertour";
+
+const tourSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -133,6 +136,15 @@ export function RepView(props: {
   const openScorecard = (focus: string | null = null) => {
     setScFocus(focus);
     setTab("week");
+  };
+  // Business Feed "Find Gut Zoomer clinics": the question quotes the whole analysis window, which is the Custom tab (periodId "all"),
+  // not this week. Make sure the scorecard is shown there, then start the tour once the family cards are on the page.
+  const findGz = () => {
+    try { localStorage.setItem("rv-scorecard-open", "1"); } catch { /* the scorecard shows by default anyway */ }
+    setSearchSel(null);
+    setScFocus(null);
+    setTab("custom");
+    startGzRepTour();
   };
   // "Explain this metric" on the scorecard opens the guide tab at that metric.
   guideNav.go = () => { setSearchSel(null); setScFocus(null); setTab("scorecard"); };
@@ -335,6 +347,7 @@ export function RepView(props: {
             <button
               key={t}
               type="button"
+              data-tour={`rv-nav-${t}`}
               className={tab === t ? "is-on" : ""}
               onClick={() => { setTab(t); setSearchSel(null); setScFocus(null); }}
             >
@@ -473,7 +486,7 @@ export function RepView(props: {
           !wb ? (
             <div className="rv-loading">Loading {who} week…</div>
           ) : (
-            <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} />
+            <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} onFindGz={gzRepTourAvailable ? findGz : undefined} />
           )
         ) : tab === "week" ? (
           !wb ? (
@@ -2460,7 +2473,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
             {famCards.filter(f => !isNewFam(f.family)).map(f => {
               const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
               return (
-                <button type="button" key={f.family} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
+                <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
                   <span>{f.family}</span>
                   <b>{f.orders.toFixed(0)} orders</b>
                   <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
@@ -2478,7 +2491,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
                 {famCards.filter(f => isNewFam(f.family)).map(f => {
                   const l = launchOf.get(f.family);
                   return (
-                    <button type="button" key={f.family} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
+                    <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
                       <span>{f.family}</span>
                       <b>{f.orders.toFixed(0)} orders</b>
                       <em>launched {l?.firstOrder} · {l?.daysLive}d live</em>
@@ -2545,7 +2558,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}{c.tenureTag ? <em className="rv-allp"> · {c.tenureTag}</em> : null}
                   <i className={c.tone} />
@@ -2560,7 +2573,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         ))}
       </div>
       {cl ? (
-        <div id="sc-cl">
+        <div id="sc-cl" data-tour="rv-sc-list">
           <ContributorPanel key={cl.key} label={cl.label} tone={cl.tone} contrib={cl.contrib} rows={clQ?.ready ? clQ.rows : null} onClose={() => setCl(null)} periodId={periodId ?? ""} sales={sales ?? ""} />
         </div>
       ) : null}
@@ -4006,7 +4019,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
  * server by the same functions as the company feed (`feed:repQuestions`), so the wording matches; only the scope changes.
  * Shortlisted so far: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
  * Foundation Zoomer panel?". Adding a question means adding it to `repQuestions` in analytics/feed.ts. */
-function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; periodId: string; weekLabel: string; clinics: number }) {
+function SignalsFeed({ sales, periodId, weekLabel, clinics, onFindGz }: { sales: string; periodId: string; weekLabel: string; clinics: number; /** Gut Zoomer card: replaces "Open the clinics" with the guided tour. */ onFindGz?: () => void }) {
   const q = useRcaQuery(api.feed.repQuestions, sales ? { password: pw(), sales } : "skip");
   const [view, setView] = useFeedView();
   const [limit, setLimit] = useState(60);
@@ -4030,7 +4043,8 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
           rows={cards.map<FeedRow>(c => ({
             id: c.id, tone: c.tone, topicLine: `${c.domain} · ${c.topic}`, question: c.question, headline: insightHeadline(c.fact, c.topic),
             fact: c.fact, inference: c.inference, evidence: c.evidence, action: c.action, last: c.confidence,
-            onOpen: c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
+            onOpen: c.id === "gz-loss" && c.focus && onFindGz ? onFindGz : c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
+            openLabel: c.id === "gz-loss" && c.focus && onFindGz ? "Find Gut Zoomer clinics" : undefined,
           }))}
         />
       ) : null}
@@ -4054,7 +4068,11 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
             ) : null}
             <div className="rv-sig-step is-act"><div className="gut"><span className="rv-sig-chip is-act">Action</span></div>
               <div className="body">{c.action}
-                {c.focus && c.applies ? (
+                {c.id === "gz-loss" && c.focus && onFindGz ? (
+                  <div className="rv-sig-btns">
+                    <button type="button" className="pri" onClick={onFindGz}>Find Gut Zoomer clinics</button>
+                  </div>
+                ) : c.focus && c.applies ? (
                   <div className="rv-sig-btns">
                     <button type="button" className="pri" onClick={() => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question }))}>Open the clinics</button>
                   </div>

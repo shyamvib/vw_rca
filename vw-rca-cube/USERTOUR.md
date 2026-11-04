@@ -9,6 +9,7 @@ Set these in Vercel (Production and Preview), then redeploy:
 | --- | --- |
 | `VITE_USERTOUR_TOKEN` | Environment token from Usertour (Settings > Environments). Public by design. |
 | `VITE_USERTOUR_OVERVIEW_FLOW` | Id of the Overview flow (the segment after `/flows/` in the flow's detail URL). Enables the "Take a tour" link on the Overview. |
+| `VITE_USERTOUR_GZ_REP_FLOW` | Id of the rep view's Gut Zoomer flow (cmw1lznay05gow9w5x0dgyhro). Enables "Find Gut Zoomer clinics" on the rep Business feed card. |
 | `VITE_USERTOUR_GZ_FLOW` | Id of the Gut Zoomer clinic list flow. Enables the "Find Gut Zoomer clinics" button on the Business Feed card. |
 
 With no token the SDK is never loaded and nothing is sent.
@@ -36,6 +37,8 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `ov-fam-<family>` (e.g. `ov-fam-gut-zoomer`) | Product family cards |
 | `sc-<metric>` (e.g. `sc-target-product-orders`) | Scorecard cells |
 | `ov-cell-list` | Clinic list opened from a scorecard cell |
+| `rv-nav-<tab>` (e.g. `rv-nav-custom`) | Rep view left-rail tabs |
+| `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
 
 ## Suggested Overview tour
 1. `ov-headline`: the one-sentence read of where revenue stands.
@@ -55,3 +58,6 @@ Start rule: Overview URL path, "Element is present" on `ov-headline`, shown once
 
 ## Gut Zoomer clinic list tour
 Started by the "Find Gut Zoomer clinics" button on the Business Feed's Gut Zoomer card (`gz-loss`, in place of "Open the clinics"), which switches to the Overview and waits for the family card to be on the page before starting. The flow has no start rule. Steps advance when the person clicks the real element: the Gut Zoomer family card (`ov-fam-gut-zoomer`, scopes the scorecard to it), then the Target Product Orders cell (`sc-target-product-orders`, opens the clinic list), then a closing tooltip on `ov-cell-list`. Clicking a family card that is already selected clears it, so the first step assumes the scorecard is not already scoped to Gut Zoomer.
+
+## Gut Zoomer tour, rep view
+Same idea, started by "Find Gut Zoomer clinics" on the rep Business feed's `gz-loss` card. The rep feed question quotes the **whole analysis window** (period "all"), not this week, so the button switches to the **Custom** tab (`rv-nav-custom`), which shows that window, makes sure the scorecard is expanded, and starts the flow once the family cards have loaded. Steps: the Custom tab (why this window), the Gut Zoomer family card (`rv-fam-gut-zoomer`), the Target Product Orders cell (`rv-sc-target-product-orders`), the clinic list (`rv-sc-list`). If a team lead has picked a different window in the top bar, the Custom tab shows that window and its numbers will differ from the question.
