@@ -22,6 +22,9 @@ import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
 import { RaiseQuestionDialog } from "./RaiseQuestion";
 import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
+import { gzRepTourAvailable, startGzRepTour } from "@/lib/usertour";
+
+const tourSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
@@ -133,6 +136,15 @@ export function RepView(props: {
   const openScorecard = (focus: string | null = null) => {
     setScFocus(focus);
     setTab("week");
+  };
+  // Business Feed "Find Gut Zoomer clinics": the question quotes the whole analysis window, which is the Custom tab (periodId "all"),
+  // not this week. Make sure the scorecard is shown there, then start the tour once the family cards are on the page.
+  const findGz = () => {
+    try { localStorage.setItem("rv-scorecard-open", "1"); } catch { /* the scorecard shows by default anyway */ }
+    setSearchSel(null);
+    setScFocus(null);
+    setTab("custom");
+    startGzRepTour();
   };
   // "Explain this metric" on the scorecard opens the guide tab at that metric.
   guideNav.go = () => { setSearchSel(null); setScFocus(null); setTab("scorecard"); };
@@ -335,6 +347,7 @@ export function RepView(props: {
             <button
               key={t}
               type="button"
+              data-tour={`rv-nav-${t}`}
               className={tab === t ? "is-on" : ""}
               onClick={() => { setTab(t); setSearchSel(null); setScFocus(null); }}
             >
@@ -473,7 +486,7 @@ export function RepView(props: {
           !wb ? (
             <div className="rv-loading">Loading {who} week…</div>
           ) : (
-            <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} />
+            <SignalsFeed sales={sales} periodId={thisWeek?.id ?? ""} weekLabel={thisWeek?.label ?? ""} clinics={wb.clinics} onFindGz={gzRepTourAvailable ? findGz : undefined} />
           )
         ) : tab === "week" ? (
           !wb ? (
@@ -648,6 +661,9 @@ type Pace = {
   /** Goal for the whole window for the New Business dial (the rep's share of the new-business goal). */
   newPlan?: number;
   existingPlan?: number;
+  /** Goal for the days elapsed so far (all of it, and the new-business part). */
+  expSoFar?: number;
+  newGoal?: number;
   /** Each part of the heading is projected with its own factor (existing: weekday shape; new business: last year's monthly shape). */
   existingHeading?: number;
   newHeading?: number;
@@ -1180,7 +1196,7 @@ function WindowTab({
           l: "AOV / price-mix",
           v: L.aovEffect,
           focus: L.aovEffect < 0 ? "aovneg" : "aovpos",
-          sub: `$${Math.round(b.kpi.aov ?? 0)} vs $${Math.round(b.kpi.baseAov ?? 0)} baseline`,
+          sub: b.kpi.baselineAov ? `$${Math.round(b.kpi.aov ?? 0)} vs $${Math.round(b.kpi.baselineAov)} baseline` : `$${Math.round(b.kpi.aov ?? 0)} · no baseline AOV`,
         },
       ],
       note: `Orders ${b.totals.orders.toFixed(0)} vs ${b.totals.expOrders.toFixed(0)} expected.`,
@@ -1612,7 +1628,7 @@ function TrendPct({ value, label, title }: { value: number | null; label: string
   );
 }
 
-function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
+export function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales: string }) {
   const [touchFilter, setTouchFilter] = useState<"" | "touched" | "untouched">("");
   const [clinicalFilter, setClinicalFilter] = useState<"" | "touched" | "untouched">("");
   const [fview, setFview] = useState<"funnel" | "sankey">("funnel");
@@ -1749,6 +1765,19 @@ function ProviderRetentionFunnel({ periodId, sales }: { periodId: string; sales:
 }
 
 type Cell = { label: string; value: string; sub: string; tone: Tone; allProducts?: boolean; famScoped?: boolean; tenureTag?: string; ids?: string[]; n?: number | null; u?: "$" | "%" | "n"; flow?: boolean; better?: 1 | -1 | 0 };
+/** Change of a scorecard cell against the same cell a period earlier: points for a rate, % otherwise; flows per day (windows differ in length). */
+export function cellDelta(c: Cell, pc: Cell | undefined, days: number, prevDays: number): { txt: string; good: boolean | null } | null {
+  if (c.n == null || pc?.n == null) return null;
+  const cur = c.flow ? c.n / Math.max(1, days) : c.n;
+  const prv = c.flow ? pc.n / Math.max(1, prevDays) : pc.n;
+  if (c.u === "%") {
+    const d = (cur - prv) * 100;
+    return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(1)}pt`, good: c.better ? Math.sign(d) === c.better : null };
+  }
+  if (!prv) return null;
+  const d = cur / prv - 1;
+  return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d * 100).toFixed(1)}%`, good: c.better ? Math.sign(d) === c.better : null };
+}
 const NA = (label: string, why: string): Cell => ({ label, value: "—", sub: why, tone: "na" });
 /** Target levels by tenure cut (Shyam, 2026-10-18): older signups keep and reorder far more than this year's, so one bar
  * for everyone made the cells always red. Levels sit at today's top-quartile rep (good) and median rep (watch) on the
@@ -1786,6 +1815,17 @@ const scaledLevels = (kind: "retention" | "repeat", tenure: "all" | "pre" | "mid
   const f = windowScale(kind, days), [g, w] = TENURE_TARGETS[kind][tenure];
   return [g * f, w * f];
 };
+/** AOV read against bundle penetration. Baseline AOV is the baseline bundle share at the baseline bundle and non-bundle order values; the goal
+ * is the same with the Settings points added to the bundle share. `auto` compares with the goal when one is set, otherwise the baseline. */
+type AovK = { aov?: number | null; bundlePen?: number | null; baselineAov?: number | null; baseBundlePen?: number | null; goalAov?: number | null; goalBundlePen?: number | null };
+function aovVs(k: AovK, mode: "goal" | "baseline" | "auto"): { sub: string; tone: Tone; word: "goal" | "baseline" } {
+  const word: "goal" | "baseline" = mode === "auto" ? (k.goalAov ? "goal" : "baseline") : mode;
+  const ref = word === "goal" ? k.goalAov : k.baselineAov;
+  const refPen = word === "goal" ? k.goalBundlePen : k.baseBundlePen;
+  if (!ref || k.aov == null) return { sub: word === "goal" ? "no goal set: add the bundle penetration goal in Settings" : "no baseline AOV", tone: "na", word };
+  const pen = k.bundlePen != null && refPen != null ? ` · bundles ${P(k.bundlePen, 1)} vs ${P(refPen, 1)}` : "";
+  return { sub: `${SK(k.aov - ref)} vs ${word}${pen}`, tone: vsTone(k.aov / ref, 0.97), word };
+}
 const vsTone = (ratio: number | null, watch = 0.95): Tone =>
   ratio === null ? "na" : ratio >= 1 ? "good" : ratio >= watch ? "watch" : "bad";
 
@@ -1795,6 +1835,8 @@ type Fam = {
   orders: number;
   expected: number;
   expectedOrders: number;
+  baseline?: number;
+  baselineOrders?: number;
   delta: number;
   orderDelta: number;
 };
@@ -1888,9 +1930,9 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         {
           label: "AOV",
           value: k.aov ? K(k.aov) : "—",
-          sub: `${SK((k.aov ?? 0) - k.baseAov)} vs baseline`,
+          sub: aovVs(k, "auto").sub,
           ids: b.activeIds, n: k.aov, u: "$", better: 1,
-          tone: vsTone(k.aov && k.baseAov ? k.aov / k.baseAov : null, 0.97),
+          tone: aovVs(k, "auto").tone,
         },
         NA("Stack penetration", "needs per-order panel mix"),
         { label: "Low-AOV customers", value: String(k.lowAov), sub: "clinics under $400 AOV", tone: "act", ids: b.opp?.lowAov?.ids, n: k.lowAov, u: "n", better: -1 },
@@ -2171,131 +2213,8 @@ const tenureLabel = (sel: TenureKey, year: number): string =>
 const EXISTING = "Existing business";
 const isExistingPillar = (p: string) => p === EXISTING || p === "Retention" || p === "Expansion";
 
-function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
-  const [tenureSel, setTenureSel] = useState<TenureKey>("all");
-  const [earlyOpen, setEarlyOpen] = useState(false);
-  const b = useMemo(() => applyTenure(bAll, tenureSel), [bAll, tenureSel]);
-  const tenureYear = Number(bAll.tenure?.year ?? new Date().getFullYear());
-  const k = b.kpi;
-  const prevQ = useRcaQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
-  const scPaceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
-  const prevB = prevQ?.ready ? prevQ : null;
-  const cmpTag = prevId ? ({ d: "DoD", w: "WoW", m: "MoM", q: "QoQ" } as Record<string, string>)[prevId.split(":")[0]] ?? "vs prior" : null;
-  const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
-  const totalRev = b.totals.actual;
-  const pgd = usePG(sales, periodId);
-  const [wsFam, setWsFam] = useState<string>("");
-  const famList = useMemo(() => {
-    const t = new Map<string, number>();
-    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
-    return [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
-  }, [pgd.data]);
-  const family = wsFam || famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
-  const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
-  const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
-  const scoped = wsFam !== "";
-  // New product releases: families whose first order is recent have no fair baseline (analytics/familyLaunch.ts decides which).
-  const launchQ = useRcaQuery(api.familyLaunch.launches, { password: pw() });
-  const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
-  const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
-  const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
-  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel);
-  // This year's signups have no baseline (new clinics carry none), so Revenue Retention / NRR / Expansion / At-risk have
-  // nothing to compare with; for that cut retention is the share of new clinics still ordering (2026-10-18).
-  const curCell = (c: Cell): Cell => {
-    const still = k.churnBase ? (k.churnBase - (k.churned ?? 0)) / k.churnBase : null;
-    if (c.label === "Revenue Retention")
-      return { ...c, value: P(still), sub: `${(k.churnBase ?? 0) - (k.churned ?? 0)} of ${k.churnBase ?? 0} new clinics still ordering · no baseline yet`, ids: k.churnBaseIds, n: still, u: "%", better: 1, tone: levelTone(still, [1 - TENURE_TARGETS.churn.cur[0], 1 - TENURE_TARGETS.churn.cur[1]]) };
-    if (c.label === "NRR" || c.label === "Expansion Revenue" || c.label === "At-risk customers") return NA(c.label, "new clinics have no baseline yet");
-    return c;
-  };
-  const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...(tenureSel === "cur" ? curCell(c) : c), tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
-  const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
-  const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
-  const deltaOf = (c: Cell) => {
-    // Prior-window numbers are all-products, so a family-scoped cell has nothing to compare against yet.
-    if (scoped && !c.allProducts && !ALL_PRODUCTS_CELLS.has(c.label)) return null;
-    if (tenureSel !== "all" && TENURE_CELLS.has(c.label)) return null;
-    const pc = prevCell(c.label);
-    if (c.n == null || pc?.n == null || !cmpTag || !prevB) return null;
-    const cur = c.flow ? c.n / Math.max(1, b.days) : c.n;
-    const prv = c.flow ? pc.n / Math.max(1, prevB.days) : pc.n;
-    if (c.u === "%") {
-      const d = (cur - prv) * 100;
-      return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(1)}pt`, good: c.better ? Math.sign(d) === c.better : null };
-    }
-    if (!prv) return null;
-    const d = cur / prv - 1;
-    return { txt: `${d >= 0 ? "▲" : "▼"}${Math.abs(d * 100).toFixed(1)}%`, good: c.better ? Math.sign(d) === c.better : null };
-  };
-  const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
-  // One projection factor for every dial (full-period goal over goal so far, by weekday shape), so the parts add up to Combined.
-  const scale = scPace?.ratio ?? (scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1);
-  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
-    // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
-    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: scPace?.newHeading ?? (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
-    scoped && selFam
-      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
-      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.baseAov ?? 0, fmt: K, planLbl: "baseline AOV" },
-    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
-    // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
-    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: tenureSel === "all" && scPace?.existingHeading !== undefined ? scPace.existingHeading : (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
-    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "goal" }] : []),
-  ];
-  // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
-  const bookClinics = (b.allIds ?? []).length;
-  const famBuyers = pg ? pg.buyerIds.length : null;
-  const dialCell = (p: string) => rows.find(r => r.pillar === (p === EXISTING ? "Retention" : p))?.cells[0];
-  // Clinics that ordered in this tab. A dial's group (new / existing / the whole book) also holds clinics that did not
-  // order in it: they carry a goal and are the "pulling down" side, so the dial shows both counts (2026-10-18).
-  const orderedSet = useMemo(() => new Set(b.activeIds ?? []), [b.activeIds]);
-  const clinicCount = (p: string): { n: number | null; ordered?: number; why: string } => {
-    // The dial and the matrix cell it stands for must count the same clinics, so read it off the cell's own list.
-    const own = dialCell(p)?.ids;
-    const base = own ? { n: own.length, why: clinicCount0(p).why } : clinicCount0(p);
-    const splits = !scoped && (p === "New Business" || p === EXISTING || p === "Combined");
-    const ids = p === "New Business" ? [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])] : p === EXISTING ? (b.existingIds ?? []) : p === "Combined" ? (b.allIds ?? []) : [];
-    return splits && base.n !== null ? { ...base, ordered: ids.filter((id: string) => orderedSet.has(id)).length } : base;
-  };
-  const clinicCount0 = (p: string): { n: number | null; why: string } => {
-    switch (p) {
-      case "New Business": return { n: (b.newIds ?? []).length + (b.reactivatedIds ?? []).length, why: "new + reactivated" };
-      case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
-      case "Product Growth": return { n: famBuyers, why: `ordered ${family}` };
-      case EXISTING: return { n: (b.existingIds ?? []).length, why: "existing: ordered in the baseline" };
-      default: return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: bookClinics, why: "existing + new + returning" };
-    }
-  };
-  const [mStyle, setMStyle] = useMeterStyle();
-  const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
-  const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
-  const [pillar, setPillarRaw] = useState(focusPillar ?? "Combined");
-  // Once the user has picked a dial or row, the rest of the matrix recedes so the choice reads clearly.
-  const [picked, setPicked] = useState(false);
-  const setPillar = (p: string) => { setPillarRaw(p); setPicked(true); };
-  useEffect(() => {
-    if (!focus) return;
-    if (focusPillar) setPillar(focusPillar);
-    const t = setTimeout(() => document.getElementById(`sc-cell-${focus}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
-    return () => clearTimeout(t);
-  }, [focus, focusPillar]);
-  const all = rows.flatMap(r => r.cells);
-  const count = (t: Tone) => all.filter(c => c.tone === t).length;
-  const behind = rows.filter(r => r.cells.some(c => c.tone === "bad")).map(r => r.pillar);
-  const sel = rows.find(r => r.pillar === (pillar === EXISTING ? "Retention" : pillar)) ?? rows[5];
-
-  const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
-  const [cl, setCl] = useState<{ key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution } | null>(null);
-  const clQ = useRcaQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
-  const openCell = (c: Cell, e: React.MouseEvent) => {
-    if (!c.ids?.length) return;
-    e.stopPropagation();
-    // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
-    const contrib = tenureSel === "cur" && c.label === "Revenue Retention" ? CONTRIB["Customer churn"] : listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
-    const ids = contrib ? contrib.universe(b) : c.ids!;
-    startTransition(() => setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib })));
-    setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
-  };
+/** Up / down splits behind a scorecard cell, shared by the rep scorecard and the executive overview. */
+function useCellContrib(b: Book, pg: PGStats | null, pgd: ReturnType<typeof usePG>, family: string) {
   /** "Where to act" lists: the clinics in the cell are the ones the metric is about (down); everyone else measured is the contrast (up). */
   const listContrib = (label: string, ids: string[]): Contribution | undefined => {
     const set = new Set(ids);
@@ -2363,6 +2282,127 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       return { universe: () => pg.activeIds, f: r => (famsOf(pgMap.get(r.clinic)?.win).length >= 2 ? 1 : -1), unit: "clinics", up: "On 2+ product families", down: "On 1 family", note: "Clinics that ordered a Zoomer product in this window, split by how many Zoomer families they bought. Non Zoomer is not counted as a family." };
     return undefined;
   };
+  return { listContrib, mixContrib };
+}
+
+function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
+  const [tenureSel, setTenureSel] = useState<TenureKey>("all");
+  const [earlyOpen, setEarlyOpen] = useState(false);
+  const b = useMemo(() => applyTenure(bAll, tenureSel), [bAll, tenureSel]);
+  const tenureYear = Number(bAll.tenure?.year ?? new Date().getFullYear());
+  const k = b.kpi;
+  const prevQ = useRcaQuery(api.repView.book, sales && prevId ? { password: pw(), periodId: prevId, sales } : "skip");
+  const scPaceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const prevB = prevQ?.ready ? prevQ : null;
+  const cmpTag = prevId ? ({ d: "DoD", w: "WoW", m: "MoM", q: "QoQ" } as Record<string, string>)[prevId.split(":")[0]] ?? "vs prior" : null;
+  const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
+  const totalRev = b.totals.actual;
+  const pgd = usePG(sales, periodId);
+  const [wsFam, setWsFam] = useState<string>("");
+  const famList = useMemo(() => {
+    const t = new Map<string, number>();
+    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
+    return [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+  }, [pgd.data]);
+  const family = wsFam || famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
+  const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
+  const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
+  const scoped = wsFam !== "";
+  // New product releases: families whose first order is recent have no fair baseline (analytics/familyLaunch.ts decides which).
+  const launchQ = useRcaQuery(api.familyLaunch.launches, { password: pw() });
+  const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
+  const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
+  const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
+  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel);
+  // This year's signups have no baseline (new clinics carry none), so Revenue Retention / NRR / Expansion / At-risk have
+  // nothing to compare with; for that cut retention is the share of new clinics still ordering (2026-10-18).
+  const curCell = (c: Cell): Cell => {
+    const still = k.churnBase ? (k.churnBase - (k.churned ?? 0)) / k.churnBase : null;
+    if (c.label === "Revenue Retention")
+      return { ...c, value: P(still), sub: `${(k.churnBase ?? 0) - (k.churned ?? 0)} of ${k.churnBase ?? 0} new clinics still ordering · no baseline yet`, ids: k.churnBaseIds, n: still, u: "%", better: 1, tone: levelTone(still, [1 - TENURE_TARGETS.churn.cur[0], 1 - TENURE_TARGETS.churn.cur[1]]) };
+    if (c.label === "NRR" || c.label === "Expansion Revenue" || c.label === "At-risk customers") return NA(c.label, "new clinics have no baseline yet");
+    return c;
+  };
+  const rows = tenureSel === "all" ? rows0 : rows0.map(r => ({ ...r, cells: r.cells.map(c => (TENURE_CELLS.has(c.label) ? { ...(tenureSel === "cur" ? curCell(c) : c), tenureTag: tenureLabel(tenureSel, tenureYear) } : c)) }));
+  const prevRows = prevB ? scoreRows(prevB, { all: [] }, null) : null;
+  const prevCell = (label: string) => prevRows?.flatMap(r => r.cells).find(c => c.label === label);
+  const deltaOf = (c: Cell) => {
+    // Prior-window numbers are all-products, so a family-scoped cell has nothing to compare against yet.
+    if (scoped && !c.allProducts && !ALL_PRODUCTS_CELLS.has(c.label)) return null;
+    if (tenureSel !== "all" && TENURE_CELLS.has(c.label)) return null;
+    const pc = prevCell(c.label);
+    if (c.n == null || pc?.n == null || !cmpTag || !prevB) return null;
+    return cellDelta(c, pc, b.days, prevB.days);
+  };
+  const scPace: Pace | null = scPaceQ?.ready ? (scPaceQ as Pace) : null;
+  // One projection factor for every dial (full-period goal over goal so far, by weekday shape), so the parts add up to Combined.
+  const scale = scPace?.ratio ?? (scPace && scPace.elapsedDays ? (scPace.elapsedDays + scPace.remainingDays) / scPace.elapsedDays : 1);
+  const outcomeMeters: Array<{ pillar: string; label: string; soFar: number; heading: number; plan: number; fmt: (n: number) => string; planLbl: string; allProducts?: boolean; famScoped?: boolean; tenureTag?: string }> = [
+    // New + reactivated revenue (both have no baseline); the dial keeps its name until the layout is revisited.
+    { pillar: "New Business", label: "New Revenue", soFar: k.newRevenue + (k.reactivatedRevenue ?? 0), heading: scPace?.newHeading ?? (k.newRevenue + (k.reactivatedRevenue ?? 0)) * scale, plan: scPace?.newPlan ?? 0, fmt: K, planLbl: scPace?.newPlan ? "goal" : "no goal", allProducts: scoped },
+    scoped && selFam
+      ? { pillar: "Bundle growth", label: `${selFam.family} AOV`, soFar: selFam.orders ? selFam.revenue / selFam.orders : 0, heading: selFam.orders ? selFam.revenue / selFam.orders : 0, plan: famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, fmt: K, planLbl: famLaunch ? "new · no baseline" : "baseline AOV", famScoped: true }
+      : { pillar: "Bundle growth", label: "AOV", soFar: k.aov ?? 0, heading: k.aov ?? 0, plan: k.goalAov ?? k.baselineAov ?? 0, fmt: K, planLbl: k.goalAov ? "goal AOV" : "baseline AOV" },
+    ...(selFam ? [{ pillar: "Product Growth", label: `${selFam.family} orders`, soFar: selFam.orders, heading: selFam.orders * scale, plan: famLaunch ? 0 : selFam.expectedOrders * scale, fmt: (n: number) => n.toFixed(0), planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: scoped }] : []),
+    // Retention + Expansion as one dial: revenue from clinics that already ordered in the baseline, against their baseline.
+    { pillar: EXISTING, label: "Existing business revenue", soFar: k.existingRevenue ?? 0, heading: tenureSel === "all" && scPace?.existingHeading !== undefined ? scPace.existingHeading : (k.existingRevenue ?? 0) * scale, plan: (k.existingGoal ?? k.existingBaseline ?? 0) * scale, fmt: K, planLbl: k.existingGoal !== undefined ? "goal" : "baseline", allProducts: scoped, tenureTag: tenureSel === "all" ? undefined : tenureLabel(tenureSel, tenureYear) },
+    ...(scoped && selFam ? [{ pillar: "Combined", label: `${selFam.family} revenue`, soFar: selFam.revenue, heading: selFam.revenue * scale, plan: famLaunch ? 0 : selFam.expected * scale, fmt: K, planLbl: famLaunch ? "new · no baseline" : "goal", famScoped: true }] : scPace ? [{ pillar: "Combined", label: "Revenue", soFar: scPace.soFar, heading: scPace.heading, plan: scPace.plan, fmt: K, planLbl: "goal" }] : []),
+  ];
+  // How many clinics each dial is measured over, by that dial's own logic (they overlap on purpose).
+  const bookClinics = (b.allIds ?? []).length;
+  const famBuyers = pg ? pg.buyerIds.length : null;
+  const dialCell = (p: string) => rows.find(r => r.pillar === (p === EXISTING ? "Retention" : p))?.cells[0];
+  // Clinics that ordered in this tab. A dial's group (new / existing / the whole book) also holds clinics that did not
+  // order in it: they carry a goal and are the "pulling down" side, so the dial shows both counts (2026-10-18).
+  const orderedSet = useMemo(() => new Set(b.activeIds ?? []), [b.activeIds]);
+  const clinicCount = (p: string): { n: number | null; ordered?: number; why: string } => {
+    // The dial and the matrix cell it stands for must count the same clinics, so read it off the cell's own list.
+    const own = dialCell(p)?.ids;
+    const base = own ? { n: own.length, why: clinicCount0(p).why } : clinicCount0(p);
+    const splits = !scoped && (p === "New Business" || p === EXISTING || p === "Combined");
+    const ids = p === "New Business" ? [...(b.newIds ?? []), ...(b.reactivatedIds ?? [])] : p === EXISTING ? (b.existingIds ?? []) : p === "Combined" ? (b.allIds ?? []) : [];
+    return splits && base.n !== null ? { ...base, ordered: ids.filter((id: string) => orderedSet.has(id)).length } : base;
+  };
+  const clinicCount0 = (p: string): { n: number | null; why: string } => {
+    switch (p) {
+      case "New Business": return { n: (b.newIds ?? []).length + (b.reactivatedIds ?? []).length, why: "new + reactivated" };
+      case "Bundle growth": return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: (b.activeIds ?? []).length, why: "ordered in this window" };
+      case "Product Growth": return { n: famBuyers, why: `ordered ${family}` };
+      case EXISTING: return { n: (b.existingIds ?? []).length, why: "existing: ordered in the baseline" };
+      default: return scoped ? { n: famBuyers, why: `ordered ${family}` } : { n: bookClinics, why: "existing + new + returning" };
+    }
+  };
+  const [mStyle, setMStyle] = useMeterStyle();
+  const famCards = famList.map(f => (fams?.all ?? []).find((x: Fam) => x.family === f)).filter(Boolean) as Fam[];
+  const focusPillar = focus ? rows.find(r => r.cells.some(c => c.label === focus))?.pillar : undefined;
+  const [pillar, setPillarRaw] = useState(focusPillar ?? "Combined");
+  // Once the user has picked a dial or row, the rest of the matrix recedes so the choice reads clearly.
+  const [picked, setPicked] = useState(false);
+  const setPillar = (p: string) => { setPillarRaw(p); setPicked(true); };
+  useEffect(() => {
+    if (!focus) return;
+    if (focusPillar) setPillar(focusPillar);
+    const t = setTimeout(() => document.getElementById(`sc-cell-${focus}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+    return () => clearTimeout(t);
+  }, [focus, focusPillar]);
+  const all = rows.flatMap(r => r.cells);
+  const count = (t: Tone) => all.filter(c => c.tone === t).length;
+  const behind = rows.filter(r => r.cells.some(c => c.tone === "bad")).map(r => r.pillar);
+  const sel = rows.find(r => r.pillar === (pillar === EXISTING ? "Retention" : pillar)) ?? rows[5];
+
+  const LIB = kpiLibrary(k, b, selFam, totalRev, pg);
+  const [cl, setCl] = useState<{ key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution } | null>(null);
+  const clQ = useRcaQuery(api.repView.rowsByFocus, sales && cl && periodId ? { password: pw(), periodId, sales, focus: `ids:${cl.ids.join(",")}` } : "skip");
+  const openCell = (c: Cell, e: React.MouseEvent) => {
+    if (!c.ids?.length) return;
+    e.stopPropagation();
+    // Family-scoped numbers have no per-clinic sign yet, so only unscoped metrics get the up / down split.
+    const contrib = tenureSel === "cur" && c.label === "Revenue Retention" ? CONTRIB["Customer churn"] : listContrib(c.label, c.ids ?? []) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
+    const ids = contrib ? contrib.universe(b) : c.ids!;
+    startTransition(() => setCl(x => (x?.key === c.label ? null : { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids!.length} clinics`, ids: ids.length ? ids : c.ids!, tone: c.tone, contrib })));
+    setTimeout(() => document.getElementById("sc-cl")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+  };
+  const { listContrib, mixContrib } = useCellContrib(b, pg, pgd, family);
   const libFor = LIB.filter(x => (pillar === EXISTING ? isExistingPillar(x.pillar) : x.pillar === pillar));
 
   return (
@@ -2433,7 +2473,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
             {famCards.filter(f => !isNewFam(f.family)).map(f => {
               const g = f.expectedOrders ? f.orders / f.expectedOrders - 1 : null;
               return (
-                <button type="button" key={f.family} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
+                <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard${f.family === family ? " on" : ""} ${g === null ? "" : g >= 0 ? "good" : g > -0.05 ? "watch" : "bad"}`} onClick={() => setWsFam(f.family)}>
                   <span>{f.family}</span>
                   <b>{f.orders.toFixed(0)} orders</b>
                   <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
@@ -2451,7 +2491,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
                 {famCards.filter(f => isNewFam(f.family)).map(f => {
                   const l = launchOf.get(f.family);
                   return (
-                    <button type="button" key={f.family} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
+                    <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
                       <span>{f.family}</span>
                       <b>{f.orders.toFixed(0)} orders</b>
                       <em>launched {l?.firstOrder} · {l?.daysLive}d live</em>
@@ -2518,7 +2558,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}{c.tenureTag ? <em className="rv-allp"> · {c.tenureTag}</em> : null}
                   <i className={c.tone} />
@@ -2533,7 +2573,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
         ))}
       </div>
       {cl ? (
-        <div id="sc-cl">
+        <div id="sc-cl" data-tour="rv-sc-list">
           <ContributorPanel key={cl.key} label={cl.label} tone={cl.tone} contrib={cl.contrib} rows={clQ?.ready ? clQ.rows : null} onClose={() => setCl(null)} periodId={periodId ?? ""} sales={sales ?? ""} />
         </div>
       ) : null}
@@ -3979,7 +4019,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
  * server by the same functions as the company feed (`feed:repQuestions`), so the wording matches; only the scope changes.
  * Shortlisted so far: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
  * Foundation Zoomer panel?". Adding a question means adding it to `repQuestions` in analytics/feed.ts. */
-function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; periodId: string; weekLabel: string; clinics: number }) {
+function SignalsFeed({ sales, periodId, weekLabel, clinics, onFindGz }: { sales: string; periodId: string; weekLabel: string; clinics: number; /** Gut Zoomer card: replaces "Open the clinics" with the guided tour. */ onFindGz?: () => void }) {
   const q = useRcaQuery(api.feed.repQuestions, sales ? { password: pw(), sales } : "skip");
   const [view, setView] = useFeedView();
   const [limit, setLimit] = useState(60);
@@ -4003,7 +4043,8 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
           rows={cards.map<FeedRow>(c => ({
             id: c.id, tone: c.tone, topicLine: `${c.domain} · ${c.topic}`, question: c.question, headline: insightHeadline(c.fact, c.topic),
             fact: c.fact, inference: c.inference, evidence: c.evidence, action: c.action, last: c.confidence,
-            onOpen: c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
+            onOpen: c.id === "gz-loss" && c.focus && onFindGz ? onFindGz : c.focus && c.applies ? () => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question })) : undefined,
+            openLabel: c.id === "gz-loss" && c.focus && onFindGz ? "Find Gut Zoomer clinics" : undefined,
           }))}
         />
       ) : null}
@@ -4027,7 +4068,11 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics }: { sales: string; p
             ) : null}
             <div className="rv-sig-step is-act"><div className="gut"><span className="rv-sig-chip is-act">Action</span></div>
               <div className="body">{c.action}
-                {c.focus && c.applies ? (
+                {c.id === "gz-loss" && c.focus && onFindGz ? (
+                  <div className="rv-sig-btns">
+                    <button type="button" className="pri" onClick={onFindGz}>Find Gut Zoomer clinics</button>
+                  </div>
+                ) : c.focus && c.applies ? (
                   <div className="rv-sig-btns">
                     <button type="button" className="pri" onClick={() => setFocus(f => (f?.label === (c.focusLabel ?? c.question) ? null : { focus: c.focus!, label: c.focusLabel ?? c.question }))}>Open the clinics</button>
                   </div>
@@ -4438,7 +4483,7 @@ function MeterToggle({ v, set }: { v: MeterStyle; set: (v: MeterStyle) => void }
     </span>
   );
 }
-function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; heading: number; plan: number; style: MeterStyle; big?: boolean }) {
+export function MiniMeter({ soFar, heading, plan, style, big }: { soFar: number; heading: number; plan: number; style: MeterStyle; big?: boolean }) {
   const hi = Math.max(plan, heading, soFar, 1e-9) * 1.05;
   const tone = plan ? (heading >= plan ? "good" : heading >= plan * 0.95 ? "watch" : "bad") : "na";
   if (style === "bar") {
@@ -4571,3 +4616,194 @@ function NewClinicFlow({ ids, onList, signups = 0, leadCount, onLeads }: { ids: 
   );
 }
 const addDaysStr = (d: string, n: number) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+
+
+/* ── Executive overview hooks (company-wide scorecard) ─────────────────── */
+/** A clinic list the overview can open: what the rep scorecard's openCell builds for a cell. */
+export type ExecSel = { key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution };
+type ExecCell = Cell & {
+  /** What the cell is measured against: the goal or baseline (it follows the page's switches), or a fixed rule of its own. */
+  ref?: string;
+};
+type ExecMeter = {
+  pillar: string; label: string; soFar: number; heading: number; plan: number;
+  soFarT: string; headingT: string; planT: string; planLbl: string;
+  /** The goal for the days elapsed so far (0 when there is none), against the window-end `plan`. */
+  planTo: number; planToT: string;
+  /** The baseline (mean run rate) for the days elapsed; 0 where the dial has none (new clinics). */
+  baseTo: number;
+  fmt: (n: number) => string;
+  clinics: { n: number | null; ordered?: number; why: string };
+  bookClinics: number;
+  /** "all products" when a dial does not follow the selected family. */
+  tag?: string;
+  /** The scorecard cell this dial stands for (its clinic list). */
+  cell: string;
+};
+export type ExecScorecard = {
+  ready: boolean;
+  rows: Array<{ pillar: string; cells: ExecCell[] }>;
+  /** The rep view's outcome dials: so far, heading and goal for each pillar, with the clinics each is measured over. */
+  meters: ExecMeter[];
+  /** Days of the window so far and in all; scale is the full-window goal over the goal so far (1 when the window is complete). */
+  elapsedDays: number;
+  windowDays: number;
+  scale: number;
+  /** The whole book's revenue against the goal, from the pace query, whichever family the dials follow. */
+  total: { soFar: number; heading: number; plan: number; planTo: number } | null;
+  /** Clinics past their usual reorder (not churned). */
+  overdue: number | null;
+  /** Share of ordering clinics that ordered 2+ times. */
+  repeat: { rate: number | null; n: number; of: number } | null;
+  /** Product families for the window, with launch info for new releases. */
+  families: Array<{ family: string; orders: number; expectedOrders: number; baselineOrders: number; isNew: boolean; daysLive?: number }>;
+  /** Days of the book and the overall AOV against the goal's and the baseline's, whichever family the dials follow. */
+  days: number;
+  aov: { cur: number | null; goal: number; base: number | null };
+  /** Share of orders that are bundles now, in the baseline and at the goal (baseline plus the Settings points); AOV's baseline and goal are built from these. */
+  bundle: { cur: number | null; goal: number | null; base: number | null };
+  /** Family the dials and matrix follow; scoped is false for all products. */
+  family: string;
+  scoped: boolean;
+  /** The clinic list behind a scorecard cell (up / down split where the rep view has one). */
+  pick: (cellLabel: string) => ExecSel | null;
+};
+
+/** The rep-view scorecard for any scope ("team:*" = the whole company), reduced to what the overview draws.
+ * `famSel` scopes the product dials and the matrix to one family, the way a family card does in the rep scorecard. */
+export function useExecScorecard(sales: string, periodId: string | undefined, famSel = "", opts?: { mode: "goal" | "baseline"; elapsed: boolean }): ExecScorecard {
+  const mode = opts?.mode ?? "goal";
+  const elapsed = opts?.elapsed ?? true;
+  const bookQ = useRcaQuery(api.repView.book, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const pgd = usePG(sales, periodId);
+  const launchQ = useRcaQuery(api.familyLaunch.launches, { password: pw() });
+  const b: Book | null = bookQ?.ready ? bookQ : null;
+  const pace: Pace | null = paceQ?.ready ? (paceQ as Pace) : null;
+  const family = useMemo(() => {
+    if (famSel) return famSel;
+    const t = new Map<string, number>();
+    for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
+    const list = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
+    return list.find(f => /hormone\s*zoomer/i.test(f)) || list[0] || "Hormone Zoomer";
+  }, [famSel, pgd.data]);
+  const pg = useMemo(() => (b && pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null), [b, pgd.data, pgd.elig, family]);
+  const { listContrib, mixContrib } = useCellContrib(b, pg, pgd, family);
+  const scoped = famSel !== "" && !!(fams?.all ?? []).some((f: Fam) => f.family === famSel);
+  const base = useMemo(() => {
+    if (!b || !fams) return null;
+    const launchOf = new Map((launchQ?.launches ?? []).map(l => [l.family, l]));
+    const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family);
+    const famLaunch = scoped && launchOf.get(family)?.isNew ? launchOf.get(family) : undefined;
+    const rows: Array<{ pillar: string; cells: ExecCell[] }> = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch as Launch | undefined } : undefined);
+    const k = b.kpi;
+    const scale = pace?.ratio ?? (pace && pace.elapsedDays ? (pace.elapsedDays + pace.remainingDays) / pace.elapsedDays : 1);
+    const newRev = k.newRevenue + (k.reactivatedRevenue ?? 0);
+    const ordered = new Set<string>(b.activeIds ?? []);
+    const bookClinics = (b.allIds ?? []).length;
+    const famBuyers = pg ? pg.buyerIds.length : null;
+    // A dial and the matrix cell it stands for count the same clinics; "x of y ordered" only for the whole-book splits.
+    const count = (ids: string[], why: string) => (scoped ? { n: ids.length, why } : { n: ids.length, ordered: ids.filter(id => ordered.has(id)).length, why });
+    const num = (n: number) => n.toFixed(0);
+    const cellOf = (pillar: string) => rows.find(r => r.pillar === (pillar === "Existing business" ? "Retention" : pillar))?.cells[0]?.label ?? "";
+    const mk = (pillar: string, label: string, soFar: number, heading: number, plan: number, planTo: number, baseTo: number, fmt: (n: number) => string, planLbl: string, clinics: ExecMeter["clinics"], tag?: string): ExecMeter =>
+      ({ pillar, label, soFar, heading, plan, soFarT: fmt(soFar), headingT: fmt(heading), planT: plan ? fmt(plan) : "—", planTo, planToT: planTo ? fmt(planTo) : "—", baseTo, fmt, planLbl, clinics, bookClinics, tag, cell: cellOf(pillar) });
+    const allP = scoped ? "all products" : undefined;
+    const noBase = "new · no baseline";
+    const meters: ExecMeter[] = [
+      mk("New Business", "New Revenue", newRev, pace?.newHeading ?? newRev * scale, pace?.newPlan ?? 0, pace?.newGoal ?? 0, 0, K, pace?.newPlan ? "goal" : "no goal", count([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])], "new + reactivated"), allP),
+      scoped && selFam
+        ? mk("Bundle growth", `${selFam.family} AOV`, selFam.orders ? selFam.revenue / selFam.orders : 0, selFam.orders ? selFam.revenue / selFam.orders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch ? 0 : selFam.expectedOrders ? selFam.expected / selFam.expectedOrders : 0, famLaunch || !selFam.baselineOrders ? 0 : (selFam.baseline ?? 0) / selFam.baselineOrders, K, famLaunch ? noBase : "goal AOV", { n: famBuyers, why: `ordered ${family}` })
+        : mk("Bundle growth", "AOV", k.aov ?? 0, k.aov ?? 0, k.goalAov ?? 0, k.goalAov ?? 0, k.baselineAov ?? 0, K, k.goalAov ? "goal AOV" : "no goal set", { n: (b.activeIds ?? []).length, why: "ordered in this window" }),
+      ...(selFam ? [mk("Product Growth", `${selFam.family} orders`, selFam.orders, selFam.orders * scale, famLaunch ? 0 : selFam.expectedOrders * scale, famLaunch ? 0 : selFam.expectedOrders, famLaunch ? 0 : selFam.baselineOrders ?? 0, num, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })] : []),
+      mk("Existing business", "Existing business revenue", k.existingRevenue ?? 0, pace?.existingHeading !== undefined ? pace.existingHeading : (k.existingRevenue ?? 0) * scale, (k.existingGoal ?? k.existingBaseline ?? 0) * scale, k.existingGoal ?? k.existingBaseline ?? 0, k.existingBaseline ?? 0, K, k.existingGoal !== undefined ? "goal" : "baseline", count(b.existingIds ?? [], "existing: ordered in the baseline"), allP),
+      ...(scoped && selFam
+        ? [mk("Combined", `${selFam.family} revenue`, selFam.revenue, selFam.revenue * scale, famLaunch ? 0 : selFam.expected * scale, famLaunch ? 0 : selFam.expected, famLaunch ? 0 : selFam.baseline ?? 0, K, famLaunch ? noBase : "goal", { n: famBuyers, why: `ordered ${family}` })]
+        : pace ? [mk("Combined", "Revenue", pace.soFar, pace.heading, pace.plan, (pace.expSoFar ?? 0) + (pace.newGoal ?? 0), 0, K, "goal", count(b.allIds ?? [], "existing + new + returning"))] : []),
+    ];
+    // The cells that are a goal or a baseline comparison follow the page's switches; the rest keep their own rule and say so.
+    const SWITCH = new Set(["Target Product Orders", "Net Revenue Growth", "Growth run-rate", "AOV"]);
+    const BASE_FIXED = new Set(["Revenue Retention", "NRR", "Expansion Revenue", "At-risk customers"]);
+    const word = mode === "baseline" ? "baseline" : "goal";
+    const tot = scoped && selFam ? { actual: selFam.revenue, base: selFam.baseline ?? 0 } : { actual: b.totals.actual as number, base: b.totals.baseline as number };
+    const wf = scoped ? (b.days || 1) / 7 : k.runRate && b.totals.actual ? b.totals.actual / k.runRate : (b.days || 1) / 7;
+    const viewCell = (c: ExecCell): ExecCell => {
+      if (c.tone === "na" && c.value === "—") return c;
+      if (!SWITCH.has(c.label)) return { ...c, ref: BASE_FIXED.has(c.label) ? "fixed · baseline" : "fixed · own rule" };
+      if (famLaunch && c.label !== "AOV") return { ...c, ref: "new · no baseline" };
+      if (c.label === "Target Product Orders" && selFam) {
+        const toDate = mode === "baseline" ? selFam.baselineOrders ?? 0 : selFam.expectedOrders;
+        const out = { ...c, ref: `${word} · ${elapsed ? "to date" : "whole period"}` };
+        if (!toDate || (mode === "goal" && elapsed)) return out;
+        const shown = elapsed ? toDate : toDate * scale;
+        return { ...out, sub: `${selFam.family} · ${shown.toFixed(0)} ${word}${elapsed ? "" : " for the period"}`, tone: vsTone(selFam.orders / toDate) };
+      }
+      if (c.label === "Net Revenue Growth") {
+        const out = { ...c, ref: `${word} · to date` };
+        if (mode !== "baseline" || !(tot.base > 0)) return out;
+        const g = tot.actual / tot.base - 1;
+        return { ...out, value: SP(g), n: g, sub: `${scoped ? `${family} · ` : ""}${SK(tot.actual - tot.base)} vs baseline`, tone: vsTone(1 + g) };
+      }
+      if (c.label === "Growth run-rate") {
+        const out = { ...c, ref: `${word} · per week` };
+        const bw = tot.base / wf;
+        if (mode !== "baseline" || !(bw > 0) || c.n == null) return out;
+        return { ...out, sub: `${scoped ? `${family} · ` : ""}baseline ${K(bw)}/wk`, tone: vsTone(c.n / bw) };
+      }
+      // AOV, whole book: baseline and goal both come from bundle penetration (aovVs). A family has no bundle share, so it keeps its own AOV.
+      if (!scoped) {
+        const v = aovVs(k, mode);
+        return { ...c, ref: v.word, sub: v.sub, tone: v.tone };
+      }
+      const aovBase = scoped ? (selFam && selFam.baselineOrders ? (selFam.baseline ?? 0) / selFam.baselineOrders : 0) : k.baselineAov ?? 0;
+      if (mode === "baseline") {
+        const out = { ...c, ref: "baseline" };
+        if (!(aovBase > 0) || c.n == null) return { ...out, sub: "no baseline AOV", tone: "na" as const };
+        return { ...out, sub: `${scoped ? `${family} · ` : ""}${SK(c.n - aovBase)} vs baseline`, tone: vsTone(c.n / aovBase, 0.97) };
+      }
+      return { ...c, ref: "goal", sub: c.sub };
+    };
+    const viewRows = rows.map(r => ({ ...r, cells: r.cells.map(viewCell) }));
+    const families = ((fams?.all ?? []) as Fam[])
+      .filter(f => f.family !== "Unmapped" && f.family !== NON_ZOOMER)
+      .map(f => ({ family: f.family, orders: f.orders, expectedOrders: f.expectedOrders, baselineOrders: f.baselineOrders ?? 0, isNew: launchOf.get(f.family)?.isNew === true, daysLive: launchOf.get(f.family)?.daysLive }));
+    return {
+      ready: true as const,
+      rows: viewRows,
+      meters,
+      days: b.days ?? 0,
+      aov: { cur: k.aov ?? null, goal: k.goalAov ?? 0, base: k.baselineAov ?? null },
+      bundle: { cur: k.bundlePen ?? null, goal: k.goalBundlePen ?? null, base: k.baseBundlePen ?? null },
+      elapsedDays: pace?.elapsedDays ?? 0,
+      windowDays: pace ? pace.elapsedDays + pace.remainingDays : 0,
+      scale,
+      total: pace ? { soFar: pace.soFar, heading: pace.heading, plan: pace.plan, planTo: (pace.expSoFar ?? 0) + (pace.newGoal ?? 0) } : null,
+      overdue: b.overdueCount ?? null,
+      repeat: { rate: k.repeatRate ?? null, n: k.repeatCount ?? 0, of: k.activeCount ?? 0 },
+      families,
+    };
+  }, [b, fams, pace, pg, pgd.data, launchQ, family, scoped, mode, elapsed]);
+  // Same rule as the rep scorecard's openCell: up / down split where one exists, otherwise the plain list.
+  const pick = (label: string): ExecSel | null => {
+    const c = base?.rows.flatMap(r => r.cells).find(x => x.label === label);
+    if (!b || !c?.ids?.length) return null;
+    const contrib = listContrib(c.label, c.ids) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
+    const ids = contrib ? contrib.universe(b) : c.ids;
+    return { key: c.label, label: contrib ? c.label : `${c.label} · ${c.ids.length} clinics`, ids: ids.length ? ids : c.ids, tone: c.tone, contrib };
+  };
+  return base ? { ...base, family, scoped, pick } : { ready: false, rows: [], meters: [], days: 0, aov: { cur: null, goal: 0, base: null }, bundle: { cur: null, goal: null, base: null }, elapsedDays: 0, windowDays: 0, scale: 1, total: null, overdue: null, repeat: null, families: [], family, scoped, pick };
+}
+
+/** The clinic list for a picked dial or scorecard cell: up / down tabs, map and list, as in the rep scorecard. */
+export function ExecClinicList({ sel, sales, periodId, onClose }: { sel: ExecSel; sales: string; periodId: string; onClose: () => void }) {
+  const q = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId, sales, focus: `ids:${sel.ids.join(",")}` });
+  return <ContributorPanel key={sel.key} label={sel.label} tone={sel.tone} contrib={sel.contrib} rows={q?.ready ? q.rows : null} onClose={onClose} periodId={periodId} sales={sales} />;
+}
+
+/** Per-pillar status for one scope, from the scorecard tones (same rule as the rep list). */
+export function usePillarStatus(sales: string, periodId: string | undefined): Record<string, "behind" | "watch" | "good"> | null {
+  const bookQ = useRcaQuery(api.repView.book, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales && periodId ? { password: pw(), periodId, sales } : "skip");
+  return useMemo(() => (bookQ?.ready && fams ? pillarStatus(bookQ, fams) : null), [bookQ, fams]);
+}

@@ -54,7 +54,7 @@ type GoalRow = {
 /** Share of the target given to new business when there is neither a Settings number nor a prior year to anchor on. */
 export const DEFAULT_NEW_SHARE = 0.05;
 /** `newGoalExplicit` is the Settings number; without one the new-business goal is last year's new-clinic revenue. */
-export type GoalSettings = { target?: number; newGoalExplicit?: number };
+export type GoalSettings = { target?: number; newGoalExplicit?: number; bundlePenPoints?: number };
 
 export function sliceOf(row: GoalRow | null | undefined, st: GoalSettings | undefined): number {
   if (st?.newGoalExplicit !== undefined) return st.newGoalExplicit;
@@ -96,7 +96,7 @@ export function newGoalOf(row: GoalRow | null | undefined, st: GoalSettings | un
 /** The Settings target and new-business goal live on the shared "main" config row; a rep's own window row can hold a stale copy. */
 export async function mainSettings(ctx: { db: QueryCtx["db"] }): Promise<GoalSettings> {
   const row = await ctx.db.query("config").withIndex("by_key", q => q.eq("key", "main")).unique();
-  return { target: row?.annualTarget, newGoalExplicit: row?.newBusinessGoal };
+  return { target: row?.annualTarget, newGoalExplicit: row?.newBusinessGoal, bundlePenPoints: row?.bundlePenPoints };
 }
 
 /** Same multiplier, looked up by period; 1 when the snapshot has no goal row. */

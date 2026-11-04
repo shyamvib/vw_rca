@@ -7,7 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
 import { drill, matchesFocus, type ClinicRow } from "./clinics";
@@ -31,6 +31,19 @@ const since = (cutoff: string, d?: string) =>
  * own aggregated revenue, not a sum of per-clinic P75s (Shyam, 2026-10-12). */
 export async function repBaseline(ctx: any, periodId: string, sales: string, gen: number) {
   // A team scope uses the team lead's own baseline row (the lead's rollup covers the lead and every rep under them).
+  // The company is the sum of every lead's rollup (baseline is additive across leads).
+  if (isTeamScope(sales) && isCompanyLead(teamOf(sales))) {
+    const rows = await ctx.db
+      .query("leadPeriodBaseline")
+      .withIndex("by_gen_period", (q: any) => q.eq("gen", gen).eq("periodId", periodId))
+      .collect();
+    if (!rows.length) return null;
+    const k = await targetScale(ctx, { gen }, periodId);
+    return {
+      rev: rows.reduce((s: number, r: any) => s + (r.expectedRevenue as number), 0) * k,
+      ord: rows.reduce((s: number, r: any) => s + (r.expectedOrders as number), 0) * k,
+    };
+  }
   const row = isTeamScope(sales)
     ? await ctx.db
         .query("leadPeriodBaseline")
@@ -204,6 +217,21 @@ export const book = scopedQuery({
     const aovGap = active.filter(r => r.baseAov > 0 && r.aov < r.baseAov);
     const aovOpp = sum(aovGap, r => (r.baseAov - r.aov) * r.orders);
     const baseAov = expOrders ? exGoal / expOrders : 0;
+    // AOV reads against bundle penetration (Shyam, 2026-11-02). Baseline: the book's baseline revenue over baseline orders, which is
+    // the baseline bundle share times the baseline bundle order value plus the rest at the baseline non-bundle order value.
+    // Goal: the same two order values with the bundle share raised by the Settings points. `baseAov` above is goal revenue over goal
+    // orders and stays for the volume / price split.
+    const baseOrdTot = sum(rows, r => r.baselineOrders);
+    const baseRevTot = sum(rows, r => r.baseline);
+    const baseBO = sum(rows, r => r.baseBundleOrders);
+    const baseBR = sum(rows, r => r.baseBundleRevenue);
+    const baselineAov = baseOrdTot ? baseRevTot / baseOrdTot : null;
+    const baseBundlePen = baseOrdTot ? baseBO / baseOrdTot : null;
+    const bundleAovBase = baseBO ? baseBR / baseBO : null;
+    const nonBundleAovBase = baseOrdTot - baseBO > 0 ? (baseRevTot - baseBR) / (baseOrdTot - baseBO) : null;
+    const bundlePenPoints = (await mainSettings(ctx)).bundlePenPoints ?? null;
+    const goalBundlePen = baseBundlePen !== null && bundlePenPoints !== null ? Math.min(1, Math.max(0, baseBundlePen + bundlePenPoints / 100)) : null;
+    const goalAov = goalBundlePen !== null && bundleAovBase !== null && nonBundleAovBase !== null ? goalBundlePen * bundleAovBase + (1 - goalBundlePen) * nonBundleAovBase : null;
 
     // Combined
     // Rep-level bridge recomputed from the rep's own baseline (mirrors geo.scopeTotals).
@@ -274,7 +302,9 @@ export const book = scopedQuery({
     const defsForWindow = cfg ? periodDefs(cfg.currentStart, cfg.currentEnd) : [];
     const windowStart = defsForWindow.find(d => d.id === args.periodId)?.days[0] ?? cfg?.currentStart ?? "";
     const metaForRep = cfg
-      ? isTeamScope(args.sales)
+      ? isTeamScope(args.sales) && isCompanyLead(teamOf(args.sales))
+        ? await ctx.db.query("clinicMeta").withIndex("by_gen", q => q.eq("gen", cfg.gen ?? 0)).collect()
+        : isTeamScope(args.sales)
         ? await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", cfg.gen ?? 0).eq("teamLead", teamOf(args.sales!))).collect()
         : await ctx.db.query("clinicMeta").withIndex("by_gen_sales", q => q.eq("gen", cfg.gen ?? 0).eq("sales", args.sales!)).collect()
       : [];
@@ -664,6 +694,11 @@ export const book = scopedQuery({
         o1to2: roll90.length ? roll90.filter(r => (r.ytdOrders ?? r.windowOrders) >= 2).length / roll90.length : null,
         aov: orders ? actual / orders : null,
         baseAov,
+        baselineAov,
+        baseBundlePen,
+        goalBundlePen,
+        goalAov,
+        bundlePenPoints,
         existingAov: exOrd ? exAct / exOrd : null,
         existingBaseAov: exExpOrd ? exExp / exExpOrd : null,
         bundlePen: orders ? bundleOrders / orders : null,

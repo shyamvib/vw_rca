@@ -59,10 +59,14 @@ snapshots only) Monday 13:45 / the 1st 14:00 UTC.
 No Cube variables are needed in Convex any more.
 
 ## 2. Analytics service (10.6.2.34)
-    cd /home/shyam/rca-engine        # source copied from this repo: analytics/ engine/*.ts engine/deploy package*.json
+    cd /home/shyam/rca-engine        # source copied from this repo: analytics/ engine/*.ts engine/VERSION engine/deploy package*.json
     cp engine/deploy/docker-compose.yml .
     # .env (chmod 600) -- see engine/deploy/env.example
     docker compose up -d --build
+
+Build the source tarball from a commit with `scripts/build-engine-tarball.sh` (it stamps the commit into `engine/VERSION`).
+After a deploy, `curl -s <service-url>/health` shows `code.commit`: the commit the running service was built from.
+Developers who run their own copy: see `LOCAL_DEV.md`.
 Own container, joins the `cube-rca_default` network to reach `cube-rca:4000`. It does not
 touch the cube-rca / revops stacks. On every start the tunnel gets a new
 `*.trycloudflare.com` URL; the service writes it to Convex (`ops:setServiceUrl`) and the

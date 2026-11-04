@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
-import { isTeamScope, teamOf } from "./scope";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
 import { goalFactors } from "./baseline";
 import {
@@ -66,6 +66,9 @@ export type ClinicRow = {
   /** The clinic's baseline over a full week (any weekday): > 0 means it ordered in the baseline window. Tab-independent. */
   baselineWeekly?: number;
   baselineOrders: number;
+  /** The baseline's bundle orders and bundle revenue over the same days (no goal factor): the baseline bundle penetration is the first over `baselineOrders`. */
+  baseBundleOrders: number;
+  baseBundleRevenue: number;
   /** actual - baseline: what actually moved. */
   realChange: number;
   /** goal - baseline: the stretch above the baseline. delta = realChange - ambition. */
@@ -433,7 +436,10 @@ export async function drill(
   },
 ) {
   // A team scope ("team:<lead>", rep view for a VP of sales) is the team-lead filter: the lead's clinics and every rep's under them.
-  const args = isTeamScope(args0.sales) ? { ...args0, sales: undefined, teamLead: teamOf(args0.sales) } : args0;
+  // "team:*" is the whole company: no filter at all.
+  const args = isTeamScope(args0.sales)
+    ? { ...args0, sales: undefined, teamLead: isCompanyLead(teamOf(args0.sales)) ? undefined : teamOf(args0.sales) }
+    : args0;
   const cfg = await loadCfg(ctx, args.configKey);
   if (!cfg) return { ready: false as const, rows: [], total: 0, count: 0 };
   const gen = cfg.gen ?? 0;
@@ -582,11 +588,15 @@ export async function drill(
     // non-ordering ones got an extra unscaled expectation on top, so clinic rows summed to more than the book.)
     let baseline = 0;
     let baselineOrders = 0;
+    let baseBundleOrders = 0;
+    let baseBundleRevenue = 0;
     for (let i = 0; i < 7; i++) {
       const c = dowCounts[i];
       if (!c) continue;
       baseline += m.rev[i] * c;
       baselineOrders += m.ord[i] * c;
+      baseBundleOrders += m.bOrd[i] * c;
+      baseBundleRevenue += m.bRev[i] * c;
       expBundleRev += m.bRev[i] * gf.rev * c;
       expBundleOrd += m.bOrd[i] * gf.ord * c;
       expPatients += (m.pat?.[i] ?? 0) * gf.ord * c;
@@ -702,6 +712,8 @@ export async function drill(
       baseline: scoped.expected / (gf.rev || 1),
       baselineWeekly,
       baselineOrders: scoped.expectedOrders / (gf.ord || 1),
+      baseBundleOrders,
+      baseBundleRevenue,
       realChange: scoped.actual - scoped.expected / (gf.rev || 1),
       ambition: scoped.expected - scoped.expected / (gf.rev || 1),
       actual: scoped.actual,
@@ -766,7 +778,7 @@ export async function drill(
       rows.push({
         clinic, windowOrders: 0, windowOrderDays: 0, name: s0.name, state: s0.state,
         country: "—", teamLead: s0.teamLead ?? "—", sales: s0.sales, cohort: "—",
-        newGroups: [], health: [], pstatus: [], expected: 0, baseline: 0, baselineOrders: 0, realChange: 0, ambition: 0, actual: 0, delta: 0,
+        newGroups: [], health: [], pstatus: [], expected: 0, baseline: 0, baselineOrders: 0, baseBundleOrders: 0, baseBundleRevenue: 0, realChange: 0, ambition: 0, actual: 0, delta: 0,
         orders: 0, expectedOrders: 0, volume: 0, aovEffect: 0, aov: 0, baseAov: 0,
         bundleDelta: 0, nonBundleDelta: 0, bundleOrders: 0, bundleShare: 0,
         baseBundleShare: 0, patients: 0, expectedPatients: 0, patientDelta: 0,

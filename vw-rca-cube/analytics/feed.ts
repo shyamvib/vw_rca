@@ -9,7 +9,7 @@ import { loadStops } from "./familyStops";
 import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
-import { isTeamScope, repsInScope, teamOf } from "./scope";
+import { COMPANY_SCOPE, TEAM_PREFIX, isCompanyLead, isTeamScope, repsInScope, teamOf } from "./scope";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -661,6 +661,32 @@ export async function build(
     }
   }
 
+  // Where Gut Zoomer orders are going: the same question the rep Business feed carries (repQuestions), over the company or the
+  // picked team. Live feed only: stops and declines are rebuilt at refresh, so historical snapshots must not read them.
+  if (!configKey || configKey === "main") {
+    const scope = teamLead ? `${TEAM_PREFIX}${teamLead}` : COMPANY_SCOPE;
+    const inScope = (r: { teamLead?: string | null }) => isCompanyLead(teamOf(scope)) || r.teamLead === teamOf(scope);
+    const gzRow = (await salesFamilyRows(ctx, "all", scope)).all.find(f => f.family === "Gut Zoomer");
+    const stopRows = (await loadStops(ctx, teamLead))
+      .filter(r => r.family === "Gut Zoomer")
+      .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, priorOrders: r.priorOrders, lastOrder: r.lastOrder }));
+    const gzReps: Array<{ name: string; delta: number; orderDelta: number }> = [];
+    for (const rep of await repsInScope(ctx, gen, scope)) {
+      const g = (await salesFamilyRows(ctx, "all", rep)).all.find(f => f.family === "Gut Zoomer");
+      if (g) gzReps.push({ name: rep, delta: g.delta, orderDelta: g.orderDelta });
+    }
+    const decRows = (await ctx.db.query("familyDecline").withIndex("by_family", q => q.eq("family", "Gut Zoomer")).collect())
+      .filter(inScope)
+      .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, orders: r.orders, expected: r.expected, status: r.status }));
+    const dLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const built = !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first());
+    const gl = gzLossItem(
+      gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), built,
+      `${dLabel(cfg.currentStart)} – ${dLabel(cfg.currentEnd)}, ${cfg.currentEnd.slice(0, 4)}`,
+    );
+    if (gl) items.push({ ...gl, q: "Where are we losing Gut Zoomer orders?" });
+  }
+
   // Product families — worst and best. Company-wide only: famBase/famPeriod
   // are stored per order-universe scope ("all"/"bundle"/"nonbundle"), not per
   // team lead — leadFamilies.ts is the per-lead equivalent but isn't wired
@@ -1051,7 +1077,7 @@ export const repQuestions = scopedQuery({
     }
     // $400 Foundation Zoomer panel
     const all = await ctx.db.query("vaClinicTarget").withIndex("by_gen", q => q.eq("gen", gen)).collect();
-    const mine = all.filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales));
+    const mine = all.filter(r => (isTeamScope(sales) ? isCompanyLead(teamOf(sales)) || r.teamLead === teamOf(sales) : r.sales === sales));
     const windowDays = mine[0]?.windowDays ?? all[0]?.windowDays ?? 365;
     const weeks = windowDays / 7;
     const qualified = mine
@@ -1067,7 +1093,7 @@ export const repQuestions = scopedQuery({
       }, false);
     // Where Gut Zoomer orders are going: the family gap, the clinics that stopped it, and (for a team) which RSMs.
     const gzRow = fam.all.find(f => f.family === "Gut Zoomer");
-    const stopRows = (await loadStops(ctx, isTeamScope(sales) ? teamOf(sales) : undefined))
+    const stopRows = (await loadStops(ctx, isTeamScope(sales) && !isCompanyLead(teamOf(sales)) ? teamOf(sales) : undefined))
       .filter(r => r.family === "Gut Zoomer" && (isTeamScope(sales) || r.sales === sales))
       .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, priorOrders: r.priorOrders, lastOrder: r.lastOrder }));
     const gzReps: Array<{ name: string; delta: number; orderDelta: number }> = [];
@@ -1077,7 +1103,7 @@ export const repQuestions = scopedQuery({
         if (g) gzReps.push({ name: rep, delta: g.delta, orderDelta: g.orderDelta });
       }
     const decRows = (await ctx.db.query("familyDecline").withIndex("by_family", q => q.eq("family", "Gut Zoomer")).collect())
-      .filter(r => (isTeamScope(sales) ? r.teamLead === teamOf(sales) : r.sales === sales))
+      .filter(r => (isTeamScope(sales) ? isCompanyLead(teamOf(sales)) || r.teamLead === teamOf(sales) : r.sales === sales))
       .map(r => ({ clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, orders: r.orders, expected: r.expected, status: r.status }));
     const dLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
     const gl = gzLossItem(gzRow, stopRows, decRows, gzReps, baseLabelOf(cfg), !!(await ctx.db.query("familyStops").first()) || !!(await ctx.db.query("familyDecline").first()), `${dLabel(cfg.currentStart)} – ${dLabel(cfg.currentEnd)}, ${cfg.currentEnd.slice(0, 4)} (the whole analysis window, not a single tab)`);

@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY analytics ./analytics
-COPY engine/*.ts ./engine/
+COPY engine/*.ts engine/VERSION ./engine/
 ENV NODE_ENV=production PORT=8787 DATA_DIR=/data
 VOLUME /data
 EXPOSE 8787
