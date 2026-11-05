@@ -1,33 +1,42 @@
-# A second, independent copy of the analytics service, run alongside production's `rca-engine`
-# on the same host (or your own) without colliding with it. See ../../LOCAL_DEV.md for the full
-# walkthrough (Convex, snapshot, Vercel) and the complete env var list — this file only adds the
-# Docker packaging LOCAL_DEV.md doesn't cover.
+# A developer's own copy of the analytics service, running next to production's `rca-engine` on the same
+# server without touching it. Full walkthrough: ../../HOSTING_THIRU_DEV.md (and LOCAL_DEV.md for the background).
 #
-# Every name below is suffixed with $DEV_NAME so two developers' containers never collide.
-# Usage:
-#   cd vw-rca-cube
-#   cp engine/deploy/env.dev.example .env.dev   # fill in your own values, chmod 600
-#   DEV_NAME=thiru docker compose -f engine/deploy/docker-compose.dev.yml --env-file .env.dev up -d --build
+# Run from the folder where the engine tarball is unpacked (it holds analytics/, engine/, package.json):
+#   cp engine/deploy/env.dev.example .env.dev && chmod 600 .env.dev      # then fill it in
+#   docker compose -p rca-thiru -f engine/deploy/docker-compose.dev.yml --project-directory . --env-file .env.dev up -d --build
 #
-# Unlike production, this does NOT join the `cube-rca_default` docker network (a second compose
-# project can't join a network it didn't create). Point CUBE_API_URL in your .env.dev at the
-# shared Cube's published host port instead, e.g. http://10.6.2.34:4002 (not http://cube-rca:4000).
+# Differences from production's docker-compose.yml:
+#   - its own names (project rca-thiru, container rca-engine-thiru, volume rca_engine_data_thiru)
+#   - it does not join production's cube-rca_default network; CUBE_API_URL in .env.dev points at the
+#     Cube's published port instead (http://10.6.2.34:4002)
+#   - a named Cloudflare tunnel (fixed URL on your domain) runs as its own container, instead of the
+#     engine's built-in quick tunnel (TUNNEL=0)
 services:
-  rca-engine-dev:
+  engine:
     build:
-      context: ../..
+      context: .
       dockerfile: engine/deploy/Dockerfile
-    container_name: rca-engine-${DEV_NAME:-dev}
+    container_name: rca-engine-thiru
     restart: unless-stopped
-    env_file: .env.dev        # secrets live here (chmod 600), never in git
+    env_file: .env.dev          # secrets live here (chmod 600), never in git
     environment:
-      TUNNEL: "1"
+      TUNNEL: "0"               # the tunnel service below publishes the engine
       DATA_DIR: /data
-      DISABLE_SCHEDULER: ${DISABLE_SCHEDULER:-1}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     volumes:
-      - rca_engine_data_dev:/data
+      - engine_data:/data
     mem_limit: 3g
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: rca-tunnel-thiru
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env.dev}
+    depends_on:
+      - engine
+    mem_limit: 256m
+
 volumes:
-  rca_engine_data_dev:
-    name: rca_engine_data_${DEV_NAME:-dev}
+  engine_data:
+    name: rca_engine_data_thiru

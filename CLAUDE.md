@@ -9,17 +9,18 @@ Guidance for Claude Code (and future sessions) working in this repo.
 
 ## Branch conventions
 - `main` is production (Vercel + Convex cloud + `rca-engine` on 10.6.2.34).
-- `thiru_dev_main` is Thiru's long-lived dev branch, forked from `main`. Keep it fast-forwarded (`git merge --ff-only origin/main`) rather than letting it drift or merge-committing it.
+- `thiru_dev_main` is Thiru's long-lived dev branch; Vercel deploys it. Keep it current with `git fetch origin && git merge origin/main`.
 - `thiru_dev_<name>` branches are Thiru's local copies of other people's unmerged branches, for experimenting without touching their branch.
 - As of 2026-11-04, the `rvatthiru` GitHub account has **read-only** access to `shyamvib/vw_rca` (`pull: true, push: false`). Check current access (`gh api repos/shyamvib/vw_rca --jq .permissions`) before assuming a push will work. If it's still read-only, prepare commits locally and hand off to someone with write access, or work from a fork.
 
 ## Running your own copy (dev environment)
 **Read `vw-rca-cube/LOCAL_DEV.md` first.** It's the source of truth for env vars and the Convex / engine / Vercel setup. Don't re-derive or duplicate it here — if this file and LOCAL_DEV.md disagree, LOCAL_DEV.md wins and this section should be fixed.
 
-This repo adds one thing LOCAL_DEV.md doesn't cover: running the engine in **Docker** on shared infrastructure (e.g. 10.6.2.34) instead of bare `node` on a laptop, so it survives restarts and multiple developers can run side by side.
-- Template: `vw-rca-cube/engine/deploy/docker-compose.dev.yml` + `vw-rca-cube/engine/deploy/env.dev.example`.
-- Every name is suffixed with `$DEV_NAME` so containers never collide: container `rca-engine-${DEV_NAME}`, volume `rca_engine_data_${DEV_NAME}`.
-- Reach the shared Cube through its **published host port** (e.g. `http://10.6.2.34:4002`), not the internal Docker network name (`cube-rca:4000`) that production uses — a second compose project can't join production's network.
+Thiru's hosted dev copy (Vercel + own Convex + engine in Docker on 10.6.2.34 behind a named Cloudflare tunnel) is documented step by step in **`vw-rca-cube/HOSTING_THIRU_DEV.md`**.
+- Compose: `vw-rca-cube/engine/deploy/docker-compose.dev.yml` (project `rca-thiru`, containers `rca-engine-thiru` + `rca-tunnel-thiru`, volume `rca_engine_data_thiru`); env template `engine/deploy/env.dev.example`.
+- Run it from the unpacked engine tarball: `docker compose -p rca-thiru -f engine/deploy/docker-compose.dev.yml --project-directory . --env-file .env.dev up -d --build`.
+- It reaches the shared Cube through its **published host port** (`http://10.6.2.34:4002`), not production's Docker network name (`cube-rca:4000`).
+- Git remotes: `origin` = `shyamvib/vw_rca` (read-only, pull from it), `thiru` = `thiruvibrant/vw_rca` (fork, push here; Vercel deploys `thiru_dev_main` from it). Commit identity in this repo: `thiruvibrant <thirunarayanan.r@vibrant-america.com>`.
 
 **Hard rules** (from LOCAL_DEV.md, repeated here because getting these wrong affects production, not just your own copy):
 - Never put a production `CUBE_API_SECRET`, `CONVEX_URL`, or Convex admin/deploy key in a dev `.env`.
