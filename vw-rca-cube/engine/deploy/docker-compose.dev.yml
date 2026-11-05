@@ -9,8 +9,11 @@
 #   - its own names (project rca-thiru, container rca-engine-thiru, volume rca_engine_data_thiru)
 #   - it does not join production's cube-rca_default network; CUBE_API_URL in .env.dev points at the
 #     Cube's published port instead (http://10.6.2.34:4002)
-#   - a named Cloudflare tunnel (fixed URL on your domain) runs as its own container, instead of the
-#     engine's built-in quick tunnel (TUNNEL=0)
+#
+# Public address: TUNNEL=1 runs a Cloudflare quick tunnel inside the container (no Cloudflare account needed).
+# Each start gets a new https://<random>.trycloudflare.com address, which the engine writes to the Convex in
+# CONVEX_URL; the dashboard looks it up there. That is only safe because CONVEX_URL is YOUR Convex project:
+# never run this with production's CONVEX_URL.
 services:
   engine:
     build:
@@ -20,22 +23,11 @@ services:
     restart: unless-stopped
     env_file: .env.dev          # secrets live here (chmod 600), never in git
     environment:
-      TUNNEL: "0"               # the tunnel service below publishes the engine
+      TUNNEL: "1"
       DATA_DIR: /data
     volumes:
       - engine_data:/data
     mem_limit: 3g
-
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: rca-tunnel-thiru
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env.dev}
-    depends_on:
-      - engine
-    mem_limit: 256m
 
 volumes:
   engine_data:
