@@ -24,7 +24,7 @@ Never ask for secrets in chat and never write real values into committed files: 
 ## Running your own copy (dev environment)
 **Read `vw-rca-cube/LOCAL_DEV.md` first.** It's the source of truth for env vars and the Convex / engine / Vercel setup. Don't re-derive or duplicate it here — if this file and LOCAL_DEV.md disagree, LOCAL_DEV.md wins and this section should be fixed.
 
-Thiru's hosted dev copy (Vercel + own Convex project `vw-rca-thiru` + engine in Docker on 10.6.2.34 behind a Cloudflare quick tunnel) is documented step by step in **`vw-rca-cube/HOSTING_THIRU_DEV.md`**.
+Thiru's hosted dev copy (Vercel + own Convex project `vw-rca-thiru` + engine running on Thiru's Mac via `vw-rca-cube/scripts/thiru-local-engine.sh` (launchd service, quick tunnel), reading only the shared Cube on 10.6.2.34; the Docker engine on 10.6.2.34 is a stopped fallback — never run both, each announces itself to Convex) is documented step by step in **`vw-rca-cube/HOSTING_THIRU_DEV.md`**.
 - Compose: `vw-rca-cube/engine/deploy/docker-compose.dev.yml` (project `rca-thiru`, container `rca-engine-thiru`, volume `rca_engine_data_thiru`, `TUNNEL=1` — safe only because its `CONVEX_URL` is Thiru's own Convex); env template `engine/deploy/env.dev.example` (template only, never real values).
 - Run it from the unpacked engine tarball: `docker compose -p rca-thiru -f engine/deploy/docker-compose.dev.yml --project-directory . --env-file .env.dev up -d --build`.
 - It reaches the shared Cube through its **published host port** (`http://10.6.2.34:4002`), not production's Docker network name (`cube-rca:4000`).

@@ -1,6 +1,6 @@
 # Hosting your own copy of the RCA dashboard (Thiru's dev environment)
 
-Step-by-step guide to a complete, independent copy of the dashboard on Vercel. Use it to change and test things before they go to `main`, and to share them with others. It builds on [LOCAL_DEV.md](LOCAL_DEV.md), which explains the moving parts. This guide is the concrete recipe for one setup: the engine runs in Docker on 10.6.2.34 and is reached through a Cloudflare quick tunnel.
+Step-by-step guide to a complete, independent copy of the dashboard on Vercel. Use it to change and test things before they go to `main`, and to share them with others. It builds on [LOCAL_DEV.md](LOCAL_DEV.md), which explains the moving parts. This guide is the concrete recipe for one setup: the engine runs on Thiru's Mac (section 6M), and is reached through a Cloudflare quick tunnel. Docker on 10.6.2.34 (section 6) is the fallback.
 
 Nothing here touches production, as long as you follow the [rules](#11-rules).
 
@@ -20,7 +20,7 @@ Nothing here touches production, as long as you follow the [rules](#11-rules).
  https://<random>.trycloudflare.com      (Cloudflare quick tunnel: free, no account)
      │
      ▼
- 10.6.2.34  Docker container "rca-engine-thiru"
+ Thiru's Mac (launchd service; fallback: 10.6.2.34 Docker container "rca-engine-thiru")
      serves every chart from an in-memory snapshot; rebuilds it daily at 13:00 UTC
      │
      ▼
@@ -105,7 +105,31 @@ You need a new deploy key only if you lose this one. Generate it in the same pla
 
 The site loads now, but shows "cannot reach the service" until the engine is running.
 
-## 6. Engine on 10.6.2.34
+## 6M. Engine on your Mac (current setup, since 2026-11-05)
+
+All computing runs on your Mac; only the shared Cube on 10.6.2.34 is used remotely. The engine runs as a background service (launchd) that restarts if it crashes and starts again when you log in.
+```bash
+brew install cloudflared                                   # once
+cd "/Users/thirunarayanan.r/Documents/RCA Dashboard/vw-rca-cube"
+scripts/thiru-local-engine.sh setup <your-ssh-user>        # once: copies .env.dev from the server, stops the server engine
+scripts/thiru-local-engine.sh start                        # starts the service; first start builds the snapshot (~1 min)
+```
+- **Settings** go to `vw-rca-cube/.env.engine.local` (mode 600, git-ignored). Values are copied from the server's `.env.dev`, plus `TUNNEL=1` and `DATA_DIR`.
+- **The snapshot** (clinic-level data) is kept in `~/.rca-engine-thiru/data`, outside the repo.
+- **The log** is `~/Library/Logs/rca-engine-thiru.log`.
+- **Other commands:** `status`, `logs`, `stop`.
+
+**The dashboard is only up while the Mac is.** The service keeps the Mac from idle-sleeping while plugged in. If you close the lid, run on battery, lose the network or leave the VPN, the dashboard goes offline for everyone.
+- When the Mac wakes, the engine resumes. If its tunnel restarted, it reports the new address to Convex within about a minute.
+- Without the VPN it keeps serving, but the daily rebuild fails, so data goes stale.
+
+**Fallback:** the server engine from section 6 is only stopped, not removed. To switch back:
+1. `scripts/thiru-local-engine.sh stop`
+2. `ssh <you>@10.6.2.34 'docker start rca-engine-thiru'`
+
+Never run both at once: each reports its own address to Convex, and the last one to report wins.
+
+## 6. Engine on 10.6.2.34 (fallback; stopped while the Mac engine is in use)
 
 **Quick way: one script does all of 6a–6e.** From the repo root on your Mac (on the VPN):
 ```bash
@@ -190,7 +214,9 @@ Before sharing beyond a few colleagues:
 | I want to… | Do this |
 |---|---|
 | Ship a **frontend or Convex** change | Commit, then `git push thiru thiru_dev_main`. Vercel rebuilds it and also deploys the Convex functions. |
-| Ship an **engine** change (`analytics/`, `engine/`) | Commit, then rebuild the package and copy it over (6b). Unpack it over `~/rca-engine-thiru`, which keeps `.env.dev`. Then run the `docker compose … up -d --build` line from 6d. |
+| Ship an **engine** change, Mac engine | Save the file, then `scripts/thiru-local-engine.sh start` (restarts it). No commit needed to try it. |
+| Check or follow the Mac engine | `scripts/thiru-local-engine.sh status` / `scripts/thiru-local-engine.sh logs` |
+| Ship an **engine** change (`analytics/`, `engine/`), server engine | Commit, then rebuild the package and copy it over (6b). Unpack it over `~/rca-engine-thiru`, which keeps `.env.dev`. Then run the `docker compose … up -d --build` line from 6d. |
 | Get fresh data now | `curl -XPOST <engine-address>/admin/rebuild -H "x-admin-secret: <ADMIN_SECRET>"` |
 | Find the current engine address | `docker logs rca-engine-thiru 2>&1 \| grep "tunnel up" \| tail -1` |
 | See logs | `docker logs --tail 200 rca-engine-thiru` |
