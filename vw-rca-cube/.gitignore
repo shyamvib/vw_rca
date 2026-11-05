@@ -35,3 +35,5 @@ playwright-report/
 
 # Local engine snapshot (clinic-level data): never commit
 /data/
+.vercel
+.env*
