@@ -9,7 +9,7 @@
 #   scripts/thiru-local-engine.sh logs               # follow the engine log
 #
 # The service runs under launchd with KeepAlive (restarts on crash) inside `caffeinate -is`, which stops the Mac
-# idle-sleeping while plugged in. Closing the lid or running on battery still sleeps it, and the dashboard is then
+# idle-sleeping. Closing the lid still sleeps it (unless on power with an external display), and the dashboard is then
 # offline for everyone until the Mac wakes.
 set -euo pipefail
 

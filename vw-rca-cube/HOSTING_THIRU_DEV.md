@@ -119,7 +119,7 @@ scripts/thiru-local-engine.sh start                        # starts the service;
 - **The log** is `~/Library/Logs/rca-engine-thiru.log`.
 - **Other commands:** `status`, `logs`, `stop`.
 
-**The dashboard is only up while the Mac is.** The service keeps the Mac from idle-sleeping while plugged in. If you close the lid, run on battery, lose the network or leave the VPN, the dashboard goes offline for everyone.
+**The dashboard is only up while the Mac is.** The service keeps the Mac from idle-sleeping. If you close the lid (unless it is on power with an external display), shut it down, lose the network or leave the VPN, the dashboard goes offline for everyone.
 - When the Mac wakes, the engine resumes. If its tunnel restarted, it reports the new address to Convex within about a minute.
 - Without the VPN it keeps serving, but the daily rebuild fails, so data goes stale.
 
