@@ -107,6 +107,18 @@ The site loads now, but shows "cannot reach the service" until the engine is run
 
 ## 6. Engine on 10.6.2.34
 
+**Quick way: one script does all of 6a–6e.** From the repo root on your Mac (on the VPN):
+```bash
+vw-rca-cube/scripts/deploy-thiru-dev-engine.sh <your-ssh-user>
+```
+- **Asks for:** the Cube secret, your Convex production deploy key, and the two passwords. Typing is hidden.
+- **Checks:** the Cube secret against Cube, and that the key belongs to your own project, before using either.
+- **Sets:** the password hashes in your Convex.
+- **Writes:** `.env.dev` on the server (mode 600).
+- **Deploys:** the engine from `thiru_dev_main`, then waits until the dashboard has data.
+
+Later runs reuse the server's `.env.dev` and only ship new code. Add `--configure` to change secrets or passwords. The manual steps below show what the script does.
+
 You need the Cube secret from Shyam and your Vercel address.
 
 **a. Check there is room** on the server:
