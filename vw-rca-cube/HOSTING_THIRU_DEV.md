@@ -208,7 +208,8 @@ The engine refreshes itself daily at 13:00 UTC, the same as production.
 | `/health` says **no snapshot** / rebuild failed | Get admin detail with `curl <engine>/health -H "x-admin-secret: …"`. Usually `CUBE_API_SECRET` is wrong, or Cube isn't reachable from the container. Test with `docker exec rca-engine-thiru node -e "fetch('http://10.6.2.34:4002/readyz').then(r=>console.log(r.status))"`; it should print 200. |
 | **Sign-in fails** | The hash in Convex and in `.env.dev` must come from the same password. Use a work-domain email. |
 | A **setting won't save**, or never shows | Check the Vercel build log for `convex deploy`. Then check that the engine's `CONVEX_URL` and key are for `tangible-leopard-228`. |
-| **Vercel build fails** at install | Check the log for an npm package error. Playwright is pinned to 1.64.x in `package.json` because 1.65.0 was published broken. |
+| **Vercel build fails** at install | Check the log for an npm package error. A newly published dependency can briefly be broken upstream: wait and redeploy rather than pinning it. |
+| Engine build fails at `npm ci` | `package.json` and `package-lock.json` don't match. The engine image installs strictly from the lock file. Never edit `package.json` without updating the lock with the same npm version. |
 
 ## 11. Rules
 
