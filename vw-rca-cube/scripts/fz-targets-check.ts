@@ -42,14 +42,18 @@ const DIMS = ["sample_id", "area", "product", "price_low", "price_high", "patien
 const bool = (x: unknown) => x === true || x === "true";
 const pull = (dims: string[]) => load({ dimensions: dims.map(m), measures: [m("samples")],
   timeDimensions: [{ dimension: m("order_date"), granularity: "day" }] });
-let withResult = true;
-let raw: Awaited<ReturnType<typeof pull>>;
-try { raw = await pull([...DIMS, "result_day"]); } catch (e) {
-  if (!/result_day/.test(String(e))) throw e;
-  withResult = false;
-  raw = await pull(DIMS);
+// Same fallback as fzScores.build: dimensions from later cube versions are dropped if the Cube doesn't have them.
+const optional = ["result_day", "ordered_with_fz"];
+let raw: Awaited<ReturnType<typeof pull>> | null = null;
+while (!raw) {
+  try { raw = await pull([...DIMS, ...optional]); } catch (e) {
+    const missing = optional.find(o => String(e).includes(o));
+    if (!missing) throw e;
+    optional.splice(optional.indexOf(missing), 1);
+  }
 }
-console.log(`      windows by ${withResult ? "result date" : "order date (Cube has no result_day yet)"}`);
+const withResult = optional.includes("result_day"), withFzDim = optional.includes("ordered_with_fz");
+console.log(`      windows by ${withResult ? "result date" : "order date (Cube has no result_day yet)"}; same-order rule ${withFzDim ? "on" : "off (Cube has no ordered_with_fz yet)"}`);
 const cubeRows: FzRow[] = raw.map(r => ({
   area: String(r[m("area")]), product: String(r[m("product")]), priceLow: Number(r[m("price_low")]),
   priceHigh: Number(r[m("price_high")]), clinic: String(r[m("clinic_id")]), day: String(r[m("order_date.day")]).slice(0, 10),
@@ -57,7 +61,8 @@ const cubeRows: FzRow[] = raw.map(r => ({
   sample: String(r[m("sample_id")]), pt: String(r[m("patient_id")]), score: Number(r[m("score")]), band: String(r[m("band")]),
   trend: String(r[m("trend")]), reason: (r[m("target_reason")] as string | null) ?? null, isTarget: bool(r[m("is_target")]),
   targetsOnSample: Number(r[m("targets_on_sample")]), isTop20: bool(r[m("is_top20_ytd")]),
-  hadBefore: bool(r[m("had_product_before")]), orderedAfter: bool(r[m("ordered_product_after")]),
+  hadBefore: bool(r[m("had_product_before")]), withFz: withFzDim ? bool(r[m("ordered_with_fz")]) : false,
+  orderedAfter: bool(r[m("ordered_product_after")]),
 }));
 check(snapRows.length === cubeRows.length, `snapshot rows = Cube rows (${snapRows.length} vs ${cubeRows.length})`);
 check(snapRows.every(r => /^[0-9a-f]{16}$/.test(r.pt)), "snapshot holds only hashed patient keys");
@@ -74,8 +79,9 @@ const reps = [...targetsByRep].filter(([s]) => s && s !== "—").sort((a, b) => 
 const leads = [...new Set(meta.map(x => x.teamLead).filter(Boolean))].slice(0, 1) as string[];
 const scopes = [...reps, ...leads.map(l => `team:${l}`), "team:*"];
 const defs = periodDefs(cfg.currentStart, cfg.currentEnd);
-const last = (p: string) => defs.filter(d => d.id.startsWith(p)).map(d => d.id).sort().at(-1);
-const windows = ["all", last("q:"), last("m:"), last("w:")].filter(Boolean) as string[];
+const ids = (p: string) => defs.filter(d => d.id.startsWith(p)).map(d => d.id).sort();
+// This and last week / month / quarter (the Rep view's This · Last toggle), plus every result on file.
+const windows = ["all", ...["q:", "m:", "w:"].flatMap(p => ids(p).slice(-2))];
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 const scopeSet = (s: string) => {
@@ -87,26 +93,30 @@ for (const s of scopes) {
   for (const w of windows) {
     const got: any = await host.invoke("fzScores:clinics", { password: pw, periodId: w, sales: s });
     const pr = periodRange(w, cfg.currentStart, cfg.currentEnd);
-    const want = fzTargets(cubeRows, { start: pr.start, end: pr.end }, scopeSet(s), rates);
+    const win = w === "all" ? null : { start: pr.start, end: pr.end };
+    const want = fzTargets(cubeRows, win, scopeSet(s), rates);
+    const co = fzTargets(cubeRows, win, null, rates).totals;
     const label = `${s.startsWith("team:") ? s : `rep #${reps.indexOf(s) + 1}`} × ${w}`;
     if (!got.ready) { check(false, `${label}: handler not ready (${got.reason})`); continue; }
     compared++;
     if (got.clinics.length) nonEmpty++;
     const t = got.totals, u = want.totals;
-    const same = t.scored === u.scored && t.targetPatients === u.targetPatients && t.crossSell === u.crossSell &&
-      t.clinics === u.clinics && near(t.low, u.low) && near(t.high, u.high) && near(t.likely, u.likely) &&
+    const ints = ["fzOrders", "flagged", "followed", "open", "crossSell", "clinics", "topClinics"] as const;
+    const line = (p: any) => [p.area, p.flagged, p.followed, p.open, Math.round(p.high)];
+    const same = ints.every(k => t[k] === u[k]) && near(t.low, u.low) && near(t.high, u.high) && near(t.likely, u.likely) &&
+      got.company.flagged === co.flagged && got.company.followed === co.followed &&
       got.clinics.length === want.clinics.length &&
       got.clinics.every((c: any, i: number) => { const d = want.clinics[i];
-        return c.clinic === d.clinic && c.targetPatients === d.targetPatients && c.crossSell === d.crossSell &&
-          c.scored === d.scored && near(c.low, d.low) && near(c.high, d.high) && JSON.stringify(c.products) === JSON.stringify(d.products); }) &&
-      JSON.stringify(got.products.map((p: any) => [p.area, p.patients, p.clinics])) ===
-        JSON.stringify(want.products.map(p => [p.area, p.patients, p.clinics]));
+        return c.clinic === d.clinic && c.fzOrders === d.fzOrders && c.flagged === d.flagged && c.followed === d.followed &&
+          c.open === d.open && c.crossSell === d.crossSell && near(c.low, d.low) && near(c.high, d.high) &&
+          JSON.stringify(c.products.map(line)) === JSON.stringify(d.products.map(line)) && JSON.stringify(c.pairs) === JSON.stringify(d.pairs); }) &&
+      JSON.stringify(got.products.map((p: any) => [...line(p), p.clinics])) === JSON.stringify(want.products.map(p => [...line(p), p.clinics]));
     if (!same) check(false, `${label}: engine ≠ recomputation (engine ${JSON.stringify(t)} vs ${JSON.stringify(u)})`);
     // Privacy: no raw id or hash among any string value in the answer, and no "pt" key.
     const json = JSON.stringify(got);
     const strings = json.match(/"(?:[^"\\]|\\.)*"/g) ?? [];
     if (strings.some(q => { const x = q.slice(1, -1); return rawIds.has(x) || hashes.has(x); }) || /"pt"\s*:/.test(json)) leaks++;
-    console.log(`      ${label.padEnd(28)} clinics ${String(got.totals.clinics).padStart(4)}  target patients ${String(got.totals.targetPatients).padStart(5)}  cross-sell ${String(got.totals.crossSell).padStart(4)}  $${Math.round(got.totals.low)}–${Math.round(got.totals.high)}`);
+    console.log(`      ${label.padEnd(28)} clinics ${String(t.clinics).padStart(4)}  flagged ${String(t.flagged).padStart(5)}  followed ${String(t.followed).padStart(4)}  open ${String(t.open).padStart(5)}  cross-sell ${String(t.crossSell).padStart(4)}  $${Math.round(t.low)}–${Math.round(t.high)}`);
   }
 }
 check(compared === scopes.length * windows.length && fails.length === 0, `engine = recomputation for ${compared} scope × window answers (${nonEmpty} non-empty)`);

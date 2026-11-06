@@ -4,8 +4,9 @@
  * build    — snapshot build step (engine/builder.ts, daily): pulls every `fz_scores` row from Cube (served by the
  *            `fz_rows` rollup) into the `fzScores` table. The patient id is replaced by a one-way hash at once: the
  *            snapshot never holds the raw id, and the hash is only used to find each patient's latest test.
- * clinics  — Rep view: for a rep / team and a window, the clinics to call, which Zoomer to pitch, patient counts,
- *            cross-sell patients and revenue. Clinic level only: no patient id or hash is ever returned.
+ * clinics  — Rep view: for a rep / team and a window, the clinics whose FZ results point to a Zoomer they haven't
+ *            ordered: FZ results flagged / followed up / open per Zoomer, cross-sell pairs and revenue. Clinic level
+ *            only: no patient id or hash is ever returned.
  * Not gen-scoped: replaced as a whole on each build (like familyStops).
  */
 import { v } from "convex/values";
@@ -36,6 +37,7 @@ const rowSpec = {
   targetsOnSample: v.number(),
   isTop20: v.boolean(),
   hadBefore: v.boolean(),
+  withFz: v.optional(v.boolean()),
   orderedAfter: v.boolean(),
 };
 
@@ -66,16 +68,21 @@ export const build = internalAction({
   handler: async ctx => {
     const pull = (dims: string[]) =>
       load({ dimensions: dims.map(m), measures: [m("samples")], timeDimensions: [{ dimension: m("order_date"), granularity: "day" }] });
-    // result_day came with a later cube version; until the Cube serving us has it, fall back to the order day.
-    let withResult = true;
-    let raw: Awaited<ReturnType<typeof pull>>;
-    try {
-      raw = await pull([...DIMS, "result_day"]);
-    } catch (e) {
-      if (!/result_day/.test(String(e))) throw e;
-      withResult = false;
-      raw = await pull(DIMS);
+    // Dimensions added in later cube versions. If the Cube serving us doesn't have one yet, drop it and carry on:
+    // result_day falls back to the order day, ordered_with_fz to false.
+    const optional = ["result_day", "ordered_with_fz"];
+    let raw: Awaited<ReturnType<typeof pull>> | null = null;
+    while (!raw) {
+      try {
+        raw = await pull([...DIMS, ...optional]);
+      } catch (e) {
+        const missing = optional.find(o => String(e).includes(o));
+        if (!missing) throw e;
+        optional.splice(optional.indexOf(missing), 1);
+      }
     }
+    const withResult = optional.includes("result_day");
+    const withFzDim = optional.includes("ordered_with_fz");
     const rows = await Promise.all(raw.map(async r => ({
       area: String(r[m("area")]),
       product: String(r[m("product")]),
@@ -94,11 +101,13 @@ export const build = internalAction({
       targetsOnSample: Number(r[m("targets_on_sample")]),
       isTop20: bool(r[m("is_top20_ytd")]),
       hadBefore: bool(r[m("had_product_before")]),
+      withFz: withFzDim ? bool(r[m("ordered_with_fz")]) : false,
       orderedAfter: bool(r[m("ordered_product_after")]),
     })));
     for (let i = 0; i < Math.max(rows.length, 1); i += 1000)
       await ctx.runMutation(internal.fzScores.replaceAll, { rows: rows.slice(i, i + 1000), clear: i === 0 });
-    return { rows: rows.length, clinics: new Set(rows.map(r => r.clinic)).size, window: withResult ? "result date" : "order date (cube has no result_day yet)" };
+    return { rows: rows.length, clinics: new Set(rows.map(r => r.clinic)).size, window: withResult ? "result date" : "order date (cube has no result_day yet)",
+      sameOrderRule: withFzDim ? "on" : "off (cube has no ordered_with_fz yet)" };
   },
 });
 
@@ -110,8 +119,10 @@ export const clinics = scopedQuery({
     if (!cfg) return { ready: false as const, reason: "no-data" };
     const all = (await ctx.db.query("fzScores").collect()) as unknown as FzRow[];
     if (!all.length) return { ready: false as const, reason: "no-score-data" };
-    const pr = periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);
-    if (!pr.start) return { ready: false as const, reason: "empty-window" };
+    // "all" = every FZ result on file (FZ results start before the dashboard's analysis window).
+    const pr = args.periodId === "all" ? null : periodRange(args.periodId, cfg.currentStart, cfg.currentEnd);
+    if (pr && !pr.start) return { ready: false as const, reason: "empty-window" };
+    const win = pr ? { start: pr.start, end: pr.end } : null;
 
     // Same scope as repView.book: a rep's clinics, a team lead's, or the whole company.
     const gen = cfg.gen ?? 0;
@@ -123,16 +134,24 @@ export const clinics = scopedQuery({
     const byClinic = new Map(meta.map(c => [c.clinic, c]));
 
     const rates = conversionRates(all);
-    const res = fzTargets(all, { start: pr.start, end: pr.end }, new Set(byClinic.keys()), rates);
+    const res = fzTargets(all, win, new Set(byClinic.keys()), rates);
+    // Company-wide follow-up in the same window, so a rep can compare their book with everyone's.
+    const co = fzTargets(all, win, null, rates).totals;
     // Latest result on file: tells the rep how fresh the scores are.
     let scoresThrough = "";
-    for (const r of all) if (r.resultDay > scoresThrough) scoresThrough = r.resultDay;
+    let scoresFrom = "9999";
+    for (const r of all) {
+      if (r.resultDay > scoresThrough) scoresThrough = r.resultDay;
+      if (r.resultDay < scoresFrom) scoresFrom = r.resultDay;
+    }
     return {
       ready: true as const,
-      window: { start: pr.start, end: pr.end },
+      window: win ?? { start: scoresFrom, end: scoresThrough },
+      allOnFile: !win,
       scoresThrough,
       rates,
       totals: res.totals,
+      company: { flagged: co.flagged, followed: co.followed },
       products: res.products,
       clinics: res.clinics.map(c => {
         const meta = byClinic.get(c.clinic);

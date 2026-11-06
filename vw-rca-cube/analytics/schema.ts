@@ -643,6 +643,7 @@ const schema = defineSchema({
     targetsOnSample: v.number(),
     isTop20: v.boolean(),
     hadBefore: v.boolean(),
+    withFz: v.optional(v.boolean()),
     orderedAfter: v.boolean(),
   }).index("by_clinic", ["clinic"]),
 

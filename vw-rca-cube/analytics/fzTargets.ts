@@ -1,8 +1,9 @@
-// Clinic-level FZ-score targets for one window and scope. Pure functions, no I/O (tests: scripts/fzTargets.test.ts).
+// Clinic-level FZ-score cross-sell numbers for one window and scope. Pure functions, no I/O (tests: scripts/fzTargets.test.ts).
 //
 // Input rows come from the `fzScores` snapshot table (one per FZ order × area; built from the `fz_scores` cube).
 // Each row's trend / reason already describe every earlier test of that patient in that area, so for a window we
-// only keep each patient's LATEST test per area. Output is clinic level: patient identifiers never leave here.
+// only keep each patient's LATEST FZ per area. The counting unit shown to sales is an "FZ result": that latest FZ
+// order's score in one area. Output is clinic level: patient identifiers never leave this file.
 // Rules in plain words: cube/FZ_SCORES.md.
 
 export type FzRow = {
@@ -25,20 +26,46 @@ export type FzRow = {
   isTarget: boolean;
   targetsOnSample: number;
   isTop20: boolean;
+  /** The area's Zoomer/Baseline was ordered on an earlier day than this FZ. */
   hadBefore: boolean;
+  /** The area's Zoomer/Baseline was ordered the same day as this FZ (already ordering; never a target). */
+  withFz?: boolean;
+  /** The area's Zoomer/Baseline was ordered on a later day than this FZ. */
   orderedAfter: boolean;
 };
+
+/** One Zoomer's numbers (for a clinic, or for the whole scope). */
+export type FzLine = {
+  area: string;
+  product: string;
+  /** FZ results that pointed to this Zoomer: still open + already followed up. */
+  flagged: number;
+  /** Of those, the provider went on to order the Zoomer (or Baseline). */
+  followed: number;
+  /** Still open: pointed to the Zoomer and none ordered yet. */
+  open: number;
+  /** Revenue if every open result turned into an order: Baseline price … Zoomer price. */
+  low: number;
+  high: number;
+  /** Revenue at the share of similar results that already turned into an order (`rate`). */
+  likely: number;
+};
+
+export type FzPair = { areas: [string, string]; products: [string, string]; n: number };
 
 export type FzClinic = {
   clinic: string;
   isTop20: boolean;
-  /** Patients with an FZ in the window. */
-  scored: number;
-  /** Patients with at least one area to pitch. */
-  targetPatients: number;
-  /** Patients with 2+ areas to pitch (cross-sell). */
+  /** FZ orders in the window (latest per patient). */
+  fzOrders: number;
+  flagged: number;
+  followed: number;
+  open: number;
+  /** FZ orders with 2+ open areas: pitch more than one Zoomer. */
   crossSell: number;
-  products: { area: string; product: string; patients: number }[];
+  products: FzLine[];
+  /** Most common open pairs on the same FZ order (largest first, at most 3). */
+  pairs: FzPair[];
   low: number;
   high: number;
   likely: number;
@@ -46,23 +73,26 @@ export type FzClinic = {
   topReason: string;
 };
 
-export type FzProduct = {
-  area: string;
-  product: string;
-  patients: number;
+export type FzProduct = FzLine & {
   clinics: number;
-  low: number;
-  high: number;
-  likely: number;
-  /** Share of comparable patients who ordered this product after their FZ (company-wide, all time). */
+  /** Share of comparable results that turned into an order of this product (company-wide, all time). */
   rate: number;
 };
 
-export type FzResult = {
-  totals: { scored: number; targetPatients: number; crossSell: number; clinics: number; low: number; high: number; likely: number };
-  products: FzProduct[];
-  clinics: FzClinic[];
+export type FzTotals = {
+  fzOrders: number;
+  flagged: number;
+  followed: number;
+  open: number;
+  crossSell: number;
+  clinics: number;
+  topClinics: number;
+  low: number;
+  high: number;
+  likely: number;
 };
+
+export type FzResult = { totals: FzTotals; products: FzProduct[]; clinics: FzClinic[] };
 
 /** Later test first: by day, then sample id (numeric when both are numbers). */
 const later = (a: FzRow, b: FzRow) =>
@@ -79,14 +109,17 @@ function latestPerPatientArea(rows: FzRow[]): FzRow[] {
   return [...best.values()];
 }
 
+/** A non-Optimal result with no product before or with the FZ, after which the provider ordered the product. */
+export const isFollowed = (r: FzRow) => r.band !== "Optimal" && !r.hadBefore && !r.withFz && r.orderedAfter;
+
 /**
- * Per area: of patients who scored "Needs support" without having had the product before, the share who ordered it
- * after that FZ. Company-wide over all rows given (pass every row, not one rep's).
+ * Per area: of patients who scored "Needs support" without having had the product before (or with the FZ), the
+ * share who ordered it after that FZ. Company-wide over all rows given (pass every row, not one rep's).
  */
 export function conversionRates(rows: FzRow[]): Record<string, number> {
   const seen = new Map<string, { area: string; converted: boolean }>();
   for (const r of rows) {
-    if (r.band !== "Needs support" || r.hadBefore) continue;
+    if (r.band !== "Needs support" || r.hadBefore || r.withFz) continue;
     const k = `${r.pt}|${r.area}`;
     const s = seen.get(k) ?? { area: r.area, converted: false };
     s.converted ||= r.orderedAfter;
@@ -102,82 +135,122 @@ export function conversionRates(rows: FzRow[]): Record<string, number> {
   return Object.fromEntries(Object.entries(n).map(([a, [c, d]]) => [a, d ? c / d : 0]));
 }
 
-/** Clinics to target from FZ results that came back in [window.start, window.end] (inclusive days, by resultDay),
- * limited to `scope` clinics when given. */
+const emptyLine = (r: FzRow): FzLine => ({ area: r.area, product: r.product, flagged: 0, followed: 0, open: 0, low: 0, high: 0, likely: 0 });
+
+function addTo(l: FzLine, r: FzRow, rates: Record<string, number>) {
+  if (r.isTarget) {
+    l.open += 1;
+    l.flagged += 1;
+    l.low += r.priceLow;
+    l.high += r.priceHigh;
+    l.likely += (rates[r.area] ?? 0) * r.priceLow;
+  } else if (isFollowed(r)) {
+    l.followed += 1;
+    l.flagged += 1;
+  }
+}
+
+const byFlagged = (a: FzLine, b: FzLine) => b.open - a.open || b.flagged - a.flagged || a.product.localeCompare(b.product);
+
+/**
+ * Clinics with FZ results to follow up, from results that came back in [window.start, window.end] (inclusive days,
+ * by resultDay), limited to `scope` clinics when given. `window` null = every result on file.
+ */
 export function fzTargets(
   rows: FzRow[],
-  window: { start: string; end: string },
+  window: { start: string; end: string } | null,
   scope: Set<string> | null,
   rates: Record<string, number>,
 ): FzResult {
-  const inWin = rows.filter(r => r.resultDay >= window.start && r.resultDay <= window.end && (!scope || scope.has(r.clinic)));
+  const inWin = rows.filter(r => (!window || (r.resultDay >= window.start && r.resultDay <= window.end)) && (!scope || scope.has(r.clinic)));
   const kept = latestPerPatientArea(inWin);
-  const targets = kept.filter(r => r.isTarget);
 
-  const ptAreas = new Map<string, number>();
-  for (const r of targets) ptAreas.set(r.pt, (ptAreas.get(r.pt) ?? 0) + 1);
+  // Open areas per patient's latest FZ (for cross-sell).
+  const openAreas = new Map<string, FzRow[]>();
+  for (const r of kept) if (r.isTarget) openAreas.set(r.pt, [...(openAreas.get(r.pt) ?? []), r]);
 
-  type Acc = FzClinic & { _scored: Set<string>; _targets: Set<string>; _cross: Set<string>; _prod: Map<string, FzClinic["products"][0]> };
+  type Acc = { c: FzClinic; orders: Set<string>; lines: Map<string, FzLine>; pairs: Map<string, FzPair> };
   const byClinic = new Map<string, Acc>();
   const acc = (r: FzRow): Acc => {
-    let c = byClinic.get(r.clinic);
-    if (!c) {
-      c = { clinic: r.clinic, isTop20: false, scored: 0, targetPatients: 0, crossSell: 0, products: [], low: 0, high: 0,
-        likely: 0, reasons: {}, topReason: "", _scored: new Set(), _targets: new Set(), _cross: new Set(), _prod: new Map() };
-      byClinic.set(r.clinic, c);
+    let a = byClinic.get(r.clinic);
+    if (!a) {
+      a = {
+        c: { clinic: r.clinic, isTop20: false, fzOrders: 0, flagged: 0, followed: 0, open: 0, crossSell: 0, products: [], pairs: [],
+          low: 0, high: 0, likely: 0, reasons: {}, topReason: "" },
+        orders: new Set(), lines: new Map(), pairs: new Map(),
+      };
+      byClinic.set(r.clinic, a);
     }
-    c.isTop20 ||= r.isTop20;
-    return c;
+    a.c.isTop20 ||= r.isTop20;
+    return a;
   };
-  for (const r of kept) acc(r)._scored.add(r.pt);
+  const prod = new Map<string, FzLine & { _clinics: Set<string> }>();
 
-  const prodAcc = new Map<string, FzProduct & { _clinics: Set<string> }>();
-  for (const r of targets) {
-    const c = acc(r);
-    const likely = (rates[r.area] ?? 0) * r.priceLow;
-    c._targets.add(r.pt);
-    if ((ptAreas.get(r.pt) ?? 0) >= 2) c._cross.add(r.pt);
-    const p = c._prod.get(r.area) ?? { area: r.area, product: r.product, patients: 0 };
-    p.patients += 1;
-    c._prod.set(r.area, p);
-    c.low += r.priceLow;
-    c.high += r.priceHigh;
-    c.likely += likely;
-    if (r.reason) c.reasons[r.reason] = (c.reasons[r.reason] ?? 0) + 1;
+  for (const r of kept) {
+    const a = acc(r);
+    a.orders.add(r.pt);
+    if (!r.isTarget && !isFollowed(r)) continue;
+    const line = a.lines.get(r.area) ?? emptyLine(r);
+    addTo(line, r, rates);
+    a.lines.set(r.area, line);
+    const p = prod.get(r.area) ?? { ...emptyLine(r), _clinics: new Set<string>() };
+    addTo(p, r, rates);
+    if (r.isTarget) p._clinics.add(r.clinic);
+    prod.set(r.area, p);
+    if (r.isTarget && r.reason) a.c.reasons[r.reason] = (a.c.reasons[r.reason] ?? 0) + 1;
+  }
 
-    const t = prodAcc.get(r.area) ?? { area: r.area, product: r.product, patients: 0, clinics: 0, low: 0, high: 0, likely: 0,
-      rate: rates[r.area] ?? 0, _clinics: new Set<string>() };
-    t.patients += 1;
-    t._clinics.add(r.clinic);
-    t.low += r.priceLow;
-    t.high += r.priceHigh;
-    t.likely += likely;
-    prodAcc.set(r.area, t);
+  let crossSellTotal = 0;
+  for (const list of openAreas.values()) {
+    if (list.length < 2) continue;
+    crossSellTotal += 1;
+    const a = acc(list[0]);
+    a.c.crossSell += 1;
+    const s = [...list].sort((x, y) => x.area.localeCompare(y.area));
+    for (let i = 0; i < s.length; i++)
+      for (let j = i + 1; j < s.length; j++) {
+        const k = `${s[i].area}|${s[j].area}`;
+        const p = a.pairs.get(k) ?? { areas: [s[i].area, s[j].area] as [string, string], products: [s[i].product, s[j].product] as [string, string], n: 0 };
+        p.n += 1;
+        a.pairs.set(k, p);
+      }
   }
 
   const clinics: FzClinic[] = [...byClinic.values()]
-    .filter(c => c._targets.size > 0)
-    .map(({ _scored, _targets, _cross, _prod, ...c }) => ({
-      ...c,
-      scored: _scored.size,
-      targetPatients: _targets.size,
-      crossSell: _cross.size,
-      products: [..._prod.values()].sort((a, b) => b.patients - a.patients || a.product.localeCompare(b.product)),
-      topReason: Object.entries(c.reasons).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "",
-    }))
-    .sort((a, b) => Number(b.isTop20) - Number(a.isTop20) || b.targetPatients - a.targetPatients || b.high - a.high || a.clinic.localeCompare(b.clinic));
+    .map(({ c, orders, lines, pairs }) => {
+      const products = [...lines.values()].sort(byFlagged);
+      const sum = (k: keyof Pick<FzLine, "flagged" | "followed" | "open" | "low" | "high" | "likely">) => products.reduce((s, l) => s + l[k], 0);
+      return {
+        ...c,
+        fzOrders: orders.size,
+        flagged: sum("flagged"),
+        followed: sum("followed"),
+        open: sum("open"),
+        low: sum("low"),
+        high: sum("high"),
+        likely: sum("likely"),
+        products,
+        pairs: [...pairs.values()].sort((x, y) => y.n - x.n || x.areas.join().localeCompare(y.areas.join())).slice(0, 3),
+        topReason: Object.entries(c.reasons).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]?.[0] ?? "",
+      };
+    })
+    .filter(c => c.open > 0)
+    .sort((a, b) => Number(b.isTop20) - Number(a.isTop20) || b.open - a.open || b.high - a.high || a.clinic.localeCompare(b.clinic));
 
-  const products: FzProduct[] = [...prodAcc.values()]
-    .map(({ _clinics, ...p }) => ({ ...p, clinics: _clinics.size }))
-    .sort((a, b) => b.patients - a.patients || b.high - a.high || a.area.localeCompare(b.area));
+  const products: FzProduct[] = [...prod.values()]
+    .map(({ _clinics, ...p }) => ({ ...p, clinics: _clinics.size, rate: rates[p.area] ?? 0 }))
+    .sort(byFlagged);
 
-  const sum = (k: "low" | "high" | "likely") => clinics.reduce((s, c) => s + c[k], 0);
+  const sum = (k: "flagged" | "followed" | "open" | "low" | "high" | "likely") => products.reduce((s, p) => s + p[k], 0);
   return {
     totals: {
-      scored: new Set(kept.map(r => r.pt)).size,
-      targetPatients: new Set(targets.map(r => r.pt)).size,
-      crossSell: [...ptAreas.values()].filter(n => n >= 2).length,
+      fzOrders: new Set(kept.map(r => r.pt)).size,
+      flagged: sum("flagged"),
+      followed: sum("followed"),
+      open: sum("open"),
+      crossSell: crossSellTotal,
       clinics: clinics.length,
+      topClinics: clinics.filter(c => c.isTop20).length,
       low: sum("low"),
       high: sum("high"),
       likely: sum("likely"),
