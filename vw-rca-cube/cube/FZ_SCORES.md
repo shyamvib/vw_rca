@@ -91,14 +91,25 @@ area. Its history fields already cover every earlier test.
 ## Deploy, check, roll back
 ```bash
 cd ~/"Documents/RCA Dashboard"
-vw-rca-cube/scripts/deploy-cube-model.sh shyam vw-rca-cube/cube/model-vibrant/cubes/fz_scores.yml
+# copy only (live Cube untouched; the next restart loads them):
+vw-rca-cube/scripts/deploy-cube-model.sh shyam --no-restart vw-rca-cube/cube/model-vibrant/cubes/*.yml
+# copy + restart (refused while a restart would drop any live cube/view):
+vw-rca-cube/scripts/deploy-cube-model.sh shyam vw-rca-cube/cube/model-vibrant/cubes/*.yml
 # wait a few minutes for the first pre-aggregation build, then:
 cd vw-rca-cube && node --env-file=.env.engine.local --import tsx scripts/fz-scores-check.ts
 ```
 The script finds the production Cube by the port the dashboard uses (:4002) and reads its model folder from the
-container's mounts, then shows both and asks before changing anything. Don't trust folder or container names from
-older docs: on 2026-11-05 `cube-rca-cube-rca-1` / `~/cube-rca/model` turned out to hold the separate
-`thiru_normalized_v2` Cube (:4003), not production, which is why the first attempt stopped at the compile check.
+container's mounts (`cube-rca-cube-rca-1`, `~/cube-rca/model`). It shows what it found and what a restart would
+add or drop, then asks before changing anything.
+
+**Incident found 2026-11-05.** Production Cube (:4002, started 2026-10-28) was serving 9 RCA cubes and 45 RevOps
+views from memory. Its model folder on disk held none of them, only `thiru_normalized_v2_*` and `fct_order.yml`,
+so any restart would have dropped them. The 7 RCA files plus `fz_scores.yml` were copied back from git
+(`--no-restart`, backup `~/cube-rca/model-backups/20261105-234849`). All 133 live member names were checked
+identical to git first. Before any restart, still open:
+- **the RevOps view files** (not in this repo; owner to be found);
+- **moving `thiru_normalized_v2_*`, `fct_order.yml` and `views/`** to the :4003 Cube's folder. They are unused
+  by the app and were not loaded by the live Cube.
 
 This changes the shared production Cube. Tell Shyam first and do it at a quiet time, because Cube is down for
 about 10–30 s during the restart. The script prints the exact rollback command, which restores the dated backup
