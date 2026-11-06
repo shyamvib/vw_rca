@@ -623,6 +623,28 @@ const schema = defineSchema({
   // editable. Never regenerate a field listed in `edited`.
   // Gut Zoomer / Total Tox STOPPED clinics per month-end (convex/familyStops.ts).
   // Replace-all after each live refresh; not gen-scoped.
+  // FZ system scores, one row per FZ order × area (snapshot build step, analytics/fzScores.ts; rules: cube/FZ_SCORES.md).
+  // `pt` is a one-way hash of the patient id (never the raw id) and is never returned to the browser.
+  fzScores: defineTable({
+    area: v.string(),
+    product: v.string(),
+    priceLow: v.number(),
+    priceHigh: v.number(),
+    clinic: v.string(),
+    day: v.string(),
+    sample: v.string(),
+    pt: v.string(),
+    score: v.number(),
+    band: v.string(),
+    trend: v.string(),
+    reason: v.union(v.string(), v.null()),
+    isTarget: v.boolean(),
+    targetsOnSample: v.number(),
+    isTop20: v.boolean(),
+    hadBefore: v.boolean(),
+    orderedAfter: v.boolean(),
+  }).index("by_clinic", ["clinic"]),
+
   // First order date per product family (snapshot build step, analytics/familyLaunch.ts): drives "new product releases".
   familyLaunch: defineTable({
     family: v.string(),

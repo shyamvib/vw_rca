@@ -17,6 +17,7 @@ import type * as dateUtils from "../dateUtils.js";
 import type * as families from "../families.js";
 import type * as familyLaunch from "../familyLaunch.js";
 import type * as familyStops from "../familyStops.js";
+import type * as fzScores from "../fzScores.js";
 import type * as feed from "../feed.js";
 import type * as flags from "../flags.js";
 import type * as gated from "../gated.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   families: typeof families;
   familyLaunch: typeof familyLaunch;
   familyStops: typeof familyStops;
+  fzScores: typeof fzScores;
   feed: typeof feed;
   flags: typeof flags;
   gated: typeof gated;
