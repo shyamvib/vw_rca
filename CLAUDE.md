@@ -44,4 +44,5 @@ Before re-deriving deploy, Cube, or data-model mechanics from scratch, check:
 - `vw-rca-cube/README.md`, `DEPLOY_VERCEL_CONVEX.md`, `LOCAL_DEV.md` — architecture and deploy
 - `CUBE_MIGRATION.md`, `CUBE_ROLLUPS.md`, `cube/README.md` — Cube model and pre-aggregations
 - `CLINIC_LIFECYCLE.md` — lifecycle/flag definitions
+- `cube/FZ_SCORES.md` — FZ system-score cube (`fz_scores`): cross-sell target rules, deploy, validation
 - `PROPOSAL_CUBE_FIRST_REFACTOR.md`, `PROPOSAL_DIGITALOCEAN_HOSTING.md` — proposed, not-yet-built architecture changes

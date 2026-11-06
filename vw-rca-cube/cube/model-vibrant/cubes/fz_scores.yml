@@ -1,0 +1,260 @@
+# DERIVED. Foundation Zoomer (FZ) system scores per order, for cross-sell targeting (Phase 1, 2026-11-05).
+# Rules in plain words + validation: cube/FZ_SCORES.md. Reference implementation + tests: analytics/fzRules.ts,
+# scripts/fzRules.test.ts — change a rule in BOTH places.
+#
+# Grain: one row per (sample_id, area) for 6 FZ scores that each map to a product to promote.
+# Source: lab_operations.test_result UNION ALL test_result_2_clean (latestTestValue, a string), joined 1:1 to
+#   customer_rfm_segmented_orders_bq on sample_id (gives patient_id, clinic_id, sales_id, order_date).
+# Valid score: trimmed value is a plain number in [0, 100]; one per (sample, test): highest latestTestHistoryId,
+#   then latest `updated`, then highest id.
+# Bands (scores are decimals): Needs support <= 65 < Moderate <= 87 < Optimal.
+# History fields are AS OF EACH TEST (tests ordered by order day, then sample_id), over every earlier test of that
+#   patient in that area (not first vs latest):
+#   trend = Single test | Worsening (worse band than first, or slope <= -3 pts/test) | Slipping (last step <= -3)
+#         | Improving (slope >= +3) | Changed, then returned | No real change.
+# target_reason (first match; Optimal never): After product – not improved | (had product: else none)
+#   | (ordered product after this FZ: none, converted) | Needs support | Repeat test – not improving
+#   | Borderline (Moderate <= 75 with 2+ other areas <= 65 on the same sample).
+# Product history = any order (any clinic, any date) whose order-level product_family contains the area's family.
+# Top 20% = clinics ranked by calendar-YTD revenue (sum total, this table), top ceil(20%) by count, ties clinic_id.
+# PRIVACY: patient_id only. No patient name, DOB, age or gender — do not add them here.
+cubes:
+  - name: fz_scores
+    sql: |
+      WITH cfg AS (
+        SELECT * FROM UNNEST([
+          STRUCT(10244 AS test_id, 'Gut' AS area, 'Gut Zoomer' AS product, 'Gut Baseline' AS alt_product, 460 AS price_low, 550 AS price_high),
+          STRUCT(10243, 'Neural', 'Neural Zoomer', CAST(NULL AS STRING), 450, 450),
+          STRUCT(10249, 'Hormone', 'Hormone Zoomer', 'Hormone Baseline', 410, 500),
+          STRUCT(10229, 'Nutrition', 'Nutrient Zoomer', 'Nutrient Baseline', 450, 600),
+          STRUCT(10245, 'Immune', 'Immune Zoomer', CAST(NULL AS STRING), 400, 400),
+          STRUCT(10239, 'Cardio', 'Cardio Zoomer', CAST(NULL AS STRING), 600, 600)
+        ])
+      ),
+      raw AS (
+        SELECT id, testId, sampleId, latestTestValue, latestTestHistoryId, updated
+        FROM `vibrant-lab-datamodels`.lab_operations.test_result
+        WHERE testId IN (10244, 10243, 10249, 10229, 10245, 10239)
+        UNION ALL
+        SELECT id, testId, sampleId, latestTestValue, latestTestHistoryId, updated
+        FROM `vibrant-lab-datamodels`.lab_operations.test_result_2_clean
+        WHERE testId IN (10244, 10243, 10249, 10229, 10245, 10239)
+      ),
+      valid AS (
+        SELECT testId AS test_id, CAST(sampleId AS STRING) AS sample_id,
+               SAFE_CAST(TRIM(latestTestValue) AS FLOAT64) AS score
+        FROM raw
+        WHERE REGEXP_CONTAINS(TRIM(IFNULL(latestTestValue, '')), r'^-?([0-9]+\.?[0-9]*|\.[0-9]+)$')
+          AND SAFE_CAST(TRIM(latestTestValue) AS FLOAT64) BETWEEN 0 AND 100
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY sampleId, testId
+                                   ORDER BY latestTestHistoryId DESC, updated DESC, id DESC) = 1
+      ),
+      ord AS (
+        SELECT o.sample_id, o.patient_id, o.clinic_id, o.sales_id, o.order_date
+        FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq o
+        WHERE o.sample_id IN (SELECT sample_id FROM valid) AND IFNULL(o.patient_id, '') != ''
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY o.sample_id ORDER BY o.order_date DESC) = 1
+      ),
+      scored AS (
+        SELECT v.sample_id, v.test_id, c.area, c.product, c.alt_product, c.price_low, c.price_high, v.score,
+               o.patient_id, o.clinic_id, o.sales_id, o.order_date,
+               CASE WHEN v.score <= 65 THEN 0 WHEN v.score <= 87 THEN 1 ELSE 2 END AS band_rank
+        FROM valid v JOIN ord o USING (sample_id) JOIN cfg c USING (test_id)
+      ),
+      seq AS (
+        SELECT *,
+          ROW_NUMBER() OVER w AS test_seq,
+          LAG(score) OVER w AS prev_score,
+          LAG(band_rank) OVER w AS prev_rank,
+          FIRST_VALUE(score) OVER w AS first_score,
+          FIRST_VALUE(band_rank) OVER w AS first_rank,
+          MAX(score) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS best_prior
+        FROM scored
+        WINDOW w AS (PARTITION BY patient_id, area ORDER BY DATE(order_date), sample_id)
+      ),
+      cum AS (
+        SELECT *,
+          SUM(IF(prev_rank IS NOT NULL AND band_rank != prev_rank, 1, 0)) OVER w AS zone_changes,
+          SUM(IF(band_rank > prev_rank, 1, 0)) OVER w AS steps_up,
+          SUM(IF(band_rank < prev_rank, 1, 0)) OVER w AS steps_down,
+          SUM(test_seq) OVER w AS sx, SUM(score) OVER w AS sy,
+          SUM(test_seq * score) OVER w AS sxy, SUM(test_seq * test_seq) OVER w AS sxx
+        FROM seq
+        WINDOW w AS (PARTITION BY patient_id, area ORDER BY DATE(order_date), sample_id
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+      ),
+      hist AS (
+        SELECT * EXCEPT (sx, sy, sxy, sxx),
+          IF(test_seq >= 2, (test_seq * sxy - sx * sy) / (test_seq * sxx - sx * sx), NULL) AS slope
+        FROM cum
+      ),
+      trended AS (
+        SELECT *,
+          CASE
+            WHEN test_seq = 1 THEN 'Single test'
+            WHEN band_rank < first_rank OR slope <= -3 THEN 'Worsening'
+            WHEN score - prev_score <= -3 THEN 'Slipping'
+            WHEN slope >= 3 THEN 'Improving'
+            WHEN zone_changes > 0 AND band_rank = first_rank THEN 'Changed, then returned'
+            ELSE 'No real change'
+          END AS trend
+        FROM hist
+      ),
+      prod_orders AS (
+        SELECT o.patient_id, c.area, DATE(o.order_date) AS d
+        FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq o
+        JOIN (SELECT DISTINCT sample_id, product_family
+              FROM `vibrant-lab-datamodels`.business_intelligence.fact_orders_tests_enriched_bq) t USING (sample_id)
+        CROSS JOIN UNNEST(SPLIT(t.product_family, ', ')) AS fam
+        JOIN cfg c ON STARTS_WITH(TRIM(fam), c.product)
+        WHERE o.patient_id IN (SELECT DISTINCT patient_id FROM scored)
+      ),
+      prod AS (
+        SELECT patient_id, area, MIN(d) AS first_product_date, MAX(d) AS last_product_date
+        FROM prod_orders GROUP BY patient_id, area
+      ),
+      withprod AS (
+        SELECT tr.*,
+          p.first_product_date IS NOT NULL AND p.first_product_date <= DATE(tr.order_date) AS had_product_before,
+          p.last_product_date IS NOT NULL AND p.last_product_date > DATE(tr.order_date) AS ordered_product_after,
+          COUNT(*) OVER (PARTITION BY tr.sample_id) AS areas_on_sample,
+          SUM(IF(tr.band_rank = 0, 1, 0)) OVER (PARTITION BY tr.sample_id) - IF(tr.band_rank = 0, 1, 0) AS co_low_areas
+        FROM trended tr
+        LEFT JOIN prod p USING (patient_id, area)
+      ),
+      reasoned AS (
+        SELECT *,
+          CASE
+            WHEN band_rank = 2 THEN NULL
+            WHEN had_product_before THEN
+              IF(band_rank = 0 OR (test_seq >= 2 AND trend != 'Improving'), 'After product – not improved', NULL)
+            WHEN ordered_product_after THEN NULL
+            WHEN band_rank = 0 THEN 'Needs support'
+            WHEN test_seq >= 2 AND trend != 'Improving' THEN 'Repeat test – not improving'
+            WHEN score <= 75 AND co_low_areas >= 2 THEN 'Borderline'
+          END AS target_reason
+        FROM withprod
+      ),
+      clinic_ytd AS (
+        SELECT clinic_id, revenue_ytd,
+          ROW_NUMBER() OVER (ORDER BY revenue_ytd DESC, clinic_id) AS revenue_rank_ytd,
+          COUNT(*) OVER () AS clinics_ytd
+        FROM (
+          SELECT clinic_id, SUM(total) AS revenue_ytd
+          FROM `vibrant-lab-datamodels`.business_intelligence.customer_rfm_segmented_orders_bq
+          WHERE clinic_id IS NOT NULL
+            AND DATE(order_date) >= DATE_TRUNC(CURRENT_DATE('America/Los_Angeles'), YEAR)
+          GROUP BY clinic_id
+        )
+      )
+      SELECT r.sample_id, r.area, r.test_id, r.product, r.alt_product, r.price_low, r.price_high,
+        r.patient_id, r.clinic_id, r.sales_id, r.order_date, r.score,
+        CASE r.band_rank WHEN 0 THEN 'Needs support' WHEN 1 THEN 'Moderate' ELSE 'Optimal' END AS band,
+        r.band_rank, r.test_seq, r.prev_score, r.first_score, r.best_prior,
+        r.zone_changes, r.steps_up, r.steps_down, r.slope, r.trend,
+        (r.test_seq >= 2 AND r.trend != 'Improving') AS not_improving,
+        r.had_product_before, r.ordered_product_after, r.co_low_areas, r.areas_on_sample,
+        r.target_reason, r.target_reason IS NOT NULL AS is_target,
+        COUNTIF(r.target_reason IS NOT NULL) OVER (PARTITION BY r.sample_id) AS targets_on_sample,
+        GREATEST(87 - r.score, 0) AS gap_to_optimal,
+        IFNULL(y.revenue_ytd, 0) AS clinic_revenue_ytd, y.revenue_rank_ytd AS clinic_revenue_rank_ytd,
+        IFNULL(y.revenue_rank_ytd <= CEIL(0.2 * y.clinics_ytd), FALSE) AS is_top20_ytd
+      FROM reasoned r
+      LEFT JOIN clinic_ytd y USING (clinic_id)
+
+    joins:
+      - name: rfm_orders
+        relationship: many_to_one
+        sql: "{CUBE}.sample_id = {rfm_orders}.sample_id"
+
+    dimensions:
+      - { name: pk, sql: "CONCAT({CUBE}.sample_id, '-', {CUBE}.area)", type: string, primary_key: true }
+      - { name: sample_id, sql: sample_id, type: string }
+      - { name: area, sql: area, type: string, description: "Gut / Neural / Hormone / Nutrition / Immune / Cardio" }
+      - { name: test_id, sql: test_id, type: number }
+      - { name: product, sql: product, type: string, description: "Product to promote (Zoomer)" }
+      - { name: alt_product, sql: alt_product, type: string, description: "Cheaper alternative (Baseline), if any" }
+      - { name: price_low, sql: price_low, type: number }
+      - { name: price_high, sql: price_high, type: number }
+      - { name: patient_id, sql: patient_id, type: string }
+      - { name: clinic_id, sql: clinic_id, type: number }
+      - { name: sales_id, sql: sales_id, type: number }
+      - { name: order_date, sql: "TIMESTAMP({CUBE}.order_date)", type: time }
+      - { name: score, sql: score, type: number }
+      - { name: band, sql: band, type: string, description: "Needs support (<=65) / Moderate (<=87) / Optimal" }
+      - { name: band_rank, sql: band_rank, type: number }
+      - { name: test_seq, sql: test_seq, type: number, description: "This patient's Nth test in this area" }
+      - { name: prev_score, sql: prev_score, type: number }
+      - { name: first_score, sql: first_score, type: number }
+      - { name: best_prior, sql: best_prior, type: number }
+      - { name: zone_changes, sql: zone_changes, type: number }
+      - { name: steps_up, sql: steps_up, type: number }
+      - { name: steps_down, sql: steps_down, type: number }
+      - { name: slope, sql: slope, type: number, description: "Points per test, least squares over all tests so far" }
+      - { name: trend, sql: trend, type: string }
+      - { name: not_improving, sql: not_improving, type: boolean }
+      - { name: had_product_before, sql: had_product_before, type: boolean }
+      - { name: ordered_product_after, sql: ordered_product_after, type: boolean }
+      - { name: co_low_areas, sql: co_low_areas, type: number }
+      - { name: areas_on_sample, sql: areas_on_sample, type: number }
+      - { name: target_reason, sql: target_reason, type: string }
+      - { name: is_target, sql: is_target, type: boolean }
+      - { name: targets_on_sample, sql: targets_on_sample, type: number, description: "Cross-sell breadth: target areas on this FZ" }
+      - { name: gap_to_optimal, sql: gap_to_optimal, type: number }
+      - { name: clinic_revenue_ytd, sql: clinic_revenue_ytd, type: number }
+      - { name: clinic_revenue_rank_ytd, sql: clinic_revenue_rank_ytd, type: number }
+      - { name: is_top20_ytd, sql: is_top20_ytd, type: boolean }
+
+    measures:
+      - { name: samples, type: count }
+      - { name: patients, sql: patient_id, type: count_distinct, description: "Exact; only from fz_rows-shaped queries or raw" }
+      - { name: patients_approx, sql: patient_id, type: count_distinct_approx }
+      - { name: score_sum, sql: score, type: sum }
+      - { name: avg_score, sql: "{score_sum} / NULLIF({samples}, 0)", type: number }
+      - name: targets
+        type: count
+        filters: [{ sql: "{CUBE}.is_target" }]
+      - name: need_support
+        type: count
+        filters: [{ sql: "{CUBE}.band = 'Needs support'" }]
+      - name: cross_sell_samples
+        type: count
+        filters: [{ sql: "{CUBE}.targets_on_sample >= 2 AND {CUBE}.is_target" }]
+      - name: potential_low
+        sql: price_low
+        type: sum
+        filters: [{ sql: "{CUBE}.is_target" }]
+      - name: potential_high
+        sql: price_high
+        type: sum
+        filters: [{ sql: "{CUBE}.is_target" }]
+
+    pre_aggregations:
+      # Whole SQL above materialised once per refresh (same pattern as portfolio_changes / clinic_dimension):
+      # the 40M+ row LIS scan runs once per 6 h, never per query.
+      - name: snapshot
+        type: original_sql
+        refresh_key: { every: 6 hour }
+      # Row level, for the engine's Phase 2 pull (latest test per patient per area inside any window).
+      - name: fz_rows
+        type: rollup
+        use_original_sql_pre_aggregations: true
+        measures: [samples, score_sum, targets, potential_low, potential_high]
+        dimensions: [sample_id, area, product, alt_product, price_low, price_high, patient_id, clinic_id, sales_id,
+                     score, band, band_rank, test_seq, prev_score, first_score, best_prior, zone_changes,
+                     steps_up, steps_down, slope, trend, not_improving, had_product_before,
+                     ordered_product_after, co_low_areas, target_reason, is_target, targets_on_sample,
+                     gap_to_optimal, is_top20_ytd, clinic_revenue_rank_ytd]
+        time_dimension: order_date
+        granularity: day
+        refresh_key: { every: 6 hour }
+      # Clinic x area x day aggregates, for counts / Playground / quick checks.
+      - name: fz_clinic_day
+        type: rollup
+        use_original_sql_pre_aggregations: true
+        measures: [samples, score_sum, targets, need_support, cross_sell_samples, potential_low, potential_high,
+                   patients_approx]
+        dimensions: [clinic_id, sales_id, area, product, band, trend, target_reason, is_target, is_top20_ytd]
+        time_dimension: order_date
+        granularity: day
+        refresh_key: { every: 6 hour }
