@@ -18,6 +18,7 @@ Never ask for secrets in chat and never write real values into committed files: 
 ## Branch conventions
 - `main` is production (Vercel + Convex cloud + `rca-engine` on 10.6.2.34).
 - `thiru_dev_main` is Thiru's long-lived dev branch; Vercel deploys it. Keep it current with `git fetch origin && git merge origin/main`.
+- **All of Thiru's new work is committed and pushed straight to `thiru_dev_main`. Do not create feature branches** (locally or on the fork): Vercel's production branch is `thiru_dev_main`, and any other pushed branch triggers a preview build that fails by design (the Convex deploy key is production-only).
 - `thiru_dev_<name>` branches are Thiru's local copies of other people's unmerged branches, for experimenting without touching their branch.
 - As of 2026-11-04, the `rvatthiru` GitHub account has **read-only** access to `shyamvib/vw_rca` (`pull: true, push: false`). Check current access (`gh api repos/shyamvib/vw_rca --jq .permissions`) before assuming a push will work. If it's still read-only, prepare commits locally and hand off to someone with write access, or work from a fork.
 
