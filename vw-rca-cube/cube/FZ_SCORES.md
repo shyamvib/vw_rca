@@ -126,8 +126,33 @@ in `~/cube-rca/model-backups/` and restarts Cube.
 - "Baseline" products are not separate product families in BigQuery. They appear only as the low price.
 
 ## Validation results
-<!-- filled in after the first deploy by scripts/fz-scores-check.ts -->
-Pre-deploy, run directly in BigQuery on 2026-11-05 against the partial sync:
-- No duplicate (sample, area) keys.
-- About 2,520 rows per area.
-- Gut bands were 31% Needs support, 62% Moderate and 7% Optimal. The earlier ClickHouse report had 32%, 61% and 6%.
+**Live on production Cube :4002 since 2026-11-06 ~08:15 UTC.** The restart used
+`--allow-drop revops_report_territory_`: the 45 old RevOps views on :4002 are superseded by the 44 on :4001,
+where the 12 `pair_b_*_both/_primary` views are consolidated. All 9 RCA cubes are still served.
+
+`scripts/fz-scores-check.ts`, 2026-11-06: **all checks passed**.
+- 23,098 rows: 3,853 FZ orders, 3,758 patients, 611 clinics. The BigQuery sync has caught up; ClickHouse had
+  about 3,900 gut samples with an order.
+- One row per (sample, area); one order per sample; bands match the cut-offs; no Optimal row is a target.
+- The SQL rules equal the TypeScript rules on **every** row: trend, not_improving, co_low_areas, target_reason
+  and targets_on_sample.
+- The row pull is served by `fz_rows`; the area/band totals from `fz_clinic_day` equal the row counts.
+- No patient name, DOB, age or gender fields.
+- First query after the restart waited about 10 min for the first build; after that, about 10 s.
+
+All tests, every clinic, all dates (Phase 2 will apply the window and keep the latest test per patient):
+
+| Area | Needs support | Moderate | Optimal | Targets | in top-20% clinics | Potential $ (low–high) |
+|---|---|---|---|---|---|---|
+| Gut | 1,228 | 2,377 | 247 | 1,482 | 1,309 | $682K–$815K |
+| Neural | 959 | 1,926 | 966 | 1,259 | 1,109 | $567K |
+| Hormone | 915 | 2,525 | 412 | 1,290 | 1,148 | $529K–$645K |
+| Nutrition | 751 | 2,065 | 1,036 | 1,032 | 904 | $464K–$619K |
+| Immune | 563 | 1,587 | 1,701 | 706 | 626 | $282K |
+| Cardio | 1,165 | 2,077 | 598 | 1,503 | 1,323 | $902K |
+
+- **Target reasons:** Needs support 4,702 · Borderline 1,554 · After product – not improved 862 · Repeat
+  test – not improving 154.
+- **Cross-sell:** 1,696 of 3,853 FZ orders have 2 or more target areas.
+- **Potential $ is the ceiling.** It assumes every target orders. Phase 2 adds realistic conversion rates
+  (organic and peer).
