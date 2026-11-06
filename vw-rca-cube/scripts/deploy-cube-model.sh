@@ -115,6 +115,11 @@ else
   echo "    a restart would keep every live cube/view"
 fi
 
+if [ -n "$RESTART" ] && [ -n "$MISSING" ]; then
+  die "not restarting, and nothing changed: a restart would drop the live cubes/views listed above.
+       Put their files back first (add them to this command), or agree with their owner.
+       To only copy files without a restart, add --no-restart."
+fi
 read -rp "    Copy these file(s) into $MODEL_DIR/$SUB on $HOST? [y/N] " a; [ "$a" = y ] || die "stopped; nothing changed"
 
 # ---------------------------------------------------------------------------------------------------------
