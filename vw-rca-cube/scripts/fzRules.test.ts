@@ -95,6 +95,14 @@ describe("targetReason", () => {
   test("had the product, single moderate test → not a target", () => {
     expect(targetReason(t({ score: 70, hadProductBefore: true }))).toBeNull();
   });
+  test("Zoomer ordered the same day as the FZ (same order) → already ordering, not a target", () => {
+    expect(targetReason(t({ score: 50, orderedWithFz: true }))).toBeNull();
+    expect(targetReason(t({ score: 50, orderedWithFz: true, hadProductBefore: true }))).toBeNull();
+    expect(targetReason(t({ score: 76, scores: [80, 78, 76], orderedWithFz: true }))).toBeNull();
+  });
+  test("Zoomer on an earlier order, FZ still low → After product", () => {
+    expect(targetReason(t({ score: 50, hadProductBefore: true, orderedWithFz: false }))).toBe("After product – not improved");
+  });
   test("already ordered the product after this FZ → converted, not a target", () => {
     expect(targetReason(t({ score: 50, orderedProductAfter: true }))).toBeNull();
   });

@@ -42,7 +42,7 @@ check(pii.length === 0, `no patient name/DOB/age/gender members (found: ${pii.jo
 
 // 2. Pull every row (served by the fz_rows rollup).
 const DIMS = ["sample_id", "area", "patient_id", "clinic_id", "score", "band", "test_seq", "prev_score", "trend",
-  "not_improving", "had_product_before", "ordered_product_after", "co_low_areas", "target_reason", "is_target",
+  "not_improving", "had_product_before", "ordered_with_fz", "ordered_product_after", "co_low_areas", "target_reason", "is_target",
   "targets_on_sample", "is_top20_ytd"];
 const rowQuery = {
   dimensions: DIMS.map(m),
@@ -55,7 +55,7 @@ check(pre.some((k) => k.includes("fz_rows")), `row pull served by fz_rows rollup
 
 type R = {
   sample: string; area: string; patient: string; clinic: number; day: string; score: number; band: string;
-  seq: number; prev: number | null; trend: string; notImproving: boolean; hadBefore: boolean; after: boolean;
+  seq: number; prev: number | null; trend: string; notImproving: boolean; hadBefore: boolean; withFz: boolean; after: boolean;
   coLow: number; reason: string | null; isTarget: boolean; targetsOnSample: number; top20: boolean; n: number;
 };
 const bool = (v: unknown) => v === true || v === "true";
@@ -66,7 +66,7 @@ const rows: R[] = raw.map((r) => ({
   clinic: Number(r[m("clinic_id")]), day: String(r[m("order_date.day")]).slice(0, 10),
   score: Number(r[m("score")]), band: String(r[m("band")]), seq: Number(r[m("test_seq")]),
   prev: num(r[m("prev_score")]), trend: String(r[m("trend")]), notImproving: bool(r[m("not_improving")]),
-  hadBefore: bool(r[m("had_product_before")]), after: bool(r[m("ordered_product_after")]),
+  hadBefore: bool(r[m("had_product_before")]), withFz: bool(r[m("ordered_with_fz")]), after: bool(r[m("ordered_product_after")]),
   coLow: Number(r[m("co_low_areas")]), reason: (r[m("target_reason")] as string | null) ?? null,
   isTarget: bool(r[m("is_target")]), targetsOnSample: Number(r[m("targets_on_sample")]),
   top20: bool(r[m("is_top20_ytd")]), n: Number(r[m("samples")]),
@@ -109,7 +109,7 @@ for (const seq of byPatientArea.values()) {
     if ((r.prev ?? null) !== (h.prevScore ?? null) && Math.abs((r.prev ?? 0) - (h.prevScore ?? 0)) > 1e-9) miss("prev_score", r.area);
     const coLow = bySample.get(r.sample)!.filter((x) => x.area !== r.area && x.score <= NEEDS_SUPPORT_MAX).length;
     if (r.coLow !== coLow) miss("co_low_areas", `${r.area} SQL ${r.coLow} vs TS ${coLow}`);
-    const reason = targetReason({ score: r.score, history: h, hadProductBefore: r.hadBefore, orderedProductAfter: r.after, coLowAreas: coLow });
+    const reason = targetReason({ score: r.score, history: h, hadProductBefore: r.hadBefore, orderedWithFz: r.withFz, orderedProductAfter: r.after, coLowAreas: coLow });
     if (r.reason !== reason) miss("target_reason", `${r.area} score ${r.score}: SQL ${r.reason} vs TS ${reason}`);
   });
 }

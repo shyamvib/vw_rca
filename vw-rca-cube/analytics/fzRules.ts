@@ -122,8 +122,10 @@ export type TargetReason =
 export type TargetInput = {
   score: number;
   history: Pick<History, "notImproving">;
-  /** Patient ordered the area's product on or before this FZ order date (same order counts). */
+  /** Patient ordered the area's product (Zoomer or Baseline) on an EARLIER day than this FZ order. */
   hadProductBefore: boolean;
+  /** Patient ordered the area's product the same day as this FZ (usually on the same order): already ordering it. */
+  orderedWithFz?: boolean;
   /** Patient ordered the area's product after this FZ order date (already converted). */
   orderedProductAfter: boolean;
   /** Other promotable areas on the same sample scoring ≤ 65. */
@@ -134,6 +136,7 @@ export type TargetInput = {
 export function targetReason(t: TargetInput): TargetReason | null {
   const band = bandOf(t.score);
   if (band === "Optimal") return null;
+  if (t.orderedWithFz) return null; // ordered with the FZ: the score is from before the product, not after it
   if (t.hadProductBefore)
     return band === "Needs support" || t.history.notImproving ? "After product – not improved" : null;
   if (t.orderedProductAfter) return null;
