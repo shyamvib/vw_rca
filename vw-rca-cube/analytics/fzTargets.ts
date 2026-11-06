@@ -58,6 +58,8 @@ export type FzClinic = {
   isTop20: boolean;
   /** FZ orders in the window (latest per patient). */
   fzOrders: number;
+  /** Of those, FZ orders with at least one open area (a Zoomer to suggest). */
+  openOrders: number;
   flagged: number;
   followed: number;
   open: number;
@@ -169,15 +171,15 @@ export function fzTargets(
   const openAreas = new Map<string, FzRow[]>();
   for (const r of kept) if (r.isTarget) openAreas.set(r.pt, [...(openAreas.get(r.pt) ?? []), r]);
 
-  type Acc = { c: FzClinic; orders: Set<string>; lines: Map<string, FzLine>; pairs: Map<string, FzPair> };
+  type Acc = { c: FzClinic; orders: Set<string>; openPts: Set<string>; lines: Map<string, FzLine>; pairs: Map<string, FzPair> };
   const byClinic = new Map<string, Acc>();
   const acc = (r: FzRow): Acc => {
     let a = byClinic.get(r.clinic);
     if (!a) {
       a = {
-        c: { clinic: r.clinic, isTop20: false, fzOrders: 0, flagged: 0, followed: 0, open: 0, crossSell: 0, products: [], pairs: [],
-          low: 0, high: 0, likely: 0, reasons: {}, topReason: "" },
-        orders: new Set(), lines: new Map(), pairs: new Map(),
+        c: { clinic: r.clinic, isTop20: false, fzOrders: 0, openOrders: 0, flagged: 0, followed: 0, open: 0, crossSell: 0, products: [],
+          pairs: [], low: 0, high: 0, likely: 0, reasons: {}, topReason: "" },
+        orders: new Set(), openPts: new Set(), lines: new Map(), pairs: new Map(),
       };
       byClinic.set(r.clinic, a);
     }
@@ -197,6 +199,7 @@ export function fzTargets(
     addTo(p, r, rates);
     if (r.isTarget) p._clinics.add(r.clinic);
     prod.set(r.area, p);
+    if (r.isTarget) a.openPts.add(r.pt);
     if (r.isTarget && r.reason) a.c.reasons[r.reason] = (a.c.reasons[r.reason] ?? 0) + 1;
   }
 
@@ -217,12 +220,13 @@ export function fzTargets(
   }
 
   const clinics: FzClinic[] = [...byClinic.values()]
-    .map(({ c, orders, lines, pairs }) => {
+    .map(({ c, orders, openPts, lines, pairs }) => {
       const products = [...lines.values()].sort(byFlagged);
       const sum = (k: keyof Pick<FzLine, "flagged" | "followed" | "open" | "low" | "high" | "likely">) => products.reduce((s, l) => s + l[k], 0);
       return {
         ...c,
         fzOrders: orders.size,
+        openOrders: openPts.size,
         flagged: sum("flagged"),
         followed: sum("followed"),
         open: sum("open"),

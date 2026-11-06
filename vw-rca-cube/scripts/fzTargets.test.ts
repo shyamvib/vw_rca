@@ -108,6 +108,7 @@ describe("clinic rows", () => {
 
   test("orders, products, cross-sell pairs, money", () => {
     expect(c1.fzOrders).toBe(3);
+    expect(c1.openOrders).toBe(2);
     expect(c1.open).toBe(3);
     expect(c1.crossSell).toBe(1);
     expect(c1.products.map(p => [p.product, p.open])).toEqual([["Gut Zoomer", 2], ["Cardio Zoomer", 1]]);

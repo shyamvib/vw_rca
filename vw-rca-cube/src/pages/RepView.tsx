@@ -4634,7 +4634,7 @@ function FzStatus({ fz, wide, onWide }: { fz: FzResp } & FzWide) {
 }
 
 /** KPI strip for a set of FZ numbers (the whole book, or one Zoomer's clinics). */
-function FzKpis({ t, company }: { t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "crossSell" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
+function FzKpis({ t, company }: { t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
   const r = fzRate(t.followed, t.flagged);
   const cr = company ? fzRate(company.followed, company.flagged) : null;
   return (
@@ -4644,7 +4644,6 @@ function FzKpis({ t, company }: { t: Pick<FzTotals, "clinics" | "topClinics" | "
       <div><b>{t.followed} <small>({P(r)})</small></b><span>led to a Zoomer order{cr !== null ? ` · company ${P(cr)}` : ""}</span></div>
       <div><b>{t.open}</b><span>still open: no Zoomer ordered</span></div>
       <div><b>{KR(t.low, t.high)}</b><span>at stake (Baseline–Zoomer) · likely {K(t.likely)}</span></div>
-      <div><b>{t.crossSell}</b><span>FZ orders open in 2+ areas (cross-sell)</span></div>
     </div>
   );
 }
@@ -4684,37 +4683,45 @@ function FzPanel({ fz, wide, onWide, onOpen }: { fz: FzResp; onOpen: (area?: str
   );
 }
 
-/** Expanded clinic row: a short FZ summary (details on hover), above the usual clinic card. */
-const FZ_REASON_TIP: Record<string, string> = {
-  "Needs support": "Scored 65 or lower, no matching Zoomer ordered before or since",
-  Borderline: "Scored 66–75 with 2+ other areas at 65 or lower on the same FZ",
-  "Repeat test – not improving": "Moderate on 2+ FZ tests without a real improvement",
-  "After product – not improved": "Had the Zoomer on an earlier order and is still low or not improving",
-};
+/** Expanded clinic row: a short note in plain words for the rep, then one chip per Zoomer (details on hover). */
+const AREA_WORD: Record<string, string> = { Gut: "gut", Neural: "brain", Hormone: "hormone", Nutrition: "nutrient", Immune: "immune", Cardio: "heart" };
 const priceOf = (area: string) => {
   const a = AREA_OF.get(area);
   return a ? (a.priceLow === a.priceHigh ? `$${a.priceHigh}` : `$${a.priceLow}–${a.priceHigh}`) : "";
 };
 const short = (product: string) => product.replace(/ Zoomer$/, "");
+/** "a", "a and b", "a, b and c". */
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 function FzClinicBreakdown({ c }: { c: FzClinicRow }) {
-  const pair = c.pairs[0];
+  const open = c.products.filter(p => p.open);
+  if (!open.length) return null;
+  const words = open.map(p => AREA_WORD[p.area] ?? p.area.toLowerCase());
+  const top = open.slice(0, 2);
+  const afterProduct = c.reasons["After product – not improved"] ?? 0;
+  const repeat = c.reasons["Repeat test – not improving"] ?? 0;
   return (
     <div className="rv-fz-break">
-      <div className="rv-fz-sum">
-        <b>FZ: {c.open} open</b> · {c.followed} led to an order · <b>{KR(c.low, c.high)}</b> at stake{c.isTop20 ? " · top 20% clinic" : ""}
-      </div>
+      <p>
+        <b>Why call:</b> {c.openOrders} of {plural(c.fzOrders, "Foundation Zoomer test")} from this clinic came back with
+        low {andList(words)} scores, and no follow-up Zoomer has been ordered for them yet.
+        {c.followed ? ` (${plural(c.followed, "other result")} already led to a Zoomer order.)` : ""}
+        {afterProduct ? ` ${afterProduct} of these already had the Zoomer before and are still low: worth asking about a retest.` : ""}
+        {repeat ? ` ${repeat} ${repeat === 1 ? "has" : "have"} been tested more than once without getting better.` : ""}
+      </p>
+      <p>
+        <b>Suggest:</b> {andList(top.map(p => p.product))}{open.length > 2 ? `, then ${andList(open.slice(2).map(p => short(p.product)))}` : ""}.
+        {c.crossSell ? ` ${c.crossSell === 1 ? "One patient needs" : `${c.crossSell} patients need`} more than one of these: offer them together.` : ""}
+        {" "}Worth <b>{KR(c.low, c.high)}</b> if each one is ordered.
+      </p>
+      <p className="rv-dim">
+        <b>Ask the provider:</b> &ldquo;Some of your patients&rsquo; Foundation Zoomer results show low {andList(top.map(p => AREA_WORD[p.area] ?? p.area.toLowerCase()))} scores.
+        What&rsquo;s the plan for them? A {top[0].product} would show what&rsquo;s behind it.&rdquo;
+      </p>
       <div className="rv-fz-chips">
-        {c.products.filter(p => p.open).map(p => (
-          <span key={p.area} className="rv-tag rv-tag-blue" title={`${p.product}: ${p.flagged} FZ result${p.flagged === 1 ? "" : "s"} low or not improving on ${p.area}, ${p.followed} led to an order, ${p.open} open · ${priceOf(p.area)} each${AREA_OF.get(p.area)?.altProduct ? ` (${AREA_OF.get(p.area)?.altProduct} at the low end)` : ""}`}>
-            {short(p.product)} {p.open} · {priceOf(p.area)}
+        {open.map(p => (
+          <span key={p.area} className="rv-tag rv-tag-blue" title={`${p.product}: ${p.flagged} FZ result${p.flagged === 1 ? "" : "s"} low or not improving on ${p.area}, ${p.followed} led to an order, ${p.open} open`}>
+            {p.product} · {p.open} open · {priceOf(p.area)} each
           </span>
-        ))}
-      </div>
-      {pair ? <div className="rv-small">Pitch together: <b>{short(pair.products[0])} + {short(pair.products[1])}</b> ({plural(pair.n, "FZ order")})</div> : null}
-      <div className="rv-dim rv-small">
-        Why:{" "}
-        {Object.entries(c.reasons).sort((x, y) => y[1] - x[1]).map(([k, n], i) => (
-          <span key={k} title={FZ_REASON_TIP[k]}>{i ? " · " : ""}{k} {n}</span>
         ))}
       </div>
     </div>
@@ -4735,7 +4742,6 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
     return {
       clinics: shown.length, topClinics: shown.filter(c => c.isTop20).length,
       flagged: s("flagged"), followed: s("followed"), open: s("open"), low: s("low"), high: s("high"), likely: s("likely"),
-      crossSell: shown.reduce((x, c) => x + (area ? c.pairs.filter(p => p.areas.includes(area)).reduce((y, p) => y + p.n, 0) : c.crossSell), 0),
     };
   }, [shown, area]);
   // Every FZ clinic gets a row, even one with no orders in this window (its order columns then read zero).

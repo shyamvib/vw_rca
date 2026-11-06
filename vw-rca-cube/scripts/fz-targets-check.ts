@@ -107,7 +107,7 @@ for (const s of scopes) {
       got.company.flagged === co.flagged && got.company.followed === co.followed &&
       got.clinics.length === want.clinics.length &&
       got.clinics.every((c: any, i: number) => { const d = want.clinics[i];
-        return c.clinic === d.clinic && c.fzOrders === d.fzOrders && c.flagged === d.flagged && c.followed === d.followed &&
+        return c.clinic === d.clinic && c.fzOrders === d.fzOrders && c.openOrders === d.openOrders && c.flagged === d.flagged && c.followed === d.followed &&
           c.open === d.open && c.crossSell === d.crossSell && near(c.low, d.low) && near(c.high, d.high) &&
           JSON.stringify(c.products.map(line)) === JSON.stringify(d.products.map(line)) && JSON.stringify(c.pairs) === JSON.stringify(d.pairs); }) &&
       JSON.stringify(got.products.map((p: any) => [...line(p), p.clinics])) === JSON.stringify(want.products.map(p => [...line(p), p.clinics]));
