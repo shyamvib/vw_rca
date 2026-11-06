@@ -11,8 +11,10 @@ export type FzRow = {
   priceLow: number;
   priceHigh: number;
   clinic: string;
-  /** FZ order day, YYYY-MM-DD. */
+  /** FZ order day, YYYY-MM-DD (decides test order). */
   day: string;
+  /** Day the score was finalised in the LIS, YYYY-MM-DD (decides the window: "results that came back"). */
+  resultDay: string;
   sample: string;
   /** One-way hash of the patient id: only used to find each patient's latest test. Never returned. */
   pt: string;
@@ -100,14 +102,15 @@ export function conversionRates(rows: FzRow[]): Record<string, number> {
   return Object.fromEntries(Object.entries(n).map(([a, [c, d]]) => [a, d ? c / d : 0]));
 }
 
-/** Clinics to target in [window.start, window.end] (inclusive days), limited to `scope` clinics when given. */
+/** Clinics to target from FZ results that came back in [window.start, window.end] (inclusive days, by resultDay),
+ * limited to `scope` clinics when given. */
 export function fzTargets(
   rows: FzRow[],
   window: { start: string; end: string },
   scope: Set<string> | null,
   rates: Record<string, number>,
 ): FzResult {
-  const inWin = rows.filter(r => r.day >= window.start && r.day <= window.end && (!scope || scope.has(r.clinic)));
+  const inWin = rows.filter(r => r.resultDay >= window.start && r.resultDay <= window.end && (!scope || scope.has(r.clinic)));
   const kept = latestPerPatientArea(inWin);
   const targets = kept.filter(r => r.isTarget);
 

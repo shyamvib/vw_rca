@@ -3,6 +3,7 @@ import { conversionRates, fzTargets, type FzRow } from "../analytics/fzTargets";
 
 let seq = 0;
 const row = (o: Partial<FzRow> & Pick<FzRow, "pt" | "clinic" | "day">): FzRow => ({
+  resultDay: o.day,
   area: "Gut", product: "Gut Zoomer", priceLow: 460, priceHigh: 550,
   sample: String(++seq), score: 50, band: "Needs support", trend: "Single test",
   reason: "Needs support", isTarget: true, targetsOnSample: 1, isTop20: false,
@@ -33,6 +34,24 @@ describe("window and latest test per patient", () => {
     const r = fzTargets([
       row({ pt: "a", clinic: "1", day: "2026-08-01", sample: "200", reason: null, isTarget: false, band: "Optimal" }),
       row({ pt: "a", clinic: "1", day: "2026-08-01", sample: "199" }),
+    ], W, null, {});
+    expect(r.totals.targetPatients).toBe(0);
+  });
+});
+
+describe("window is the result date, not the order date", () => {
+  test("ordered before the window, result came back inside it → counted", () => {
+    const r = fzTargets([row({ pt: "a", clinic: "1", day: "2026-06-20", resultDay: "2026-07-08" })], W, null, {});
+    expect(r.totals.targetPatients).toBe(1);
+  });
+  test("ordered inside the window, result came back after it → not counted yet", () => {
+    const r = fzTargets([row({ pt: "a", clinic: "1", day: "2026-09-25", resultDay: "2026-10-12" })], W, null, {});
+    expect(r.totals.scored).toBe(0);
+  });
+  test("latest test is still decided by test order (order day, then sample)", () => {
+    const r = fzTargets([
+      row({ pt: "a", clinic: "1", day: "2026-07-01", resultDay: "2026-08-30", sample: "1" }),
+      row({ pt: "a", clinic: "1", day: "2026-08-01", resultDay: "2026-08-20", sample: "2", band: "Optimal", reason: null, isTarget: false }),
     ], W, null, {});
     expect(r.totals.targetPatients).toBe(0);
   });

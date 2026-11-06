@@ -25,6 +25,7 @@ const rowSpec = {
   priceHigh: v.number(),
   clinic: v.string(),
   day: v.string(),
+  resultDay: v.string(),
   sample: v.string(),
   pt: v.string(),
   score: v.number(),
@@ -63,11 +64,18 @@ export const replaceAll = internalMutation({
 export const build = internalAction({
   args: {},
   handler: async ctx => {
-    const raw = await load({
-      dimensions: DIMS.map(m),
-      measures: [m("samples")],
-      timeDimensions: [{ dimension: m("order_date"), granularity: "day" }],
-    });
+    const pull = (dims: string[]) =>
+      load({ dimensions: dims.map(m), measures: [m("samples")], timeDimensions: [{ dimension: m("order_date"), granularity: "day" }] });
+    // result_day came with a later cube version; until the Cube serving us has it, fall back to the order day.
+    let withResult = true;
+    let raw: Awaited<ReturnType<typeof pull>>;
+    try {
+      raw = await pull([...DIMS, "result_day"]);
+    } catch (e) {
+      if (!/result_day/.test(String(e))) throw e;
+      withResult = false;
+      raw = await pull(DIMS);
+    }
     const rows = await Promise.all(raw.map(async r => ({
       area: String(r[m("area")]),
       product: String(r[m("product")]),
@@ -75,6 +83,7 @@ export const build = internalAction({
       priceHigh: Number(r[m("price_high")]),
       clinic: String(r[m("clinic_id")]),
       day: String(r[m("order_date.day")]).slice(0, 10),
+      resultDay: String((withResult ? r[m("result_day")] : null) ?? r[m("order_date.day")]).slice(0, 10),
       sample: String(r[m("sample_id")]),
       pt: await hashPatient(String(r[m("patient_id")])),
       score: Number(r[m("score")]),
@@ -89,7 +98,7 @@ export const build = internalAction({
     })));
     for (let i = 0; i < Math.max(rows.length, 1); i += 1000)
       await ctx.runMutation(internal.fzScores.replaceAll, { rows: rows.slice(i, i + 1000), clear: i === 0 });
-    return { rows: rows.length, clinics: new Set(rows.map(r => r.clinic)).size };
+    return { rows: rows.length, clinics: new Set(rows.map(r => r.clinic)).size, window: withResult ? "result date" : "order date (cube has no result_day yet)" };
   },
 });
 
@@ -115,8 +124,9 @@ export const clinics = scopedQuery({
 
     const rates = conversionRates(all);
     const res = fzTargets(all, { start: pr.start, end: pr.end }, new Set(byClinic.keys()), rates);
+    // Latest result on file: tells the rep how fresh the scores are.
     let scoresThrough = "";
-    for (const r of all) if (r.day > scoresThrough) scoresThrough = r.day;
+    for (const r of all) if (r.resultDay > scoresThrough) scoresThrough = r.resultDay;
     return {
       ready: true as const,
       window: { start: pr.start, end: pr.end },

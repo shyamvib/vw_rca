@@ -40,10 +40,20 @@ const C = "fz_scores", m = (x: string) => `${C}.${x}`;
 const DIMS = ["sample_id", "area", "product", "price_low", "price_high", "patient_id", "clinic_id", "score", "band", "trend",
   "target_reason", "is_target", "targets_on_sample", "is_top20_ytd", "had_product_before", "ordered_product_after"];
 const bool = (x: unknown) => x === true || x === "true";
-const cubeRows: FzRow[] = (await load({ dimensions: DIMS.map(m), measures: [m("samples")],
-  timeDimensions: [{ dimension: m("order_date"), granularity: "day" }] })).map(r => ({
+const pull = (dims: string[]) => load({ dimensions: dims.map(m), measures: [m("samples")],
+  timeDimensions: [{ dimension: m("order_date"), granularity: "day" }] });
+let withResult = true;
+let raw: Awaited<ReturnType<typeof pull>>;
+try { raw = await pull([...DIMS, "result_day"]); } catch (e) {
+  if (!/result_day/.test(String(e))) throw e;
+  withResult = false;
+  raw = await pull(DIMS);
+}
+console.log(`      windows by ${withResult ? "result date" : "order date (Cube has no result_day yet)"}`);
+const cubeRows: FzRow[] = raw.map(r => ({
   area: String(r[m("area")]), product: String(r[m("product")]), priceLow: Number(r[m("price_low")]),
   priceHigh: Number(r[m("price_high")]), clinic: String(r[m("clinic_id")]), day: String(r[m("order_date.day")]).slice(0, 10),
+  resultDay: String((withResult ? r[m("result_day")] : null) ?? r[m("order_date.day")]).slice(0, 10),
   sample: String(r[m("sample_id")]), pt: String(r[m("patient_id")]), score: Number(r[m("score")]), band: String(r[m("band")]),
   trend: String(r[m("trend")]), reason: (r[m("target_reason")] as string | null) ?? null, isTarget: bool(r[m("is_target")]),
   targetsOnSample: Number(r[m("targets_on_sample")]), isTop20: bool(r[m("is_top20_ytd")]),

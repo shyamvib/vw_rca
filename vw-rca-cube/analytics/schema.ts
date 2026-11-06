@@ -632,6 +632,7 @@ const schema = defineSchema({
     priceHigh: v.number(),
     clinic: v.string(),
     day: v.string(),
+    resultDay: v.string(),
     sample: v.string(),
     pt: v.string(),
     score: v.number(),
