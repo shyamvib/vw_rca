@@ -95,6 +95,11 @@ vw-rca-cube/scripts/deploy-cube-model.sh shyam vw-rca-cube/cube/model-vibrant/cu
 # wait a few minutes for the first pre-aggregation build, then:
 cd vw-rca-cube && node --env-file=.env.engine.local --import tsx scripts/fz-scores-check.ts
 ```
+The script finds the production Cube by the port the dashboard uses (:4002) and reads its model folder from the
+container's mounts, then shows both and asks before changing anything. Don't trust folder or container names from
+older docs: on 2026-11-05 `cube-rca-cube-rca-1` / `~/cube-rca/model` turned out to hold the separate
+`thiru_normalized_v2` Cube (:4003), not production, which is why the first attempt stopped at the compile check.
+
 This changes the shared production Cube. Tell Shyam first and do it at a quiet time, because Cube is down for
 about 10–30 s during the restart. The script prints the exact rollback command, which restores the dated backup
 in `~/cube-rca/model-backups/` and restarts Cube.
