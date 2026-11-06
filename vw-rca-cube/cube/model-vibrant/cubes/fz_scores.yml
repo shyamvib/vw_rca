@@ -16,6 +16,8 @@
 #   | (ordered product after this FZ: none, converted) | Needs support | Repeat test – not improving
 #   | Borderline (Moderate <= 75 with 2+ other areas <= 65 on the same sample).
 # Product history = any order (any clinic, any date) whose order-level product_family contains the area's family.
+# result_date = the day the score was finalised in the LIS (test_result.updated of the chosen row; median 18 days after
+#   the order), falling back to the order day. The Rep view windows by it ("results that came back this week").
 # Top 20% = clinics ranked by calendar-YTD revenue (sum total, this table), top ceil(20%) by count, ties clinic_id.
 # PRIVACY: patient_id only. No patient name, DOB, age or gender — do not add them here.
 cubes:
@@ -42,7 +44,8 @@ cubes:
       ),
       valid AS (
         SELECT testId AS test_id, CAST(sampleId AS STRING) AS sample_id,
-               SAFE_CAST(TRIM(latestTestValue) AS FLOAT64) AS score
+               SAFE_CAST(TRIM(latestTestValue) AS FLOAT64) AS score,
+               SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S', SUBSTR(updated, 1, 19)) AS result_at
         FROM raw
         WHERE REGEXP_CONTAINS(TRIM(IFNULL(latestTestValue, '')), r'^-?([0-9]+\.?[0-9]*|\.[0-9]+)$')
           AND SAFE_CAST(TRIM(latestTestValue) AS FLOAT64) BETWEEN 0 AND 100
@@ -57,7 +60,7 @@ cubes:
       ),
       scored AS (
         SELECT v.sample_id, v.test_id, c.area, c.product, c.alt_product, c.price_low, c.price_high, v.score,
-               o.patient_id, o.clinic_id, o.sales_id, o.order_date,
+               v.result_at, o.patient_id, o.clinic_id, o.sales_id, o.order_date,
                CASE WHEN v.score <= 65 THEN 0 WHEN v.score <= 87 THEN 1 ELSE 2 END AS band_rank
         FROM valid v JOIN ord o USING (sample_id) JOIN cfg c USING (test_id)
       ),
@@ -149,6 +152,7 @@ cubes:
       )
       SELECT r.sample_id, r.area, r.test_id, r.product, r.alt_product, r.price_low, r.price_high,
         r.patient_id, r.clinic_id, r.sales_id, r.order_date, r.score,
+        COALESCE(DATE(r.result_at), DATE(r.order_date)) AS result_date,
         CASE r.band_rank WHEN 0 THEN 'Needs support' WHEN 1 THEN 'Moderate' ELSE 'Optimal' END AS band,
         r.band_rank, r.test_seq, r.prev_score, r.first_score, r.best_prior,
         r.zone_changes, r.steps_up, r.steps_down, r.slope, r.trend,
@@ -180,6 +184,8 @@ cubes:
       - { name: clinic_id, sql: clinic_id, type: number }
       - { name: sales_id, sql: sales_id, type: number }
       - { name: order_date, sql: "TIMESTAMP({CUBE}.order_date)", type: time }
+      - { name: result_date, sql: "TIMESTAMP({CUBE}.result_date)", type: time, description: "Day the score was finalised in the LIS (test_result.updated); falls back to the order day" }
+      - { name: result_day, sql: "CAST({CUBE}.result_date AS STRING)", type: string, description: "result_date as YYYY-MM-DD (for windows by result date)" }
       - { name: score, sql: score, type: number }
       - { name: band, sql: band, type: string, description: "Needs support (<=65) / Moderate (<=87) / Optimal" }
       - { name: band_rank, sql: band_rank, type: number }
@@ -244,7 +250,7 @@ cubes:
                      score, band, band_rank, test_seq, prev_score, first_score, best_prior, zone_changes,
                      steps_up, steps_down, slope, trend, not_improving, had_product_before,
                      ordered_product_after, co_low_areas, target_reason, is_target, targets_on_sample,
-                     gap_to_optimal, is_top20_ytd, clinic_revenue_rank_ytd]
+                     gap_to_optimal, is_top20_ytd, clinic_revenue_rank_ytd, result_day]
         time_dimension: order_date
         granularity: day
         refresh_key: { every: 6 hour }
