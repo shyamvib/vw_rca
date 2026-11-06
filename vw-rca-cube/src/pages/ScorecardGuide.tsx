@@ -31,7 +31,6 @@ const GUIDE_ID: Record<string, string> = {
   "Expansion Revenue": "expansion-revenue",
   "Products per customer": "products-per-customer",
   "Cross-sell candidates": "cross-sell",
-  "Stack mix": "stack-mix",
   NRR: "nrr",
   "Net Revenue Growth": "net-growth",
   "Growth run-rate": "run-rate",
@@ -523,29 +522,29 @@ const SECTIONS: Section[] = [
         },
       },
       {
-        id: "stack-mix",
-        name: "Stack mix (FZ cross-sell)",
-        asks: "Which of my clinics have patients whose Foundation Zoomer scores point to more than one Zoomer?",
-        see: "How many patients with an FZ order in the window have two or more areas to pitch, and in how many clinics.",
+        id: "fz-cross-sell",
+        name: "Cross-sell candidates with Foundation Zoomer selected (FZ score targets)",
+        asks: "Which of my clinics have Foundation Zoomer results that point to another Zoomer the provider hasn't ordered?",
+        see: "Click the Foundation Zoomer tile under Product families. The FZ score targets panel appears above the matrix, and the Cross-sell candidates cell counts the clinics to call.",
         how: [
           "Take every Foundation Zoomer result from your clinics that came back from the lab in the window. Each FZ carries six system scores: Gut, Neural, Hormone, Nutrition, Immune and Cardio.",
-          "For each patient and area keep the latest test in the window. Its reason already looks at every earlier test, not only the first and the last.",
-          "An area is worth pitching when the score needs support (65 or lower), sits at 75 or lower with two other low areas, has not really improved across repeat tests, or has not improved after the patient already had that Zoomer.",
-          "Count the patients with two or more such areas: that is the number in the cell.",
+          "For each patient and area keep the latest FZ in the window: one FZ result. Its reason already looks at every earlier test, not only the first and the last.",
+          "A result points to that area's Zoomer when it needs support (65 or lower), sits at 75 or lower with two other low areas, has not really improved across repeat tests, or is still low after the Zoomer was ordered on an earlier order. A Zoomer ordered on the same order as the FZ is not counted: the provider is already on it.",
+          "Led to an order = the provider ordered that Zoomer (or its Baseline) afterwards. Still open = it points to the Zoomer and none was ordered yet. The cell counts the clinics with at least one open result.",
         ],
-        who: "Clinics with at least one patient to pitch two or more Zoomers to.",
-        click: "The clinics, with the products to pitch, the patient counts and the revenue if they all order (Baseline to Zoomer price).",
-        good: "A \"where to act\" cell. Below the matrix, Product Growth lists the products and Expansion lists every clinic to target.",
+        who: "Clinics in your book with at least one open FZ result.",
+        click: "The clinic list with a button per Zoomer (Gut Zoomer, Nutrient Zoomer, …) and a Top 20% toggle, the numbers above it for what you picked, and every clinic's usual columns. Expand a clinic for its FZ breakdown per Zoomer, the products to pitch together, and the clinic card.",
+        good: "A \"where to act\" cell. The question for the provider: these patients came back low on gut; what is the plan for them?",
         watch: [
-          "The window is the day the result came back from the lab (about 2–3 weeks after the order). If a window has none, the card offers to show every result on file.",
+          "The window is the day the result came back from the lab (about 2–3 weeks after the order). If a window has none, the panel offers to show every result on file.",
           "Top 20% marks the company's top 20% of clinics by this year's revenue to date. It is the same in every window and for every rep.",
-          "Clinic level only: patient names and IDs are never shown; the clinician knows which patients.",
+          "Clinic level only: patient names and IDs are never shown; the provider knows which patients.",
         ],
         example: {
-          story: "A patient at Clinic Y has Gut 58 and Cardio 62 on their latest FZ, and Hormone 74 with two low areas beside it. That patient counts once here, with three Zoomers to pitch: Gut, Cardio and Hormone.",
+          story: "Clinic Y had 6 FZ results this quarter that came back low on gut; 1 led to a Gut Zoomer order, so 5 are open: $2.3K–$2.8K at stake. 2 of those FZ orders were also low on nutrition, so the list suggests pitching Gut + Nutrient Zoomer together.",
           viz: <Chips groups={[
-            { name: "Latest FZ", items: ["Gut 58", "Cardio 62", "Hormone 74"] },
-            { name: "Pitch", items: ["Gut Zoomer", "Cardio Zoomer", "Hormone Zoomer"], note: "one cross-sell patient" },
+            { name: "Gut", items: ["6 pointing here", "1 ordered", "5 open"] },
+            { name: "Pitch together", items: ["Gut Zoomer", "Nutrient Zoomer"], note: "2 FZ orders" },
           ]} />,
         },
       },
@@ -673,7 +672,7 @@ const NOT_YET = [
   { name: "Pipeline", why: "needs CRM pipeline data" },
   { name: "Unconverted prospects", why: "needs CRM lead data" },
   { name: "Win rate", why: "needs CRM opportunity data" },
-  { name: "Stack penetration", why: "needs per-order panel mix" },
+  { name: "Stack penetration and Stack mix", why: "need per-order panel mix" },
 ];
 
 /** The scorecard grid exactly as it is on the window tabs: one row per pillar, four columns, with a one-line summary per cell. */
@@ -689,7 +688,7 @@ const MATRIX: Array<{ pillar: string; cells: MxCell[] }> = [
     { label: "AOV", says: "Average spend per order against normal." },
     { label: "Stack penetration", says: "Not in the data yet.", kind: "na" },
     { label: "Low-AOV customers", says: "Clinics placing orders under $400.", kind: "act" },
-    { label: "Stack mix", says: "FZ patients with 2+ Zoomers to pitch.", kind: "act" },
+    { label: "Stack mix", says: "Not in the data yet.", kind: "na" },
   ] },
   { pillar: "Product Growth", cells: [
     { label: "Target Product Orders", says: "Orders of the chosen product against expected." },
@@ -706,7 +705,7 @@ const MATRIX: Array<{ pillar: string; cells: MxCell[] }> = [
   { pillar: "Expansion", cells: [
     { label: "Expansion Revenue", says: "Extra revenue from growing clinics." },
     { label: "Products per customer", says: "How many product families a clinic buys." },
-    { label: "Cross-sell candidates", says: "Clinics to offer another product.", kind: "act" },
+    { label: "Cross-sell candidates", says: "Clinics to offer another product. With Foundation Zoomer selected: clinics whose FZ results point to another Zoomer.", kind: "act" },
     { label: "NRR", says: "Revenue against normal, growth and losses together." },
   ] },
   { pillar: "Combined", cells: [
