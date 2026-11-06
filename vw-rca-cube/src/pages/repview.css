@@ -894,8 +894,6 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-fz-kpis b small { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
 .rv-fz-lead { padding: 4px 0 8px; }
 .rv-fz-lead .rv-famchips { margin-bottom: 6px; }
-.rv-fz-break { border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin: 4px 0 10px; background: var(--surface-card); }
-.rv-fz-break .rca-table { margin: 6px 0; }
-.rv-fz-why { margin: 6px 0; padding-left: 18px; font-size: 13px; }
-.rv-fz-why li { margin: 3px 0; }
+.rv-fz-break { border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; margin: 4px 0 10px; background: var(--surface-card); display: flex; flex-direction: column; gap: 6px; }
+.rv-fz-sum { font-size: 13px; }
 .rv-win-toggle { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }

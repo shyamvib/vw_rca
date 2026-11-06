@@ -4684,57 +4684,39 @@ function FzPanel({ fz, wide, onWide, onOpen }: { fz: FzResp; onOpen: (area?: str
   );
 }
 
-/** Expanded clinic row: why each Zoomer can be sold here, from the clinic's FZ results. */
+/** Expanded clinic row: a short FZ summary (details on hover), above the usual clinic card. */
+const FZ_REASON_TIP: Record<string, string> = {
+  "Needs support": "Scored 65 or lower, no matching Zoomer ordered before or since",
+  Borderline: "Scored 66–75 with 2+ other areas at 65 or lower on the same FZ",
+  "Repeat test – not improving": "Moderate on 2+ FZ tests without a real improvement",
+  "After product – not improved": "Had the Zoomer on an earlier order and is still low or not improving",
+};
+const priceOf = (area: string) => {
+  const a = AREA_OF.get(area);
+  return a ? (a.priceLow === a.priceHigh ? `$${a.priceHigh}` : `$${a.priceLow}–${a.priceHigh}`) : "";
+};
+const short = (product: string) => product.replace(/ Zoomer$/, "");
 function FzClinicBreakdown({ c }: { c: FzClinicRow }) {
-  const REASON_TIP: Record<string, string> = {
-    "Needs support": "Scored 65 or lower, no matching Zoomer ordered before or since",
-    Borderline: "Scored 66–75 with 2+ other areas at 65 or lower on the same FZ",
-    "Repeat test – not improving": "Moderate on 2+ FZ tests without a real improvement",
-    "After product – not improved": "Had the Zoomer on an earlier order and is still low or not improving",
-  };
+  const pair = c.pairs[0];
   return (
     <div className="rv-fz-break">
-      <div className="rv-eyebrow">FZ cross-sell · {c.name}{c.isTop20 ? " · top 20% clinic" : ""}</div>
-      <table className="rca-table">
-        <thead>
-          <tr><th>Zoomer</th><th className="rca-num">FZ results pointing here</th><th className="rca-num">Led to an order</th><th className="rca-num">Still open</th><th className="rca-num">At stake</th></tr>
-        </thead>
-        <tbody>
-          {c.products.map(p => (
-            <tr key={p.area}>
-              <td>{p.product}</td>
-              <td className="rca-num">{p.flagged}</td>
-              <td className="rca-num">{p.followed}</td>
-              <td className="rca-num">{p.open || "—"}</td>
-              <td className="rca-num">{p.open ? KR(p.low, p.high) : "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <ul className="rv-fz-why">
-        {c.products.filter(p => p.open).map(p => {
-          const a = AREA_OF.get(p.area);
-          const price = a ? (a.altProduct ? `${a.product} $${a.priceHigh}, or ${a.altProduct} $${a.priceLow}` : `${a.product} $${a.priceHigh}`) : p.product;
-          return (
-            <li key={p.area}>
-              <b>{p.product}:</b> {plural(p.flagged, "FZ result")} came back low or not improving on {p.area}
-              {p.followed ? `; ${p.followed} already led to an order` : "; none led to an order yet"}. {plural(p.open, "is", "are")} still open: {price} each.
-            </li>
-          );
-        })}
-        {c.pairs.map(pr => (
-          <li key={pr.areas.join("|")}>
-            <b>Cross-sell:</b> {plural(pr.n, "FZ order")} {pr.n === 1 ? "is" : "are"} open on both {pr.areas[0]} and {pr.areas[1]}: pitch {pr.products[0]} + {pr.products[1]} together.
-          </li>
+      <div className="rv-fz-sum">
+        <b>FZ: {c.open} open</b> · {c.followed} led to an order · <b>{KR(c.low, c.high)}</b> at stake{c.isTop20 ? " · top 20% clinic" : ""}
+      </div>
+      <div className="rv-fz-chips">
+        {c.products.filter(p => p.open).map(p => (
+          <span key={p.area} className="rv-tag rv-tag-blue" title={`${p.product}: ${p.flagged} FZ result${p.flagged === 1 ? "" : "s"} low or not improving on ${p.area}, ${p.followed} led to an order, ${p.open} open · ${priceOf(p.area)} each${AREA_OF.get(p.area)?.altProduct ? ` (${AREA_OF.get(p.area)?.altProduct} at the low end)` : ""}`}>
+            {short(p.product)} {p.open} · {priceOf(p.area)}
+          </span>
         ))}
-      </ul>
-      <p className="rv-dim rv-small">
-        Why flagged:{" "}
+      </div>
+      {pair ? <div className="rv-small">Pitch together: <b>{short(pair.products[0])} + {short(pair.products[1])}</b> ({plural(pair.n, "FZ order")})</div> : null}
+      <div className="rv-dim rv-small">
+        Why:{" "}
         {Object.entries(c.reasons).sort((x, y) => y[1] - x[1]).map(([k, n], i) => (
-          <span key={k} title={REASON_TIP[k]}>{i ? " · " : ""}{k} {n}</span>
+          <span key={k} title={FZ_REASON_TIP[k]}>{i ? " · " : ""}{k} {n}</span>
         ))}
-        . Clinic level only: the provider knows which patients these are.
-      </p>
+      </div>
     </div>
   );
 }
