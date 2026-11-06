@@ -152,7 +152,7 @@ function runBuilder(mode: Mode = "daily"): Promise<{ secs: number }> {
     });
   });
 }
-const __dirname_ = path.dirname(new URL(import.meta.url).pathname);
+const __dirname_ = path.dirname(fileURLToPath(import.meta.url)); // fileURLToPath decodes %20 (paths with spaces)
 
 /** Rebuild the served snapshot from Cube; resolves when done. A rebuild already in flight is joined, not repeated. */
 export function rebuild(): Promise<void> {
