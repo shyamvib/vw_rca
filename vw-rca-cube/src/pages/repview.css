@@ -881,3 +881,10 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-fz-row:hover { border-color: var(--vw-blue); }
 .rv-fz-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .rv-fz-chips .rv-tag { text-transform: none; letter-spacing: 0; }
+.rv-fz-card { border: 1px solid var(--rv-line, #e3e8ef); border-radius: 10px; padding: 12px 14px; margin: 4px 0 16px; background: var(--surface-card); }
+.rv-fz-card .rv-sec-head { margin-top: 0; }
+.rv-fz-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 6px 0 10px; }
+.rv-fz-kpis > div { display: flex; flex-direction: column; gap: 2px; }
+.rv-fz-kpis b { font-size: 20px; }
+.rv-fz-kpis span { font-size: 12px; color: var(--text-secondary); }
+.rv-fz-note p { margin: 6px 0; }

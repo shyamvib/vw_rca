@@ -129,7 +129,16 @@ in `~/cube-rca/model-backups/` and restarts Cube.
     columns, and an "Open in clinic list" button.
   
   All of these follow the selected window. Clinic level only.
-- **Checks.** `scripts/fzTargets.test.ts` (12 tests) and `scripts/fz-targets-check.ts`. The second compares the
+- **Window = result date** (2026-11-06): "This week" means FZ results that came back from the lab this week. The
+  date is `result_date`, i.e. `test_result.updated` of the chosen row, about 18 days after the order. It is not
+  the order date: by order date October looked empty, by result date it has 294 FZ orders. If the cube has no
+  `result_day` yet, the engine falls back to the order day.
+- **Top 20%** is company-wide: the top 20% of clinics by calendar-year revenue to date, from the cube. It is the
+  same in every window and for every rep; the window only decides which FZ results count.
+- **Rep view** also has an "FZ score targets" card above the matrix on every pillar, with a "See clinics" button,
+  and a "+ N clinics from FZ scores" line in the Expansion × Cross-sell candidates cell. An empty window offers
+  "Show all results on file".
+- **Checks.** `scripts/fzTargets.test.ts` (15 tests) and `scripts/fz-targets-check.ts`. The second compares the
   engine handler with a recomputation from Cube for each scope × window and confirms no patient id or hash in any
   answer; all passed on 2026-11-06.
 

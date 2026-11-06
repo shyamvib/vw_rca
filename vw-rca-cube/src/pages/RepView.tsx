@@ -2016,7 +2016,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
           ? { label: "Products per customer", value: pg.ppcRange, sub: `families per clinic (middle 50%) · ${pg.activeN} clinics`, ids: pg.activeIds, n: pg.ppc, u: "n", better: 1, tone: pg.ppc === null ? "na" : pg.ppc >= 2 ? "good" : pg.ppc >= 1.5 ? "watch" : "bad" }
           : NA("Products per customer", "loading product mix…"),
         pg
-          ? { label: "Cross-sell candidates", value: String(pg.xs.length), sub: `${K(pg.xsUp)} upside · active clinics on 1–2 families`, tone: "act", ids: pg.xs.map(x => x.clinic) }
+          ? { label: "Cross-sell candidates", value: String(pg.xs.length), sub: `${K(pg.xsUp)} upside · active clinics on 1–2 families${fz?.ready && fz.totals.clinics ? ` · + ${fz.totals.clinics} clinics from FZ scores (list below)` : ""}`, tone: "act", ids: pg.xs.map(x => x.clinic) }
           : NA("Cross-sell candidates", "loading product mix…"),
         { label: "NRR", value: P(k.nrr), sub: "existing clinics vs baseline", tone: vsTone(k.nrr), ids: b.existingIds, n: k.nrr, u: "%", better: 1 },
       ],
@@ -2300,7 +2300,9 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
   const totalRev = b.totals.actual;
   const pgd = usePG(sales, periodId);
-  const fz = useFz(sales, periodId);
+  // FZ targets follow the window; when it has no results the rep can widen just the FZ blocks to every result on file.
+  const [fzAll, setFzAll] = useState(false);
+  const fz = useFz(sales, fzAll ? "all" : periodId);
   const [wsFam, setWsFam] = useState<string>("");
   const famList = useMemo(() => {
     const t = new Map<string, number>();
@@ -2544,6 +2546,10 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
           </table>
         </div>
       ) : null}
+      <FzSummaryCard fz={fz} wide={fzAll} onWide={setFzAll} onSee={() => {
+        setPillar("Expansion");
+        setTimeout(() => document.getElementById("fz-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+      }} />
       <div className={`rv-matrix${picked ? " has-pick" : ""}`}>
         <div className="rv-mx-h">Pillar</div>
         <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
@@ -2609,13 +2615,13 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       </div>
       {pillar === "Product Growth" ? (
         <>
-          <FzProducts fz={fz} onOpen={openList} />
+          <FzProducts fz={fz} onOpen={openList} wide={fzAll} onWide={setFzAll} />
           {(sales ?? "").startsWith("team:") ? <p className="rv-dim rv-small">Product whitespace is marked rep by rep. Pick a rep to mark or review their clinics.</p> : <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />}
         </>
       ) : null}
       {pillar === "Expansion" || pillar === EXISTING ? (
         <>
-          <FzTargetList fz={fz} onOpen={openList} />
+          <FzTargetList fz={fz} onOpen={openList} wide={fzAll} onWide={setFzAll} />
           <CrossSellList pg={pg} />
         </>
       ) : null}
@@ -4240,7 +4246,7 @@ const INFO: Record<string, string> = {
   funnel: "How many providers placed order 1, 2, 3… and where they dropped off. Click a stage for the clinic list.",
   sc: "The scorecard: three dials (Combined, New, Existing) and a matrix of metrics by pillar, green on track, amber watch, red behind. Click a cell for the clinics pushing it up and pulling it down; \"Explain this metric\" opens its Scorecard guide entry. The retention row can be cut by when clinics signed up.",
   fam: "One card per product family, always visible: orders against expected. Click a card to scope the Product Growth cells to that family; the Target Product Orders and Product adoption lists then use each clinic's portfolio status (NEW, RESTARTED, DECLINING, STOPPED).",
-  fz: "From Foundation Zoomer system scores (Gut, Neural, Hormone, Nutrition, Immune, Cardio) on FZ orders placed in this window. A patient counts once per area, using their latest test in the window; the reason reflects every earlier test. Needs support = score 65 or lower; Borderline = 75 or lower with 2+ other low areas; Repeat test = no real improvement across tests; After product = had the Zoomer and still not improving. Potential = Baseline to Zoomer price per patient; Likely = potential at the share of similar patients who already ordered it. Clinic level only: no patient names or IDs.",
+  fz: "From Foundation Zoomer system scores (Gut, Neural, Hormone, Nutrition, Immune, Cardio) whose results came back in this window. A patient counts once per area, using their latest test in the window; the reason reflects every earlier test. Needs support = score 65 or lower; Borderline = 75 or lower with 2+ other low areas; Repeat test = no real improvement across tests; After product = had the Zoomer and still not improving. Potential = Baseline to Zoomer price per patient; Likely = potential at the share of similar patients who already ordered it. Clinic level only: no patient names or IDs.",
   ws: "Mark clinics that should be ordering a product but never have. Your marked list is the Product whitespace count on the scorecard; it is saved per rep.",
   search: "Live results as you type. Click one to open its full clinic/provider card.",
   recent: "Your last 10 opened clinics/providers, one click to reopen.",
@@ -4513,20 +4519,57 @@ function fzContrib(fz: FzReady, opts: { area?: string; crossOnly?: boolean; ids?
   };
 }
 
-function FzStatus({ fz, empty }: { fz: FzResp; empty: string }) {
+type FzWide = { wide?: boolean; onWide?: (v: boolean) => void };
+function FzStatus({ fz, empty, wide, onWide }: { fz: FzResp; empty: string } & FzWide) {
   if (fz === undefined) return <p className="rv-dim rv-small">Loading FZ scores…</p>;
   if (!fz.ready) return <p className="rv-dim rv-small">{FZ_NOT_READY[fz.reason] ?? "FZ scores are not available."}</p>;
-  const thin = fz.scoresThrough < fz.window.end;
+  const year = fz.window.end.slice(0, 4);
   return (
-    <p className="rv-dim rv-small">
-      FZ orders placed {fmtD(fz.window.start)} – {fmtD(fz.window.end)}. Latest FZ order with scores: {fmtD(fz.scoresThrough)}
-      {thin ? " — newer FZ orders have no scores yet, so recent windows can be thin" : ""}. One count per patient and area (latest test); the reason reflects every earlier test.
-      {fz.clinics.length ? "" : ` ${empty}`}
-    </p>
+    <div className="rv-fz-note">
+      <p className="rv-dim rv-small">
+        <b>Window:</b> FZ results that came back {fmtD(fz.window.start)} – {fmtD(fz.window.end)}
+        {wide ? " (every result on file: the selected window has none)" : ""}. Latest result on file: {fmtD(fz.scoresThrough)}.{" "}
+        Each patient counts once per area, using their latest test; the reason looks at every earlier test.{" "}
+        <b>Top 20%</b> = the company's top 20% of clinics by {year} revenue to date: the same in every window and for every rep.
+      </p>
+      {!fz.clinics.length && !wide ? (
+        <p className="rv-small">
+          {empty}{" "}
+          {onWide ? <button type="button" className="rca-tab" onClick={() => onWide(true)}>Show all results on file</button> : null}
+        </p>
+      ) : null}
+      {wide && onWide ? <button type="button" className="rca-tab" onClick={() => onWide(false)}>Back to the selected window</button> : null}
+    </div>
   );
 }
 
-function FzProducts({ fz, onOpen }: { fz: FzResp; onOpen: (label: string, c: Contribution) => void }) {
+function FzSummaryCard({ fz, wide, onWide, onSee }: { fz: FzResp; onSee: () => void } & FzWide) {
+  const ready = fz?.ready ? fz : null;
+  return (
+    <div className="rv-fz-card" data-tour="rv-fz-card">
+      <div className="rv-sec-head">
+        <h2>FZ score targets<Info k="fz" /></h2>
+        {ready?.clinics.length ? <button type="button" className="rca-tab is-active" onClick={onSee}>See clinics →</button> : null}
+      </div>
+      {ready?.clinics.length ? (
+        <>
+          <div className="rv-fz-kpis">
+            <div><b>{ready.totals.targetPatients}</b><span>patients to pitch</span></div>
+            <div><b>{ready.totals.clinics}</b><span>clinics</span></div>
+            <div><b>{ready.totals.crossSell}</b><span>cross-sell (2+ Zoomers)</span></div>
+            <div><b>{KR(ready.totals.low, ready.totals.high)}</b><span>if all order · likely {K(ready.totals.likely)}</span></div>
+          </div>
+          <div className="rv-fz-chips">
+            {ready.products.slice(0, 6).map(p => <span key={p.area} className="rv-tag rv-tag-blue">{p.product}: {p.patients}</span>)}
+          </div>
+        </>
+      ) : null}
+      <FzStatus fz={fz} empty="No FZ results came back in this window." wide={wide} onWide={onWide} />
+    </div>
+  );
+}
+
+function FzProducts({ fz, onOpen, wide, onWide }: { fz: FzResp; onOpen: (label: string, c: Contribution) => void } & FzWide) {
   const ready = fz?.ready ? fz : null;
   return (
     <div className="rv-ws">
@@ -4534,7 +4577,7 @@ function FzProducts({ fz, onOpen }: { fz: FzResp; onOpen: (label: string, c: Con
         <h2>Products to promote from FZ scores<Info k="fz" /></h2>
         {ready ? <span>{ready.totals.targetPatients} patients · {ready.totals.clinics} clinics · {KR(ready.totals.low, ready.totals.high)} potential</span> : null}
       </div>
-      <FzStatus fz={fz} empty="No patients to pitch in this window: try This quarter or a custom range." />
+      <FzStatus fz={fz} empty="No patients to pitch in this window." wide={wide} onWide={onWide} />
       {ready?.products.length ? (
         <div className="rv-ws-list">
           {ready.products.map(p => (
@@ -4552,7 +4595,7 @@ function FzProducts({ fz, onOpen }: { fz: FzResp; onOpen: (label: string, c: Con
 }
 
 type FzSort = "default" | "name" | "patients" | "cross" | "high" | "likely";
-function FzTargetList({ fz, onOpen }: { fz: FzResp; onOpen: (label: string, c: Contribution) => void }) {
+function FzTargetList({ fz, onOpen, wide, onWide }: { fz: FzResp; onOpen: (label: string, c: Contribution) => void } & FzWide) {
   const [term, setTerm] = useState("");
   const [area, setArea] = useState("");
   const [top, setTop] = useState(false);
@@ -4573,12 +4616,12 @@ function FzTargetList({ fz, onOpen }: { fz: FzResp; onOpen: (label: string, c: C
     <th className={`${cls} rv-sort`} title="Click to sort" onClick={() => setSort(s => (s === k ? "default" : k))}>{text}{sort === k ? " ▾" : ""}</th>
   );
   return (
-    <div className="rv-ws">
+    <div className="rv-ws" id="fz-list">
       <div className="rv-sec-head">
         <h2>Clinics to target from FZ scores<Info k="fz" /></h2>
         {ready ? <span>{ready.totals.clinics} clinics · {ready.totals.targetPatients} patients · {ready.totals.crossSell} cross-sell · {KR(ready.totals.low, ready.totals.high)} potential · likely {K(ready.totals.likely)}</span> : null}
       </div>
-      <FzStatus fz={fz} empty="No clinics to target in this window: try This quarter or a custom range." />
+      <FzStatus fz={fz} empty="No clinics to target in this window." wide={wide} onWide={onWide} />
       {ready?.clinics.length ? (
         <>
           <div className="rv-famchips">

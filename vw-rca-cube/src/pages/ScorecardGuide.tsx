@@ -528,7 +528,7 @@ const SECTIONS: Section[] = [
         asks: "Which of my clinics have patients whose Foundation Zoomer scores point to more than one Zoomer?",
         see: "How many patients with an FZ order in the window have two or more areas to pitch, and in how many clinics.",
         how: [
-          "Take every Foundation Zoomer ordered in the window by your clinics. Each FZ carries six system scores: Gut, Neural, Hormone, Nutrition, Immune and Cardio.",
+          "Take every Foundation Zoomer result from your clinics that came back from the lab in the window. Each FZ carries six system scores: Gut, Neural, Hormone, Nutrition, Immune and Cardio.",
           "For each patient and area keep the latest test in the window. Its reason already looks at every earlier test, not only the first and the last.",
           "An area is worth pitching when the score needs support (65 or lower), sits at 75 or lower with two other low areas, has not really improved across repeat tests, or has not improved after the patient already had that Zoomer.",
           "Count the patients with two or more such areas: that is the number in the cell.",
@@ -537,7 +537,8 @@ const SECTIONS: Section[] = [
         click: "The clinics, with the products to pitch, the patient counts and the revenue if they all order (Baseline to Zoomer price).",
         good: "A \"where to act\" cell. Below the matrix, Product Growth lists the products and Expansion lists every clinic to target.",
         watch: [
-          "The window is the date the FZ was ordered; scores arrive days later, so This week is often thin.",
+          "The window is the day the result came back from the lab (about 2–3 weeks after the order). If a window has none, the card offers to show every result on file.",
+          "Top 20% marks the company's top 20% of clinics by this year's revenue to date. It is the same in every window and for every rep.",
           "Clinic level only: patient names and IDs are never shown; the clinician knows which patients.",
         ],
         example: {
