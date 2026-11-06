@@ -133,6 +133,9 @@ in `~/cube-rca/model-backups/` and restarts Cube.
   date is `result_date`, i.e. `test_result.updated` of the chosen row, about 18 days after the order. It is not
   the order date: by order date October looked empty, by result date it has 294 FZ orders. If the cube has no
   `result_day` yet, the engine falls back to the order day.
+  **Live on :4002 on 2026-11-06 at about 18:50 UTC** (deploy-cube-model.sh; backup `model-backups/20261106-110939`).
+  After the engine rebuild, `fz-targets-check.ts` and `fz-scores-check.ts` both pass. Company-wide, 2026-Q4 by result
+  date has 148 clinics, 242 patients to pitch and $287K–$320K potential; by order date it had none.
 - **Top 20%** is company-wide: the top 20% of clinics by calendar-year revenue to date, from the cube. It is the
   same in every window and for every rep; the window only decides which FZ results count.
 - **Rep view** also has an "FZ score targets" card above the matrix on every pillar, with a "See clinics" button,
