@@ -26,13 +26,16 @@ cubes:
         sql: zendesk_ticket_id
         filters: [{ sql: "{CUBE}.zendesk_ticket_id IS NOT NULL" }]
     pre_aggregations:
+      # Refresh (2026-11-06): every partition, all history, once a day at 12:00 UTC (an hour before the engine's
+      # 13:00 UTC rebuild). Was hourly for the last 7 days only, so older months kept orders BigQuery later removed
+      # or re-priced (2026 YTD was $574K / 864 orders too high). Check: scripts/revenue-reconcile.ts.
       - name: daily_touch
         measures: [touchpoints, contacts, tickets]
         dimensions: [touchpoint_type, touchpoint_category, activity_type]
         time_dimension: touchpoint_date
         granularity: day
         partition_granularity: month
-        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+        refresh_key: { every: "0 12 * * *", timezone: UTC, incremental: true, update_window: 4000 day }
       # vw-rca Phase 1: per-contact touch dates + last touch (pTouchAsOf,
       # pTouchDatesRaw, pClinicalTouchDatesRaw, newClinicTouches).
       - name: rca_contact_touch_day
@@ -41,4 +44,4 @@ cubes:
         time_dimension: touchpoint_date
         granularity: day
         partition_granularity: month
-        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+        refresh_key: { every: "0 12 * * *", timezone: UTC, incremental: true, update_window: 4000 day }
