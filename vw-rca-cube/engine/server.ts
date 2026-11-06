@@ -26,6 +26,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { Host, loadExport } from "./host";
@@ -262,9 +263,24 @@ function cors(req: http.IncomingMessage, res: http.ServerResponse) {
   res.setHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
 }
 
+// Compressed answers (2026-11-06): a whole-team Rep view book is ~1.6 MB of JSON; brotli (quality 4) makes it ~90 KB
+// in ~6 ms, which matters on the tunnel's upload leg. Only when the client says it accepts it; small answers go as-is.
+const accepts = new WeakMap<http.ServerResponse, string>();
 function send(res: http.ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify(body));
+  const raw = Buffer.from(JSON.stringify(body));
+  const ae = accepts.get(res) ?? "";
+  const vary = res.getHeader("vary");
+  const headers: Record<string, string> = { "content-type": "application/json", vary: vary ? `${vary}, Accept-Encoding` : "Accept-Encoding" };
+  let out = raw;
+  if (raw.length > 1024 && /\bbr\b/.test(ae)) {
+    out = zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } });
+    headers["content-encoding"] = "br";
+  } else if (raw.length > 1024 && /\bgzip\b/.test(ae)) {
+    out = zlib.gzipSync(raw, { level: 6 });
+    headers["content-encoding"] = "gzip";
+  }
+  res.writeHead(status, headers);
+  res.end(out);
 }
 
 /** A problem with the request itself: answered with a clean 4xx instead of a 500 carrying an internal message. */
@@ -307,6 +323,7 @@ function noteFail(client: string) {
 const FN_NAME = /^[A-Za-z][A-Za-z0-9_]*:[A-Za-z][A-Za-z0-9_]*$/;
 
 const server = http.createServer(async (req, res) => {
+  accepts.set(res, String(req.headers["accept-encoding"] ?? ""));
   cors(req, res);
   if (req.method === "OPTIONS") return void res.writeHead(204).end();
   const url = new URL(req.url ?? "/", "http://x");
