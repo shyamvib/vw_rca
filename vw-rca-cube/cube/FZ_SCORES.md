@@ -55,15 +55,21 @@ with the band, the trend over every test, and the reason the patient is or isn't
   | No real change | None of the above |
 
   `not_improving` is true when there are 2+ tests and the trend is not Improving.
-- **Product history:** any order for the patient (any clinic, any date) whose order-level `product_family`
-  contains the area's family. Matching is by name prefix, so "Neural Zoomer (DBS)" counts. This sets
-  `had_product_before` (on or before this FZ order day; the same order counts) and `ordered_product_after`
-  (the patient already converted).
+- **Which results count:** LIS rows flagged deleted (`isDeleted = 1`) or not approved (`isApproved != 1`) are
+  left out (2026-11-06; 6 rows).
+- **Product history:** any order for the patient (any clinic, any date) whose order-level `product_family` is the
+  area's Zoomer family or its Baseline family. Matching is by name prefix, so "Neural Zoomer (DBS)" counts;
+  "Nutrient Baseline" counts for Nutrition. Gut and Hormone Baseline are not separate families in the order data.
+  This sets three flags, by order **day**:
+  - `had_product_before`: ordered on an **earlier** day than this FZ;
+  - `ordered_with_fz`: ordered the **same day** as this FZ, usually on the same order (2026-11-06);
+  - `ordered_product_after`: ordered on a later day (the provider acted on the result).
 - **`target_reason`** takes the first rule that matches. An Optimal score is never a target.
 
   | Reason | Rule |
   |---|---|
-  | After product – not improved | Had the product before, and the area still needs support or is not improving. Otherwise a patient who had the product before is not a target. |
+  | *(not a target)* | The Zoomer was ordered with the FZ (same day): the provider is already on it, and the score is from before the product, not after it |
+  | After product – not improved | Had the product on an earlier order, and the area still needs support or is not improving. Otherwise a patient who had the product before is not a target. |
   | *(not a target)* | Ordered the product after this FZ |
   | Needs support | Score ≤ 65 |
   | Repeat test – not improving | Moderate, 2+ tests, not improving |
@@ -145,6 +151,33 @@ in `~/cube-rca/model-backups/` and restarts Cube.
   engine handler with a recomputation from Cube for each scope × window and confirms no patient id or hash in any
   answer; all passed on 2026-11-06.
 
+## v2: Foundation Zoomer → Cross-sell flow, sales wording, rule fixes (2026-11-06)
+- **Rule fix, live on :4002 2026-11-06 at 13:45 server time** (deploy-cube-model.sh; backup `model-backups/20261106-134503`).
+  Before, a Zoomer on the same order as the FZ counted as "had the product before", which made 688 of the 862
+  "After product – not improved" flags. Now it is `ordered_with_fz` and never a target. Also: deleted / unapproved
+  LIS results dropped, Baseline families count as the product. Result: After product 862 → 159, rows 23,098 →
+  23,092, target rows 7,272 → 6,525 (see Validation results).
+- **Counting unit for sales: an "FZ result"** = a patient's latest FZ in the window, in one area. The dashboard
+  never says "patients". Per clinic and per Zoomer (`analytics/fzTargets.ts`):
+  - *pointing to a Zoomer* (flagged) = still open + led to an order;
+  - *led to an order* = not Optimal, no product before or with the FZ, and the Zoomer (or Baseline) ordered later;
+  - *still open* = a target (`is_target`);
+  - *at stake* = Baseline–Zoomer price per open result; *likely* = at the area's conversion rate;
+  - *cross-sell* = FZ orders open in 2+ areas, with the most common pairs per clinic.
+  The panel also shows the company's follow-up rate in the same window.
+- **Where it is in the Rep view:** Product families → **Foundation Zoomer** tile (its second line: "FZ targets ·
+  N clinics · $"). Selecting it shows the **FZ score targets** panel above the matrix (KPIs, a two-line note for
+  the rep, one button per Zoomer) and turns **Expansion × Cross-sell candidates** into the FZ clinic list: Zoomer
+  buttons (counting clinics), Top 20% only, KPIs for what is picked, every clinic's usual columns plus "FZ open" and
+  "At stake". Expanding a clinic shows its FZ breakdown per Zoomer, a one-line reason with the price, the pairs to
+  pitch together, then the clinic card. The always-on FZ card, product block, list and Stack mix cell were removed.
+- **Windows:** This · Last toggle on the Week, Month and Quarter tabs. "Show all results on file" now really means
+  every FZ result (from 2026-02-20), not the dashboard's analysis window (from 2026-05-01). No "last year": there
+  is no FZ data before 2026-02-20.
+- **Numbers after the fix**, company-wide (`team:*`): Q3 317 clinics, 2,893 FZ results pointing to a Zoomer,
+  39 led to an order, 2,854 open, $1.36M–$1.50M at stake; Q4 to date 142 clinics, 550 / 8 / 542, $259K–$286K.
+  The sales story: about **1 in 75** FZ results that point to a Zoomer leads to one.
+
 ## Known issues
 - **FZ system scores mostly stopped arriving from mid-September 2026 (upstream, in the LIS).** Gut scores per
   month were about 500 through August, then 201 in September, 63+71 in October and 3 in November. Over the same
@@ -191,3 +224,22 @@ All tests, every clinic, all dates (Phase 2 will apply the window and keep the l
 - **Cross-sell:** 1,696 of 3,853 FZ orders have 2 or more target areas.
 - **Potential $ is the ceiling.** It assumes every target orders. Phase 2 adds realistic conversion rates
   (organic and peer).
+
+**After the v2 rule fix (2026-11-06, live on :4002):** `fz-scores-check.ts` all passed: 23,092 rows, 3,852 FZ
+orders; SQL rules = TypeScript rules (now including `ordered_with_fz`) on every row.
+
+| Area | Needs support | Moderate | Optimal | Targets | in top-20% clinics | Potential $ (low–high) |
+|---|---|---|---|---|---|---|
+| Gut | 1,228 | 2,376 | 247 | 1,123 | 991 | $517K–$618K |
+| Neural | 959 | 1,926 | 965 | 1,203 | 1,059 | $541K |
+| Hormone | 915 | 2,524 | 412 | 1,223 | 1,091 | $501K–$612K |
+| Nutrition | 751 | 2,065 | 1,035 | 864 | 758 | $389K–$518K |
+| Immune | 563 | 1,587 | 1,700 | 649 | 572 | $260K |
+| Cardio | 1,164 | 2,077 | 598 | 1,463 | 1,287 | $878K |
+
+- **Target reasons:** Needs support 4,677 · Borderline 1,536 · After product – not improved 159 · Repeat test – not
+  improving 153.
+- **Cross-sell:** 1,595 of 3,852 FZ orders have 2 or more target areas.
+- `fz-targets-check.ts` (engine snapshot vs Cube, same-order rule on): all passed for 35 scope × window answers
+  (3 reps, a team, the company × all results, this/last quarter, month and week); no patient id or hash in any
+  answer.
