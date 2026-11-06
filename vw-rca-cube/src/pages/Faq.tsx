@@ -46,7 +46,7 @@ const GROUPS: Group[] = [
     items: [
       { q: "What are the three dials?", a: "Combined is the whole book, New is new and returning clinics against the new-business goal, and Existing is established clinics against their goal. Combined is existing plus new. Each dial shows how many clinics ordered out of how many are in that group." },
       { q: "What do green, amber and red mean?", a: "Green is on track, amber is worth watching, red is behind. Each metric has its own cut-offs; retention and churn targets differ for clinics that signed up before 2025, in 2025 and this year, because younger clinics behave differently." },
-      { q: "Why do some cells say \"not in data yet\"?", a: "The numbers they need are not collected yet (for example prospects need CRM lead data, and stack mix needs per-order panel detail)." },
+      { q: "Why do some cells say \"not in data yet\"?", a: "The numbers they need are not collected yet (for example prospects need CRM lead data, and stack penetration needs per-order panel detail)." },
       { q: "What is the difference between Revenue Retention, NRR and Expansion?", a: "Revenue Retention: of the baseline revenue, how much was kept, with each clinic capped at its own baseline (growth does not hide losses). NRR: revenue from existing clinics against their baseline, growth included, so it can go over 100%. Expansion: how far growing clinics sit above their baseline." },
       { q: "What is Repeat ordering?", a: "Of the clinics that ordered in the window, the share that ordered at least twice." },
       { q: "What is Customer churn?", a: "Of clinics that brought revenue (existing, new and returning), the share that is now churned by the rule above. It is as of the latest data, so it reads the same on every tab." },
@@ -65,6 +65,7 @@ const GROUPS: Group[] = [
       { q: "What do NEW, RESTARTED, DECLINING and STOPPED mean?", a: "They compare a clinic's last 28 days with the 90 days before, test by test. NEW: nothing in the prior 90 days and fewer than 3 orders ever before. RESTARTED: nothing in the prior 90 days but 3 or more earlier orders. DECLINING: it ordered at least 6 in the prior period and is now at half the pace or less. STOPPED: it ordered at least 3 before and nothing recently. They look at the last 28 days, not at the tab you are on." },
       { q: "Why does a status not match the tab?", a: "The status is always the last 28 days against the 90 before, wherever you are. The orders-versus-expected numbers follow the tab." },
       { q: "What is product whitespace and cross-sell?", a: "Whitespace: clinics you marked as a fit for a product that never ordered it. Cross-sell: active clinics buying only one or two families, with the family similar clinics buy most." },
+      { q: "What are the FZ score targets?", a: "Foundation Zoomer orders carry six system scores (Gut, Neural, Hormone, Nutrition, Immune, Cardio). A low score, a borderline score with other low areas, or a repeat test that is not improving is a reason to pitch that area's Zoomer. Product Growth lists the products to promote, Expansion lists the clinics to target, and the Stack mix cell counts patients with two or more Zoomers to pitch. It follows the window you pick, uses each patient's latest test in it, and shows clinics only, never patient names or IDs." },
     ],
   },
   {

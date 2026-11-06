@@ -115,7 +115,30 @@ This changes the shared production Cube. Tell Shyam first and do it at a quiet t
 about 10–30 s during the restart. The script prints the exact rollback command, which restores the dated backup
 in `~/cube-rca/model-backups/` and restarts Cube.
 
+## Phase 2: in the Rep view (2026-11-06)
+- **Engine.** `analytics/fzScores.ts` `build` runs at every daily snapshot build. It pulls all `fz_scores` rows
+  into the `fzScores` table, replacing the patient id with a one-way hash at once. `clinics` takes
+  `{periodId, sales}`. For the window and the rep or team it keeps each patient's latest test per area and
+  aggregates per clinic in `analytics/fzTargets.ts`. It returns no patient id or hash.
+- **Likely $** = target patients × price_low × the area's conversion rate. The rate is the share of patients who
+  scored Needs support, had not had the product, and ordered it after the FZ; it is company-wide, all time.
+- **Rep view → Scorecard:**
+  - the **Stack mix** cell: patients with 2+ Zoomers to pitch; click it for the clinics;
+  - **Product Growth**: "Products to promote from FZ scores";
+  - **Expansion**: "Clinics to target from FZ scores", with search, product chips, Top 20% only and sortable
+    columns, and an "Open in clinic list" button.
+  
+  All of these follow the selected window. Clinic level only.
+- **Checks.** `scripts/fzTargets.test.ts` (12 tests) and `scripts/fz-targets-check.ts`. The second compares the
+  engine handler with a recomputation from Cube for each scope × window and confirms no patient id or hash in any
+  answer; all passed on 2026-11-06.
+
 ## Known issues
+- **FZ system scores mostly stopped arriving from mid-September 2026 (upstream, in the LIS).** Gut scores per
+  month were about 500 through August, then 201 in September, 63+71 in October and 3 in November. Over the same
+  months Foundation Zoomer orders held steady: 661 in September, 624 in October. The drop is the same in
+  ClickHouse `lis.test_result*` and in BigQuery, and no other result table or `zoomer_results` table holds the
+  missing scores. So October/November windows show almost no targets. Raise it with the LIS / lab team.
 - **The BigQuery copy of `test_result` was mid re-sync on 2026-11-05.** Airbyte reloaded it that day, and the
   gut-score rows grew from 1,703 to 2,628 within an hour, against 3,678 in the ClickHouse LIS replica. Counts will
   be low until the sync finishes. Compare with

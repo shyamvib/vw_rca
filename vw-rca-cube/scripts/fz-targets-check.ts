@@ -78,7 +78,7 @@ for (const s of scopes) {
     const got: any = await host.invoke("fzScores:clinics", { password: pw, periodId: w, sales: s });
     const pr = periodRange(w, cfg.currentStart, cfg.currentEnd);
     const want = fzTargets(cubeRows, { start: pr.start, end: pr.end }, scopeSet(s), rates);
-    const label = `${s.startsWith("team:") ? s : "rep #" + (reps.indexOf(s) + 1)} × ${w}`;
+    const label = `${s.startsWith("team:") ? s : `rep #${reps.indexOf(s) + 1}`} × ${w}`;
     if (!got.ready) { check(false, `${label}: handler not ready (${got.reason})`); continue; }
     compared++;
     if (got.clinics.length) nonEmpty++;

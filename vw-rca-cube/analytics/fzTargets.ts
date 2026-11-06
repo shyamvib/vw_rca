@@ -92,7 +92,8 @@ export function conversionRates(rows: FzRow[]): Record<string, number> {
   }
   const n: Record<string, [number, number]> = {};
   for (const { area, converted } of seen.values()) {
-    const t = (n[area] ??= [0, 0]);
+    if (!n[area]) n[area] = [0, 0];
+    const t = n[area];
     t[0] += converted ? 1 : 0;
     t[1] += 1;
   }
