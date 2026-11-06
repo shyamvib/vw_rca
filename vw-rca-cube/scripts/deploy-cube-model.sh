@@ -5,6 +5,8 @@
 #   vw-rca-cube/scripts/deploy-cube-model.sh <ssh-user> --no-restart <file.yml> [<file.yml> ...]
 #   # copy and restart now (refused if the restart would drop any cube or view that is live today):
 #   vw-rca-cube/scripts/deploy-cube-model.sh <ssh-user> <file.yml> [<file.yml> ...]
+#   # restart even though live cubes/views whose names start with PREFIX have no file (owner agreed they can go):
+#   vw-rca-cube/scripts/deploy-cube-model.sh <ssh-user> --allow-drop PREFIX <file.yml> [<file.yml> ...]
 #
 # Why this exists: Cube reads its model folder only when it starts, and keeps it in memory. On 2026-11-05 the
 # production folder (~/cube-rca/model) no longer held the files the live Cube was serving (rfm_orders, customers,
@@ -22,10 +24,14 @@
 #      restarts again if not.
 set -euo pipefail
 
-usage="usage: deploy-cube-model.sh <ssh-user> [--no-restart] <file.yml> [<file.yml> ...]"
+usage="usage: deploy-cube-model.sh <ssh-user> [--no-restart | --allow-drop PREFIX] <file.yml> [<file.yml> ...]"
 SSH_USER="${1:?$usage}"; shift
 RESTART=1
-if [ "${1:-}" = "--no-restart" ]; then RESTART=; shift; fi
+ALLOW_DROP=""
+case "${1:-}" in
+  --no-restart) RESTART=; shift ;;
+  --allow-drop) ALLOW_DROP="${2:?$usage}"; shift 2 ;;
+esac
 [ $# -ge 1 ] || { echo "$usage" >&2; exit 2; }
 FILES=("$@")
 
@@ -115,10 +121,16 @@ else
   echo "    a restart would keep every live cube/view"
 fi
 
-if [ -n "$RESTART" ] && [ -n "$MISSING" ]; then
+BLOCKING="$MISSING"
+if [ -n "$ALLOW_DROP" ] && [ -n "$MISSING" ]; then
+  BLOCKING="$(printf '%s\n' "$MISSING" | grep -v "^$ALLOW_DROP" || true)"
+  echo "    --allow-drop $ALLOW_DROP: $(count "$MISSING") - $(count "$BLOCKING") = $(( $(count "$MISSING") - $(count "$BLOCKING") )) live cubes/views will be DROPPED on purpose"
+fi
+if [ -n "$RESTART" ] && [ -n "$BLOCKING" ]; then
+  echo "    still blocking the restart:"; printf '%s\n' "$BLOCKING" | sed -n 1,12p | sed 's/^/      /'
   die "not restarting, and nothing changed: a restart would drop the live cubes/views listed above.
-       Put their files back first (add them to this command), or agree with their owner.
-       To only copy files without a restart, add --no-restart."
+       Put their files back first (add them to this command), or, if their owner agreed they can go,
+       add --allow-drop <name prefix>. To only copy files without a restart, add --no-restart."
 fi
 read -rp "    Copy these file(s) into $MODEL_DIR/$SUB on $HOST? [y/N] " a; [ "$a" = y ] || die "stopped; nothing changed"
 
@@ -141,9 +153,6 @@ if [ -z "$RESTART" ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------------------
-[ -z "$MISSING" ] || die "files copied, but NOT restarting: a restart would drop the live cubes/views listed above.
-       Put their files back first (rerun with them), or agree with their owner. Undo the copy with:
-       $UNDO_COPY"
 step "4. Restarting $CONTAINER (Cube is unavailable for ~10–30 s)"
 rsh "docker restart $CONTAINER >/dev/null"
 ok=
@@ -158,13 +167,15 @@ if [ -z "$ok" ]; then
 fi
 NOW="$(live_names)" || NOW=""
 GONE="$(comm -23 <(printf '%s\n' "$LIVE" | sort -u) <(printf '%s\n' "$NOW" | sort -u))"
+[ -z "$ALLOW_DROP" ] || GONE="$(printf '%s\n' "$GONE" | grep -v "^$ALLOW_DROP" || true)"
 if [ -n "$GONE" ]; then
   step "Live cubes/views disappeared after the restart: rolling back"
   printf '%s\n' "$GONE" | sed -n 1,12p | sed 's/^/      /'
   rsh "rm -rf $MODEL_DIR && cp -a $CUBE_DIR/model-backups/$TS $MODEL_DIR && docker restart $CONTAINER >/dev/null"
   die "rolled back to the backup"
 fi
-echo "    Cube is ready and still serves every cube/view it served before ($(count "$NOW") now)"
+echo "    Cube is ready and serves every cube/view it served before$([ -z "$ALLOW_DROP" ] || echo " except the $ALLOW_DROP* ones dropped on purpose") ($(count "$NOW") now)"
+[ -z "$ADDED" ] || echo "    new: $(printf '%s\n' "$NOW" | grep -cxF -f <(printf '%s\n' "$ADDED") || true) of $(count "$ADDED") added cubes/views are served"
 echo
 echo "Done. Pre-aggregations for new cubes build in the background over the next few minutes."
 echo "Check:     cd vw-rca-cube && node --env-file=.env.engine.local --import tsx scripts/fz-scores-check.ts"
