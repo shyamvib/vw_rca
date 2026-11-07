@@ -19,7 +19,7 @@ const GZ_REP_FLOW = import.meta.env.VITE_USERTOUR_GZ_REP_FLOW as string | undefi
 let ready = false;
 
 /** Start the SDK and tell it who is signed in: work email and role only, never clinic or revenue data. */
-export function startUsertour(user: { email: string; role: "team" | "lead" | "rep" }) {
+export function startUsertour(user: { email: string; role: "team" | "lead" | "rep" | "cam" }) {
   if (!TOKEN || ready || !user.email) return;
   ready = true;
   try {

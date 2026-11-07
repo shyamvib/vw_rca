@@ -86,6 +86,9 @@ const schema = defineSchema({
     rep: v.string(), // exact salesperson name as in clinicMeta.sales
     // Rep-view-only login that may open any rep's book (not pinned to `rep`); no dashboard, no business feed.
     allReps: v.optional(v.boolean()),
+    // Client account manager login (2026-11): `rep` holds the CAM's name, and the analytics service limits every data call
+    // to the salespeople paired with that CAM (internal_user.cam_name). Rep view only; never the company dashboard.
+    cam: v.optional(v.boolean()),
     salt: v.string(),
     hash: v.string(),
     createdAt: v.number(),

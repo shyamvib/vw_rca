@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>Your Sales KPI dashboard login</title>
+<!--
+  Template placeholders (filled by scripts/make-cam-email-drafts.py; never put a real password in this file):
+    {{FIRST_NAME}}  recipient's first name
+    {{EMAIL}}       the work email the account was created for
+    {{PASSWORD}}    the one-time starter password for that account
+    {{LINK}}        the dashboard address
+    {{REPS_HTML}}   the salespeople paired with this account manager, grouped by team lead
+  Subject: Your Sales KPI dashboard login is ready
+-->
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;-webkit-text-size-adjust:100%;">
+  <!-- Preheader: the grey preview text some mail apps show next to the subject -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#f3f4f6;font-size:1px;line-height:1px;">
+    Your login for the Sales KPI dashboard is below. Sign in with your work email.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;">
+    <tr>
+      <td align="center" style="padding:28px 12px;">
+
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#111111;padding:22px 32px;font-family:'Courier New',Courier,monospace;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">
+              VIBRANT &nbsp;·&nbsp; Sales KPI dashboard
+            </td>
+          </tr>
+
+          <!-- Intro -->
+          <tr>
+            <td style="padding:32px 32px 8px 32px;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+              <h1 style="margin:0 0 14px 0;font-size:24px;line-height:1.25;font-weight:700;color:#111827;">Your Sales KPI dashboard login is ready</h1>
+              <p style="margin:0 0 14px 0;font-size:16px;line-height:1.6;color:#374151;">Hi {{FIRST_NAME}},</p>
+              <p style="margin:0;font-size:16px;line-height:1.6;color:#374151;">
+                You now have access to the Sales KPI dashboard as a client account manager. For each salesperson you work with, it shows how their book of clinics is doing against its goal, which clinics to call first, and a plan for their selling week. Everything in it is built from your reps' clinics, and nothing else is shown.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Your reps -->
+          <tr>
+            <td style="padding:18px 32px 0 32px;font-family:Arial,Helvetica,sans-serif;">
+              <div style="font-family:'Courier New',Courier,monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#6b7280;margin-bottom:8px;">Your reps</div>
+              {{REPS_HTML}}
+              <p style="margin:8px 0 0 0;font-size:13px;line-height:1.5;color:#6b7280;">The list follows who you are paired with as their client account manager, so it updates on its own if that changes.</p>
+            </td>
+          </tr>
+
+          <!-- Credentials box -->
+          <tr>
+            <td style="padding:22px 32px 6px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f5ff;border:1px solid #c7d6fb;border-radius:10px;">
+                <tr>
+                  <td style="padding:20px 22px;font-family:Arial,Helvetica,sans-serif;">
+                    <div style="font-family:'Courier New',Courier,monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#1d4ed8;margin-bottom:14px;">Your sign-in details</div>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:0 0 4px 0;font-size:12px;color:#4b5563;">Email</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0 0 14px 0;font-family:'Courier New',Courier,monospace;font-size:17px;font-weight:700;color:#111827;word-break:break-all;">{{EMAIL}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0 0 4px 0;font-size:12px;color:#4b5563;">One-time password</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:0;font-family:'Courier New',Courier,monospace;font-size:17px;font-weight:700;color:#111827;letter-spacing:1px;">{{PASSWORD}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Button -->
+          <tr>
+            <td align="left" style="padding:22px 32px 8px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="border-radius:8px;background-color:#1d4ed8;">
+                    <a href="{{LINK}}" target="_blank" style="display:inline-block;padding:14px 26px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:8px;">Open the dashboard</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:12px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#6b7280;">
+                Button not working? Copy this link into your browser: <a href="{{LINK}}" style="color:#1d4ed8;">{{LINK}}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- First steps -->
+          <tr>
+            <td style="padding:26px 32px 6px 32px;font-family:Arial,Helvetica,sans-serif;">
+              <h2 style="margin:0 0 12px 0;font-size:18px;line-height:1.3;color:#111827;">Your first five minutes</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td width="34" valign="top" style="padding:0 0 12px 0;">
+                    <div style="width:24px;height:24px;line-height:24px;border-radius:12px;background-color:#111827;color:#ffffff;text-align:center;font-size:13px;font-weight:700;">1</div>
+                  </td>
+                  <td valign="top" style="padding:0 0 12px 0;font-size:15px;line-height:1.55;color:#374151;">
+                    <b style="color:#111827;">Sign in</b> with the email and password above. Use your work email exactly as shown.
+                  </td>
+                </tr>
+                <tr>
+                  <td width="34" valign="top" style="padding:0 0 12px 0;">
+                    <div style="width:24px;height:24px;line-height:24px;border-radius:12px;background-color:#111827;color:#ffffff;text-align:center;font-size:13px;font-weight:700;">2</div>
+                  </td>
+                  <td valign="top" style="padding:0 0 12px 0;font-size:15px;line-height:1.55;color:#374151;">
+                    <b style="color:#111827;">Pick a rep.</b> The first screen lists your reps by team lead. Use <i>Switch rep</i> (left side) to move between them.
+                  </td>
+                </tr>
+                <tr>
+                  <td width="34" valign="top" style="padding:0 0 4px 0;">
+                    <div style="width:24px;height:24px;line-height:24px;border-radius:12px;background-color:#111827;color:#ffffff;text-align:center;font-size:13px;font-weight:700;">3</div>
+                  </td>
+                  <td valign="top" style="padding:0 0 4px 0;font-size:15px;line-height:1.55;color:#374151;">
+                    <b style="color:#111827;">Take the quick tour.</b> Press <i>Quick tour</i> (top right) for a short walk through each section, then open <b style="color:#111827;">Today's agenda</b> to see who that rep should call first.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Where to find things -->
+          <tr>
+            <td style="padding:20px 32px 6px 32px;font-family:Arial,Helvetica,sans-serif;">
+              <h2 style="margin:0 0 12px 0;font-size:18px;line-height:1.3;color:#111827;">Where to find things</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;line-height:1.5;color:#374151;">
+                <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;width:150px;font-weight:700;color:#111827;">Business feed</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;">Questions about the rep's book, each answered in four steps: fact, inference, evidence and action.</td></tr>
+                <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:700;color:#111827;">This week / month / quarter</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;">The rep's scorecard against goal, with the clinics behind every number one click away.</td></tr>
+                <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:700;color:#111827;">Search</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;"><i>Search clinic</i> and <i>Search provider</i> (top bar) find clinics and providers in your reps' books.</td></tr>
+                <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:700;color:#111827;">Scorecard guide</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;">Every metric explained in plain words, with examples.</td></tr>
+                <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;font-weight:700;color:#111827;">FAQ and Raise a question</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;">The FAQ button (top bar) answers "what does that mean?". Use <i>Raise a question</i> (left side) to ask the analytics team anything.</td></tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Security note -->
+          <tr>
+            <td style="padding:22px 32px 6px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+                <tr>
+                  <td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#78350f;">
+                    <b style="color:#78350f;">Please keep this private.</b> The login shows your reps' clinics' data and is just for you. Do not forward this email or share the password. If you stay away for two weeks you are signed out and simply sign in again. If you lose the password or suspect someone else has it, tell us and we will reset it.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Help -->
+          <tr>
+            <td style="padding:22px 32px 30px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#374151;">
+              Questions or trouble signing in? Contact <b style="color:#111827;">Decision Intelligence</b> at
+              <a href="mailto:biziQ@vibrant-wellness.com" style="color:#1d4ed8;">biziQ@vibrant-wellness.com</a>.
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#6b7280;">
+              You received this email because an account was created for {{EMAIL}}. Internal use only.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
