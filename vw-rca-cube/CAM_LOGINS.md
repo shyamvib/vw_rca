@@ -43,3 +43,15 @@ remove a CAM's login; set a new password there to replace a one-time one.
   salesperson on the provider's recent orders is one of the CAM's reps.
 - No Settings-side actions for CAMs (marking whitespace, rep windows).
 - Both halves must be deployed before the first CAM signs in: the analytics service (guard and pairing) and Convex (the `cam` flag on accounts).
+
+## Do the numbers match the rep view?
+A CAM's calls run the same handlers a rep's own view does, with `sales` set to the rep, so the figures are the same. Two things are not
+the same by design, and `scripts/cam-compare.mjs` checks the rest:
+- **Date window.** Each login (by email) can have its own saved date window, falling back to the team window. A CAM who has not picked
+  one sees the team window; a rep who picked a personal window sees that. Numbers differ only in that case.
+- **Leaderboard and rank.** A rep sees every rep on the leaderboard (their rank is among everyone), so a CAM gets the same rows. Only the
+  rep *picker* is limited to the CAM's reps.
+
+`scripts/cam-compare.mjs` signs in as a CAM and as the shared team login, asks the same questions for each of the CAM's reps, diffs every
+number (this week, month, quarter and the whole window), and checks the lock holds (another rep, a team scope, the company feed, refresh
+must all be refused). Passwords come from environment variables; it only reads data.

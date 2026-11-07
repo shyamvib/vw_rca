@@ -20,6 +20,8 @@ export type CamScope = {
   reps: ReadonlySet<string>;
   /** Salesperson that owns the clinic in the current snapshot, or undefined when the clinic is unknown. */
   ownerOf: (clinic: string) => string | undefined;
+  /** The CAM's reps with their team leads, for the rep picker (rides along on the page's first call). */
+  repList?: ReadonlyArray<{ name: string; teamLead: string }>;
   /** Salespeople whose recent orders carry this provider (customer) id; empty or undefined when unknown. */
   providerOwners?: (provider: string) => readonly string[] | undefined;
 };
@@ -91,12 +93,14 @@ export const CAM_RULES: Record<string, Rule> = {
   "newClinicTouches:newClinicTouches": { clinics: ["clinics"] },
   "newClinicFunnel:seqFor": { clinics: ["clinics"] },
   // Lists that cover other people: cut down to the CAM's reps.
-  "geo:salesReps": { forbid: ["teamLead", "sales"], filter: rowsBySales("name") },
+  // The leaderboard is company-wide for a rep login too (their rank is among everyone), so a CAM gets the same rows: filtering it down
+  // to the CAM's reps would make every rank and total differ from the rep's own view. The rep PICKER is limited separately (camReps).
+  "geo:salesReps": { forbid: ["teamLead", "sales"] },
   "families:providerSearch": { filter: rowsBySales("sales") },
   "feed:clinicSearch": { forbid: ["sales"], fanOut: mergeSearch },
   // What the page loads first: the list of periods (and the window settings). It is the same call every rep login makes, and it holds
   // company-level totals but no clinic or provider rows.
-  "bridge:bridge": {},
+  "bridge:bridge": { filter: (value, scope) => (value && typeof value === "object" ? { ...(value as Args), camReps: scope.repList ?? [] } : value) },
   // Harmless app-wide settings the rep view reads on load.
   "config:get": {},
   "familyLaunch:launches": {},

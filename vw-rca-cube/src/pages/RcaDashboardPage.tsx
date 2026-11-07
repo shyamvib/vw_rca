@@ -2126,7 +2126,7 @@ export function RcaDashboardPage() {
             canSwitchRep={isLead}
             teamName={isLead && !isCam ? repLogin!.rep : undefined}
             isCam={isCam}
-            repLeads={Object.fromEntries((salesLeaderboard ?? []).map(r => [r.name, r.teamLead]))}
+            repLeads={Object.fromEntries(((data as { camReps?: Array<{ name: string; teamLead: string }> } | undefined)?.camReps ?? (salesLeaderboard ?? [])).map(r => [r.name, r.teamLead]))}
             periodId={periodIdSafe}
             periodLabel={
               periodIdSafe === "all"
@@ -2137,7 +2137,8 @@ export function RcaDashboardPage() {
             months={periods.filter(p => p.kind === "month")}
             quarters={periods.filter(p => p.kind === "quarter")}
             days={periods.filter(p => p.kind === "day")}
-            reps={(salesLeaderboard ?? []).map(r => r.name).sort()}
+            // A CAM picks from their own reps only (the service sends them with the page's first call); the leaderboard itself stays whole.
+            reps={(isCam ? ((data as { camReps?: Array<{ name: string }> } | undefined)?.camReps ?? []) : (salesLeaderboard ?? [])).map(r => r.name).sort()}
             onPickRep={setSalesRep}
             clinicTerm={search}
             provTerm={provSearch}

@@ -356,7 +356,8 @@ const server = http.createServer(async (req, res) => {
         if (s?.cam) {
           // Client account manager: rep view only, and only their own reps. Checked here, once, then run as a manager login
           // (handlers accept any `sales`), with the guard having pinned `sales` to one of the CAM's reps.
-          const reps = new Set((await repsOfCam(s.rep, s.email)).map(r => r.name));
+          const repList = await repsOfCam(s.rep, s.email);
+          const reps = new Set(repList.map(r => r.name));
           const db = current.host.db;
           const ownerOf = async (clinic: string) => (await db.query("clinicMeta").withIndex("by_clinic", q => q.eq("clinic", clinic)).first())?.sales as string | undefined;
           const owners = new Map<string, string | undefined>();
@@ -367,7 +368,7 @@ const server = http.createServer(async (req, res) => {
           const providers = new Map<string, string[]>();
           if (typeof args.provider === "string" && args.provider) providers.set(args.provider, await ownersOfProvider(args.provider).catch(() => []));
           try {
-            const g = guardCamCall(name, args, { reps, ownerOf: c => owners.get(c), providerOwners: p => providers.get(p) });
+            const g = guardCamCall(name, args, { reps, repList, ownerOf: c => owners.get(c), providerOwners: p => providers.get(p) });
             callArgs = g.args;
             camFilter = g.filter;
             camCalls = g.calls;

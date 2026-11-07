@@ -41,13 +41,22 @@ test("clinic lookups need a clinic in the CAM's reps' books", () => {
   denied("clinicalTouch:clinicalTouch", {}); // neither a clinic nor a provider
 });
 
-test("lists that cover other people are cut down to the CAM's reps", () => {
-  const g = ok("geo:salesReps", { periodId: "all" });
-  const rows = [{ name: "Ann" }, { name: "Zed" }, { name: "Bob" }];
-  assert.deepEqual(g.filter?.(rows), [{ name: "Ann" }, { name: "Bob" }]);
+test("provider search is cut down to the CAM's reps; the leaderboard is whole, as a rep sees it", () => {
   const p = ok("families:providerSearch", { term: "x" });
   assert.deepEqual((p.filter?.({ ready: true, rows: [{ sales: "Zed" }, { sales: "Ann" }] }) as { rows: unknown[] }).rows, [{ sales: "Ann" }]);
+  // Same rows a rep login gets: no filter, so every rank and total matches the rep's own view.
+  const g = ok("geo:salesReps", { periodId: "all" });
+  assert.equal(g.filter, undefined);
   denied("geo:salesReps", { periodId: "all", sales: "Ann" });
+  denied("geo:salesReps", { periodId: "all", teamLead: "Lee" });
+});
+
+test("the page's first call carries the CAM's rep list for the picker", () => {
+  const withList = { ...scope, repList: [{ name: "Ann", teamLead: "Lee" }, { name: "Bob", teamLead: "Kim" }] };
+  const g = guardCamCall("bridge:bridge", { password: "rs:x" }, withList);
+  const out = g.filter?.({ ready: true, periods: [] }) as { ready: boolean; camReps: Array<{ name: string }> };
+  assert.equal(out.ready, true);
+  assert.deepEqual(out.camReps.map(r => r.name), ["Ann", "Bob"]);
 });
 
 test("the guard does not mutate the caller's args", () => {
@@ -160,4 +169,13 @@ test("mirroring a session from many parallel requests leaves one session and one
   tables.repAccounts.push({ _id: "dup1", email: "cam@x" }, { _id: "dup2", email: "cam@x" });
   await mirrorRep(db, "rs:tok", s);
   assert.equal(tables.repAccounts.length, 1);
+});
+
+test("cam-compare's diff finds real differences and ignores rounding and per-request fields", async () => {
+  const { diff } = await import("./cam-compare.mjs");
+  assert.deepEqual(diff({ a: 1, b: [1, 2], at: 5 }, { a: 1, b: [1, 2], at: 9 }), []);
+  assert.deepEqual(diff({ a: 100 }, { a: 100.0000000001 }), []);
+  assert.equal(diff({ a: 100 }, { a: 101 }).length, 1);
+  assert.equal(diff({ rows: [{ x: 1 }] }, { rows: [{ x: 1 }, { x: 2 }] }).length, 1);
+  assert.equal(diff({ n: "a" }, { n: "b" }).length, 1);
 });
