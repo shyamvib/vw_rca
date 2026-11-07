@@ -4,10 +4,13 @@ A CAM signs in like a rep and gets the **rep view only**, limited to the salespe
 dashboard, no Overview, no Business Feed, no Settings.
 
 ## Where the pairing comes from
-Cube's `internal_user` cube: each salesperson row has `cam_id` / `cam_name` and `supervisor_name` (team lead); a CAM is also a
-row, which gives their email. The analytics service reads it on demand (cached 10 minutes), so a pairing change in the
-source system reaches the dashboard without a rebuild. If Cube is unreachable and nothing is cached, a CAM sees no reps
-(fails closed). Salesperson names are `internal_user.name`, the same name the refresh stores as `clinicMeta.sales`.
+The order rows in Cube (`rfm_orders`: `sales_id`, `cam_id`, `team_lead`). The live `internal_user` table has no CAM column
+(Cube errors with "Name CAM_id not found inside internal_user"), so the pairing is derived from orders: a CAM is paired with a
+salesperson when the CAM's id is on at least 25% of that salesperson's orders in the last 180 days (`SHARE` and
+`WINDOW_DAYS` in `engine/cams.ts`). A stray order does not hand a CAM someone's whole book. The CAM's name and email come from
+`internal_user` by id; salesperson names are `internal_user.name`, the same name the refresh stores as `clinicMeta.sales`.
+The analytics service reads it on demand (cached 10 minutes), so a change reaches the dashboard without a rebuild. If Cube is
+unreachable and nothing is cached, a CAM sees no reps (fails closed). `GET /admin/cams` shows the result.
 
 ## What a CAM can reach
 A CAM account is a `repAccounts` row with `cam: true` and `rep` = the CAM's name. The check is in one place,

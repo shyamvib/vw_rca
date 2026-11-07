@@ -56,16 +56,23 @@ test("the guard does not mutate the caller's args", () => {
   assert.deepEqual(args, { password: "rs:x", periodId: "all", sales: "Ann" });
 });
 
-test("buildCams pairs reps with their CAM and takes the CAM's email from their own row", () => {
+test("buildCams pairs a CAM with the reps whose orders carry their id, and takes the CAM's email from their own row", () => {
   const users = [
-    { id: "1", name: "Cam One", email: "Cam.One@vibrant-wellness.com", camId: "", camName: "", supervisor: "", active: true },
-    { id: "2", name: "Ann", email: "a@x", camId: "1", camName: "Cam One", supervisor: "Lee", active: true },
-    { id: "3", name: "Bob", email: "b@x", camId: "1", camName: "Cam One", supervisor: "Kim", active: true },
-    { id: "4", name: "Gone", email: "g@x", camId: "1", camName: "Cam One", supervisor: "Kim", active: false },
-    { id: "5", name: "Cy", email: "c@x", camId: "", camName: "", supervisor: "Kim", active: true },
+    { id: "1", name: "Cam One", email: "Cam.One@vibrant-wellness.com" },
+    { id: "2", name: "Ann", email: "a@x" },
+    { id: "3", name: "Bob", email: "b@x" },
+    { id: "4", name: "Cy", email: "c@x" },
   ];
-  const cams = buildCams(users);
+  const pairs = [
+    { salesId: "2", camId: "1", teamLead: "Lee", orders: 90 },
+    { salesId: "2", camId: "9", teamLead: "Lee", orders: 10 }, // a stray 10% share, and an unknown CAM id
+    { salesId: "3", camId: "1", teamLead: "Kim", orders: 40 },
+    { salesId: "3", camId: "", teamLead: "Kim", orders: 60 }, // orders with no CAM
+    { salesId: "4", camId: "1", teamLead: "Kim", orders: 2 }, // 2 of 100: too small a share
+    { salesId: "4", camId: "", teamLead: "Kim", orders: 98 },
+  ];
+  const cams = buildCams(users, pairs);
   assert.equal(cams.length, 1);
   assert.equal(cams[0].email, "cam.one@vibrant-wellness.com");
-  assert.deepEqual(cams[0].reps.map(r => r.name), ["Bob", "Ann"]); // sorted by team lead (Kim, Lee)
+  assert.deepEqual(cams[0].reps.map(r => r.name), ["Bob", "Ann"]); // sorted by team lead (Kim, Lee); Cy's 2% is not enough
 });
