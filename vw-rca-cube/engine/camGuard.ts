@@ -76,6 +76,10 @@ export const CAM_RULES: Record<string, Rule> = {
   "projection:summary": BOOK,
   "productGrowth:productGrowth": BOOK,
   "clinics:cohortDriverSplit": BOOK,
+  "clinics:clinicDrill": BOOK,
+  "clinics:newClinicGroups": BOOK,
+  "families:familyClinicsAction": BOOK,
+  "families:switchClinicsAction": BOOK,
   "geo:geoSummary": BOOK,
   "geo:scopeTotals": BOOK,
   "feed:repQuestions": BOOK,
@@ -90,6 +94,9 @@ export const CAM_RULES: Record<string, Rule> = {
   "geo:salesReps": { forbid: ["teamLead", "sales"], filter: rowsBySales("name") },
   "families:providerSearch": { filter: rowsBySales("sales") },
   "feed:clinicSearch": { forbid: ["sales"], fanOut: mergeSearch },
+  // What the page loads first: the list of periods (and the window settings). It is the same call every rep login makes, and it holds
+  // company-level totals but no clinic or provider rows.
+  "bridge:bridge": {},
   // Harmless app-wide settings the rep view reads on load.
   "config:get": {},
   "familyLaunch:launches": {},

@@ -25,7 +25,7 @@ test("teamLead is refused on every call", () => {
 });
 
 test("anything not listed is refused", () => {
-  for (const name of ["feed:feed", "clinics:clinicDrill", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "nope:nope"]) denied(name, { sales: "Ann" });
+  for (const name of ["feed:feed", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "nope:nope"]) denied(name, { sales: "Ann" });
 });
 
 test("clinic lookups need a clinic in the CAM's reps' books", () => {
@@ -121,4 +121,16 @@ test("a provider card opens only when every rep on the provider's orders is the 
   call({ provider: "101" });
   for (const p of ["102", "103", "104", "999"]) assert.throws(() => call({ provider: p }), CamDenied);
   assert.throws(() => call({ provider: "100", clinic: "c9" }), CamDenied); // an owned provider does not make a foreign clinic ok
+});
+
+test("the page's first call and the rep panels", () => {
+  ok("bridge:bridge", {});
+  denied("bridge:bridge", { teamLead: "Lee" });
+  for (const name of ["clinics:clinicDrill", "clinics:newClinicGroups", "families:familyClinicsAction", "families:switchClinicsAction"]) {
+    ok(name, { periodId: "all", sales: "Bob" });
+    denied(name, { periodId: "all" });
+    denied(name, { periodId: "all", sales: "Zed" });
+    denied(name, { periodId: "all", sales: "Ann", teamLead: "Lee" });
+  }
+  denied("families:unmappedTestsAction", { periodId: "all" }); // team only
 });

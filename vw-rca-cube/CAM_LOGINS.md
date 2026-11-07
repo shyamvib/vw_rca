@@ -17,7 +17,8 @@ email to match a login to). Add such a CAM to `engine/camOverrides.ts` (id → n
 ## What a CAM can reach
 A CAM account is a `repAccounts` row with `cam: true` and `rep` = the CAM's name. The check is in one place,
 `engine/camGuard.ts`, applied in `engine/server.ts` before any handler runs:
-- only the calls the rep view needs are allowed (deny by default; see `CAM_RULES`);
+- only the calls the rep view needs are allowed (deny by default; see `CAM_RULES`). That includes `bridge:bridge`, the page's first call
+  (the list of periods); every rep login makes it too, and it holds company-level totals but no clinic or provider rows;
 - `sales` must be exactly one of the CAM's reps (not another rep, not `team:*`, not empty);
 - `teamLead` is refused everywhere;
 - clinic ids must belong to one of the CAM's reps; the rep and provider lists are cut down to the CAM's reps;
