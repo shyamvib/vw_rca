@@ -60,6 +60,7 @@ export const CAM_RULES: Record<string, Rule> = {
   "newClinicFunnel:orderRetentionFunnel": BOOK,
   "projection:summary": BOOK,
   "productGrowth:productGrowth": BOOK,
+  "clinics:cohortDriverSplit": BOOK,
   "geo:geoSummary": BOOK,
   "geo:scopeTotals": BOOK,
   "feed:repQuestions": BOOK,
@@ -90,7 +91,7 @@ export function guardCamCall(
   scope: CamScope,
 ): { args: Args; filter?: (value: unknown) => unknown } {
   const rule = CAM_RULES[name];
-  if (!rule) throw new CamDenied("Not available for account manager logins.");
+  if (!rule) throw new CamDenied(`Not available for account manager logins (${name}).`);
 
   // `teamLead` widens a call to a team or the company; no allowed call needs it.
   if (isText(args.teamLead)) throw new CamDenied("Not available for account manager logins.");

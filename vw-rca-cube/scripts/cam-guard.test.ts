@@ -25,7 +25,7 @@ test("teamLead is refused on every call", () => {
 });
 
 test("anything not listed is refused", () => {
-  for (const name of ["feed:feed", "clinics:clinicDrill", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "clinics:cohortDriverSplit", "nope:nope"]) denied(name, { sales: "Ann" });
+  for (const name of ["feed:feed", "clinics:clinicDrill", "feed:clinicSearch", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "nope:nope"]) denied(name, { sales: "Ann" });
 });
 
 test("clinic lookups need a clinic in the CAM's reps' books", () => {
@@ -88,4 +88,12 @@ test("a CAM id with no internal_user row is paired only when an override names i
   assert.equal(cams.length, 1);
   assert.equal(cams[0].email, "akanksha.s@vibrant-wellness.com");
   assert.deepEqual(cams[0].reps.map(r => r.name), ["Sara", "William"]);
+});
+
+test("the dashboard shell's whole-book calls need one of the CAM's reps", () => {
+  for (const name of ["clinics:cohortDriverSplit", "geo:geoSummary", "wins:winsSummary"]) {
+    ok(name, { periodId: "all", sales: "Ann" });
+    denied(name, { periodId: "all" }); // no rep chosen yet: the frontend skips these calls
+    denied(name, { periodId: "all", sales: "Zed" });
+  }
 });

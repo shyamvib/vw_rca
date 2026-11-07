@@ -1351,12 +1351,19 @@ export function RcaDashboardPage() {
       ? { password: pw(), periodId: "all", sales: salesRep }
       : "skip",
   );
-  const geo = useRcaQuery(api.geo.geoSummary, {
-    password: pw(),
-    periodId: periodIdSafe,
-    teamLead: teamLead || undefined,
-    sales: salesRep || undefined,
-  });
+  // A client account manager has no whole-book view: until they pick one of their reps, these shell calls have nothing to ask for.
+  const camNoRep = isCam && !salesRep;
+  const geo = useRcaQuery(
+    api.geo.geoSummary,
+    camNoRep
+      ? "skip"
+      : {
+          password: pw(),
+          periodId: periodIdSafe,
+          teamLead: teamLead || undefined,
+          sales: salesRep || undefined,
+        },
+  );
   const scopedActive = useRcaQuery(
     api.geo.scopeTotals,
     teamLead || salesRep
@@ -1371,12 +1378,17 @@ export function RcaDashboardPage() {
   // Positive/negative driver split per cohort, so lens C's tree branches can
   // each carry their own split inline instead of only after opening the
   // clinic list. Requested by Shyam 2026-09-06.
-  const cohortDrivers = useRcaQuery(api.clinics.cohortDriverSplit, {
-    password: pw(),
-    periodId: periodIdSafe,
-    teamLead: teamLead || undefined,
-    sales: salesRep || undefined,
-  });
+  const cohortDrivers = useRcaQuery(
+    api.clinics.cohortDriverSplit,
+    camNoRep
+      ? "skip"
+      : {
+          password: pw(),
+          periodId: periodIdSafe,
+          teamLead: teamLead || undefined,
+          sales: salesRep || undefined,
+        },
+  );
   // Info icons next to each side of the inline cohort split: one opens just
   // the beating-baseline clinics ("risers"), the other just the
   // missing-baseline clinics ("losers") — two separate lists, not the
@@ -1423,12 +1435,17 @@ export function RcaDashboardPage() {
   });
   // Same scope as the What's Working panel below — used only to fold a
   // "wins vs. gap" readout into the hero headline (Shyam 2026-09-08).
-  const headlineWins = useRcaQuery(api.wins.winsSummary, {
-    password: pw(),
-    periodId: periodIdSafe,
-    teamLead: teamLead || undefined,
-    sales: salesRep || undefined,
-  });
+  const headlineWins = useRcaQuery(
+    api.wins.winsSummary,
+    camNoRep
+      ? "skip"
+      : {
+          password: pw(),
+          periodId: periodIdSafe,
+          teamLead: teamLead || undefined,
+          sales: salesRep || undefined,
+        },
+  );
   const geoRows: GeoRow[] = useMemo(
     () => ((geo?.rows ?? []) as GeoRow[]),
     [geo],
@@ -1946,14 +1963,16 @@ export function RcaDashboardPage() {
               <span className="rca-rep-badge">
                 {isLead ? (salesRep.startsWith("team:") ? <>Viewing <strong>{salesRep.slice(5)}</strong>'s whole team</> : salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
               </span>
-              <input
-                className="rca-search-input"
-                type="search"
-                placeholder="Search clinic…"
-                aria-label="Search clinic"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              {isCam ? null : (
+                <input
+                  className="rca-search-input"
+                  type="search"
+                  placeholder="Search clinic…"
+                  aria-label="Search clinic"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              )}
               <input
                 className="rca-search-input"
                 type="search"
