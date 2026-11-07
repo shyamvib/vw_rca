@@ -8,6 +8,7 @@
  *   POST /rpc            { name: "geo:geoSummary", args: {...} }  -> handler result
  *   GET  /health         snapshot info
  *   POST /admin/rebuild  (x-admin-secret) rebuild the snapshot from Cube now
+ *   GET  /admin/cams     (x-admin-secret) client account managers and their reps, as Cube has them (for bulk creating CAM logins)
  *
  * Credentials ride in args.password exactly as before: the shared team
  * password ("tu:<email>|<pw>" for a named user) is checked by the handlers
@@ -31,6 +32,8 @@ import { ConvexHttpClient } from "convex/browser";
 import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
 import { checkJira } from "../analytics/jira";
+import { CamDenied, guardCamCall } from "./camGuard";
+import { allCams, repsOfCam } from "./cams";
 import type { Mode } from "./builder";
 
 /** Which code is running. engine/VERSION is filled in by `git archive` (export-subst), so a tarball or image built from a commit
@@ -60,7 +63,7 @@ let lastBuild: { ok: boolean; at: number; secs?: number; error?: string } | null
 // ---- Convex bridge (app state: rep sessions) ------------------------------------------
 const convex = process.env.CONVEX_URL ? new ConvexHttpClient(process.env.CONVEX_URL) : null;
 if (convex && process.env.CONVEX_ADMIN_KEY) (convex as any).setAdminAuth(process.env.CONVEX_ADMIN_KEY);
-type RepSess = { rep: string; email: string; all?: boolean };
+type RepSess = { rep: string; email: string; all?: boolean; cam?: boolean };
 const sessionCache = new Map<string, { at: number; value: RepSess | null }>();
 
 async function repSession(credential: string): Promise<RepSess | null> {
@@ -327,6 +330,10 @@ const server = http.createServer(async (req, res) => {
       if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
       return send(res, 200, await checkJira());
     }
+    if (url.pathname === "/admin/cams" && req.method === "GET") {
+      if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
+      return send(res, 200, { cams: await allCams() });
+    }
     if (url.pathname === "/admin/rebuild" && req.method === "POST") {
       if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
       void rebuild();
@@ -350,13 +357,36 @@ const server = http.createServer(async (req, res) => {
         if (lastBuild && !lastBuild.ok) return send(res, 500, { error: lastBuild.error ?? "refresh failed" });
         return send(res, 200, { value: { dataThrough: current?.dataThrough ?? "", rows: current?.total ?? 0 } });
       }
+      let callArgs: Record<string, unknown> = args;
+      let camFilter: ((v: unknown) => unknown) | undefined;
       if (cred.startsWith("rs:")) {
         const s = await repSession(cred);
-        if (s) await mirrorRep(current, cred, s);
+        if (s?.cam) {
+          // Client account manager: rep view only, and only their own reps. Checked here, once, then run as a manager login
+          // (handlers accept any `sales`), with the guard having pinned `sales` to one of the CAM's reps.
+          const reps = new Set((await repsOfCam(s.rep, s.email)).map(r => r.name));
+          const db = current.host.db;
+          const ownerOf = async (clinic: string) => (await db.query("clinicMeta").withIndex("by_clinic", q => q.eq("clinic", clinic)).first())?.sales as string | undefined;
+          const owners = new Map<string, string | undefined>();
+          const ids = new Set<string>();
+          for (const k of ["clinic"]) if (typeof args[k] === "string") ids.add(args[k] as string);
+          if (Array.isArray(args.clinics)) for (const c of args.clinics.slice(0, 5000)) if (typeof c === "string") ids.add(c);
+          for (const id of ids) owners.set(id, await ownerOf(id));
+          try {
+            const g = guardCamCall(name, args, { reps, ownerOf: c => owners.get(c) });
+            callArgs = g.args;
+            camFilter = g.filter;
+          } catch (e) {
+            if (e instanceof CamDenied) return send(res, 403, { error: e.message });
+            throw e;
+          }
+          await mirrorRep(current, cred, { ...s, all: true });
+        } else if (s) await mirrorRep(current, cred, s);
       }
       let value: unknown;
       try {
-        value = await current.host.invokeExternal(name, args);
+        value = await current.host.invokeExternal(name, callArgs);
+        if (camFilter) value = camFilter(value);
       } catch (e) {
         // Only guesses at the shared team password count: rep tokens are random and unguessable, and an office of reps behind one
         // address with expired sessions must not lock each other out.
