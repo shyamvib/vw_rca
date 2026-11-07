@@ -10,12 +10,14 @@
  * Read on demand and cached, so a pairing change reaches the dashboard within CACHE_MS without a rebuild. If Cube is down
  * the last good answer keeps serving; with no answer at all a CAM sees nothing (fail closed).
  */
+import { CAM_OVERRIDES } from "./camOverrides.ts";
 
 const CACHE_MS = 10 * 60 * 1000;
 const WINDOW_DAYS = 180;
 /** A CAM is paired with a rep when they hold at least this share of the rep's orders in the window. */
 const SHARE = 0.25;
 
+export type CamOverrides = Record<string, { name: string; email: string }>;
 export type CamRep = { name: string; teamLead: string };
 export type Cam = { camId: string; name: string; email: string; reps: CamRep[] };
 let raw: { users: Array<Record<string, unknown>>; pairs: Array<Record<string, unknown>> } | null = null;
@@ -32,6 +34,7 @@ export function buildCams(
   users: Array<Record<string, unknown>>,
   pairs: Array<Record<string, unknown>>,
   share = SHARE,
+  overrides: CamOverrides = {},
 ): Cam[] {
   const byId = new Map<string, Record<string, unknown>>();
   for (const u of users) byId.set(text(u.id), u);
@@ -50,9 +53,10 @@ export function buildCams(
     let cam = cams.get(camId);
     if (!cam) {
       const row = byId.get(camId);
-      const name = text(row?.name);
-      if (!name) continue; // a CAM id with no internal_user row has no name or email to sign in with
-      cam = { camId, name, email: text(row?.email).toLowerCase(), reps: [] };
+      // A CAM id with no internal_user row has no name or email to sign in with, unless engine/camOverrides.ts supplies them.
+      const name = text(row?.name) || text(overrides[camId]?.name);
+      if (!name) continue;
+      cam = { camId, name, email: (text(row?.email) || text(overrides[camId]?.email)).toLowerCase(), reps: [] };
       cams.set(camId, cam);
     }
     const key = `${camId}|${salesId}`;
@@ -86,7 +90,27 @@ async function fetchCams(): Promise<Cam[]> {
     ),
   ]);
   raw = { users, pairs };
-  return buildCams(users, pairs);
+  return buildCams(users, pairs, SHARE, overrides());
+}
+
+const overrides = (): CamOverrides => CAM_OVERRIDES;
+
+/** CAM ids carried by orders (at a real share of some rep's orders) that no one can sign in as: no internal_user row, no override. */
+export async function unmatchedCamIds() {
+  await allCams();
+  const { users, pairs } = raw ?? { users: [], pairs: [] };
+  const known = new Set([...users.map(u => text(u.id)), ...Object.keys(overrides())]);
+  const name = new Map(users.map(u => [text(u.id), text(u.name)]));
+  const total = new Map<string, number>();
+  for (const p of pairs) total.set(text(p.salesId), (total.get(text(p.salesId)) ?? 0) + Number(p.orders ?? 0));
+  const by = new Map<string, Array<{ rep: string; teamLead: string; orders: number }>>();
+  for (const p of pairs) {
+    const id = text(p.camId);
+    const orders = Number(p.orders ?? 0);
+    if (!id || known.has(id) || orders / (total.get(text(p.salesId)) || 1) < SHARE) continue;
+    (by.get(id) ?? by.set(id, []).get(id)!).push({ rep: name.get(text(p.salesId)) ?? `(no user ${text(p.salesId)})`, teamLead: text(p.teamLead), orders });
+  }
+  return [...by].map(([camId, reps]) => ({ camId, reps: reps.sort((a, b) => b.orders - a.orders) })).sort((a, b) => b.reps.length - a.reps.length);
 }
 
 /** Every CAM with their reps (cached). Throws only when there is no answer at all. */

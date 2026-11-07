@@ -10,7 +10,9 @@ salesperson when the CAM's id is on at least 25% of that salesperson's orders in
 `WINDOW_DAYS` in `engine/cams.ts`). A stray order does not hand a CAM someone's whole book. The CAM's name and email come from
 `internal_user` by id; salesperson names are `internal_user.name`, the same name the refresh stores as `clinicMeta.sales`.
 The analytics service reads it on demand (cached 10 minutes), so a change reaches the dashboard without a rebuild. If Cube is
-unreachable and nothing is cached, a CAM sees no reps (fails closed). `GET /admin/cams` shows the result.
+unreachable and nothing is cached, a CAM sees no reps (fails closed). `GET /admin/cams` shows the result, plus an `unmatched` list: CAM ids on orders that have no `internal_user` row (no name or
+email to match a login to). Add such a CAM to `engine/camOverrides.ts` (id → name and email); an `internal_user` row always wins.
+`GET /admin/cams?debug=Name,Name` shows the order shares behind anyone's pairing.
 
 ## What a CAM can reach
 A CAM account is a `repAccounts` row with `cam: true` and `rep` = the CAM's name. The check is in one place,

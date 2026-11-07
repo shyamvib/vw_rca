@@ -77,6 +77,7 @@ if (has("--apply")) {
 
 // ---- where the CAMs come from: a list file, or the analytics service (Cube) ---------------------------------------------
 let cams;
+let body = null; // the service response (carries the CAM ids with no internal_user row)
 if (val("--list")) {
   // One per line: a name, then a work email (anything else on the line, such as blank columns, is ignored).
   cams = readFileSync(val("--list"), "utf8")
@@ -99,13 +100,17 @@ if (val("--list")) {
     console.error(`The service answered ${res.status}. Check SERVICE_URL and ADMIN_SECRET, and that the service is running the CAM build.`);
     process.exit(1);
   }
-  cams = (await res.json()).cams;
+  body = await res.json();
+  cams = body.cams;
   console.log(`${cams.length} client account managers in Cube\n`);
   for (const c of cams) {
     const leads = [...new Set(c.reps.map(r => r.teamLead || "—"))];
     console.log(`${c.name.padEnd(28)} ${(c.email || "(no email found)").padEnd(40)} ${String(c.reps.length).padStart(3)} reps · team leads: ${leads.join(", ")}`);
   }
 }
+
+if (!val("--list") && body?.unmatched?.length)
+  console.log(`\nCAM ids on orders with no internal_user row (add them to engine/camOverrides.ts to sign them in):\n${body.unmatched.map(u => `  id ${u.camId}: ${u.reps.map(r => `${r.rep} (${r.teamLead || "—"}, ${r.orders} orders)`).join(", ")}`).join("\n")}`);
 
 if (!has("--create") && !has("--generate")) {
   console.log("\nList only. Add --generate --out <file.csv> (passwords only) or --create --out <file.csv> (make the logins).");

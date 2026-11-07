@@ -76,3 +76,16 @@ test("buildCams pairs a CAM with the reps whose orders carry their id, and takes
   assert.equal(cams[0].email, "cam.one@vibrant-wellness.com");
   assert.deepEqual(cams[0].reps.map(r => r.name), ["Bob", "Ann"]); // sorted by team lead (Kim, Lee); Cy's 2% is not enough
 });
+
+test("a CAM id with no internal_user row is paired only when an override names it", () => {
+  const users = [{ id: "2", name: "Sara", email: "s@x" }, { id: "3", name: "William", email: "w@x" }];
+  const pairs = [
+    { salesId: "2", camId: "1541", teamLead: "Suzi", orders: 509 },
+    { salesId: "3", camId: "1541", teamLead: "Suzi", orders: 1573 },
+  ];
+  assert.equal(buildCams(users, pairs).length, 0);
+  const cams = buildCams(users, pairs, 0.25, { "1541": { name: "Akanksha Sharma", email: "Akanksha.S@vibrant-wellness.com" } });
+  assert.equal(cams.length, 1);
+  assert.equal(cams[0].email, "akanksha.s@vibrant-wellness.com");
+  assert.deepEqual(cams[0].reps.map(r => r.name), ["Sara", "William"]);
+});

@@ -34,7 +34,7 @@ import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
 import { checkJira } from "../analytics/jira";
 import { CamDenied, guardCamCall } from "./camGuard";
-import { allCams, camDiagnostics, repsOfCam } from "./cams";
+import { allCams, camDiagnostics, repsOfCam, unmatchedCamIds } from "./cams";
 import type { Mode } from "./builder";
 
 /** Which code is running. engine/VERSION is filled in by `git archive` (export-subst), so a tarball or image built from a commit
@@ -335,7 +335,7 @@ const server = http.createServer(async (req, res) => {
       if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
       const dbg = url.searchParams.get("debug");
       if (dbg) return send(res, 200, await camDiagnostics(dbg.split(",").filter(t => t.trim().length >= 2).slice(0, 6)));
-      return send(res, 200, { cams: await allCams() });
+      return send(res, 200, { cams: await allCams(), unmatched: await unmatchedCamIds() });
     }
     if (url.pathname === "/admin/rebuild" && req.method === "POST") {
       if (!ADMIN_SECRET || req.headers["x-admin-secret"] !== ADMIN_SECRET) return send(res, 403, { error: "forbidden" });
