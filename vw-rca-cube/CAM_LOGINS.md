@@ -37,5 +37,8 @@ remove a CAM's login; set a new password there to replace a one-time one.
 ## Known limits
 - A CAM opens one rep at a time. There is no combined "all my reps" book yet (team scopes are keyed on team lead, and a CAM's
   reps can span several leads).
-- No clinic search box and no Settings-side actions (marking whitespace, rep windows) for CAMs.
+- Clinic and provider search work, limited to the CAM's reps: the clinic search runs once per paired rep and merges the hits (each
+  ranked inside that rep's own book); provider hits are cut down to the CAM's reps, and a provider card opens only when every
+  salesperson on the provider's recent orders is one of the CAM's reps.
+- No Settings-side actions for CAMs (marking whitespace, rep windows).
 - Both halves must be deployed before the first CAM signs in: the analytics service (guard and pairing) and Convex (the `cam` flag on accounts).

@@ -185,3 +185,22 @@ export async function camDiagnostics(terms: string[]) {
     }),
   };
 }
+
+/**
+ * Salespeople on a provider's (customer's) orders in the window, by name. A sales id with no internal_user name is listed as "?",
+ * so the guard treats it as someone else's. Empty when the id is not numeric or has no orders. Used to open a provider card.
+ */
+export async function ownersOfProvider(customerId: string): Promise<string[]> {
+  if (!/^\d+$/.test(customerId)) return [];
+  await allCams();
+  const name = new Map((raw?.users ?? []).map(u => [text(u.id), text(u.name)]));
+  const { rows: cubeRows, orderDays, eq, O } = await import("../analytics/cube");
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const end = new Date();
+  const start = new Date(end.getTime() - WINDOW_DAYS * 86_400_000);
+  const data = await cubeRows(
+    { dimensions: [`${O}.sales_id`], filters: [eq(`${O}.customer_id`, customerId)], timeDimensions: orderDays(day(start), day(end)) },
+    { [`${O}.sales_id`]: "salesId" },
+  );
+  return [...new Set(data.map(r => name.get(text(r.salesId)) || "?"))];
+}

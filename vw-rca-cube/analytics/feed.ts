@@ -1027,12 +1027,14 @@ async function searchClinics(ctx: QueryCtx, term: string, sales?: string) {
 }
 
 export const clinicSearch = scopedQuery({
-  args: { term: v.string() },
-  handler: async (ctx, { term }) =>
+  // `sales`: one rep's book. A rep login is pinned to its own name; the CAM guard (engine/camGuard.ts) runs the search once per
+  // paired rep so each hit is ranked inside that rep's own book, as in the rep's own view.
+  args: { term: v.string(), sales: v.optional(v.string()) },
+  handler: async (ctx, { term, sales }) =>
     await searchClinics(
       ctx,
       term,
-      ctx.viewer.kind === "rep" ? ctx.viewer.rep : undefined,
+      ctx.viewer.kind === "rep" ? ctx.viewer.rep : sales || undefined,
     ),
 });
 

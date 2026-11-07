@@ -34,7 +34,7 @@ import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
 import { checkJira } from "../analytics/jira";
 import { CamDenied, guardCamCall } from "./camGuard";
-import { allCams, camDiagnostics, repsOfCam, unmatchedCamIds } from "./cams";
+import { allCams, camDiagnostics, ownersOfProvider, repsOfCam, unmatchedCamIds } from "./cams";
 import type { Mode } from "./builder";
 
 /** Which code is running. engine/VERSION is filled in by `git archive` (export-subst), so a tarball or image built from a commit
@@ -362,6 +362,8 @@ const server = http.createServer(async (req, res) => {
       }
       let callArgs: Record<string, unknown> = args;
       let camFilter: ((v: unknown) => unknown) | undefined;
+      let camCalls: Array<Record<string, unknown>> | undefined;
+      let camMerge: ((results: unknown[]) => unknown) | undefined;
       if (cred.startsWith("rs:")) {
         const s = await repSession(cred);
         if (s?.cam) {
@@ -375,10 +377,14 @@ const server = http.createServer(async (req, res) => {
           for (const k of ["clinic"]) if (typeof args[k] === "string") ids.add(args[k] as string);
           if (Array.isArray(args.clinics)) for (const c of args.clinics.slice(0, 5000)) if (typeof c === "string") ids.add(c);
           for (const id of ids) owners.set(id, await ownerOf(id));
+          const providers = new Map<string, string[]>();
+          if (typeof args.provider === "string" && args.provider) providers.set(args.provider, await ownersOfProvider(args.provider).catch(() => []));
           try {
-            const g = guardCamCall(name, args, { reps, ownerOf: c => owners.get(c) });
+            const g = guardCamCall(name, args, { reps, ownerOf: c => owners.get(c), providerOwners: p => providers.get(p) });
             callArgs = g.args;
             camFilter = g.filter;
+            camCalls = g.calls;
+            camMerge = g.merge;
           } catch (e) {
             if (e instanceof CamDenied) return send(res, 403, { error: e.message });
             throw e;
@@ -388,7 +394,13 @@ const server = http.createServer(async (req, res) => {
       }
       let value: unknown;
       try {
-        value = await current.host.invokeExternal(name, callArgs);
+        if (camCalls && camMerge) {
+          // One run per paired rep (a few at a time), merged into one answer.
+          const results: unknown[] = [];
+          for (let i = 0; i < camCalls.length; i += 4)
+            results.push(...(await Promise.all(camCalls.slice(i, i + 4).map(a => current!.host.invokeExternal(name, a)))));
+          value = camMerge(results);
+        } else value = await current.host.invokeExternal(name, callArgs);
         if (camFilter) value = camFilter(value);
       } catch (e) {
         // Only guesses at the shared team password count: rep tokens are random and unguessable, and an office of reps behind one

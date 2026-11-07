@@ -25,7 +25,7 @@ test("teamLead is refused on every call", () => {
 });
 
 test("anything not listed is refused", () => {
-  for (const name of ["feed:feed", "clinics:clinicDrill", "feed:clinicSearch", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "nope:nope"]) denied(name, { sales: "Ann" });
+  for (const name of ["feed:feed", "clinics:clinicDrill", "geo:teamLeads", "config:setRepWindow", "config:repWindow", "refresh:refreshNow", "insights:list", "plan:list", "nope:nope"]) denied(name, { sales: "Ann" });
 });
 
 test("clinic lookups need a clinic in the CAM's reps' books", () => {
@@ -37,8 +37,8 @@ test("clinic lookups need a clinic in the CAM's reps' books", () => {
   denied("newClinicTouches:newClinicTouches", { clinics: ["c1", "c9"] });
   denied("newClinicTouches:newClinicTouches", { clinics: "c1" });
   ok("clinicalTouch:clinicalTouch", { clinic: "c1" });
-  denied("clinicalTouch:clinicalTouch", { clinic: "c1", provider: "Dr X" });
-  denied("clinicalTouch:clinicalTouch", { provider: "Dr X" });
+  denied("clinicalTouch:clinicalTouch", { clinic: "c9" });
+  denied("clinicalTouch:clinicalTouch", {}); // neither a clinic nor a provider
 });
 
 test("lists that cover other people are cut down to the CAM's reps", () => {
@@ -96,4 +96,29 @@ test("the dashboard shell's whole-book calls need one of the CAM's reps", () => 
     denied(name, { periodId: "all" }); // no rep chosen yet: the frontend skips these calls
     denied(name, { periodId: "all", sales: "Zed" });
   }
+});
+
+test("clinic search runs once per paired rep and merges the hits", () => {
+  const g = ok("feed:clinicSearch", { term: "smith" });
+  assert.deepEqual(g.calls?.map(c => c.sales).sort(), ["Ann", "Bob"]);
+  assert.ok(g.calls?.every(c => c.term === "smith" && c.password === "rs:x"));
+  const merged = g.merge?.([
+    { ready: true, matches: [{ delta: -5, clinic: "a" }, { delta: -1, clinic: "b" }] },
+    { ready: false, matches: [{ delta: -9, clinic: "c" }] },
+  ]) as { ready: boolean; matches: Array<{ clinic: string }> };
+  assert.equal(merged.ready, true);
+  assert.deepEqual(merged.matches.map(m => m.clinic), ["c", "a", "b"]);
+  // The caller cannot aim the search at a rep, or at anyone outside the CAM's reps.
+  denied("feed:clinicSearch", { term: "smith", sales: "Zed" });
+  denied("feed:clinicSearch", { term: "smith", sales: "Ann" });
+});
+
+test("a provider card opens only when every rep on the provider's orders is the CAM's", () => {
+  const owned: Record<string, string[]> = { "100": ["Ann"], "101": ["Ann", "Bob"], "102": ["Ann", "Zed"], "103": ["?"], "104": [] };
+  const s = { ...scope, providerOwners: (p: string) => owned[p] };
+  const call = (args: Record<string, unknown>) => guardCamCall("clinicalTouch:clinicalTouch", { password: "rs:x", ...args }, s);
+  call({ provider: "100" });
+  call({ provider: "101" });
+  for (const p of ["102", "103", "104", "999"]) assert.throws(() => call({ provider: p }), CamDenied);
+  assert.throws(() => call({ provider: "100", clinic: "c9" }), CamDenied); // an owned provider does not make a foreign clinic ok
 });

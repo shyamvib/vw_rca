@@ -1963,16 +1963,14 @@ export function RcaDashboardPage() {
               <span className="rca-rep-badge">
                 {isLead ? (salesRep.startsWith("team:") ? <>Viewing <strong>{salesRep.slice(5)}</strong>'s whole team</> : salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
               </span>
-              {isCam ? null : (
-                <input
-                  className="rca-search-input"
-                  type="search"
-                  placeholder="Search clinic…"
-                  aria-label="Search clinic"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              )}
+              <input
+                className="rca-search-input"
+                type="search"
+                placeholder="Search clinic…"
+                aria-label="Search clinic"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
               <input
                 className="rca-search-input"
                 type="search"
