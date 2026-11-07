@@ -368,7 +368,7 @@ const server = http.createServer(async (req, res) => {
           const providers = new Map<string, string[]>();
           if (typeof args.provider === "string" && args.provider) providers.set(args.provider, await ownersOfProvider(args.provider).catch(() => []));
           try {
-            const g = guardCamCall(name, args, { reps, repList, ownerOf: c => owners.get(c), providerOwners: p => providers.get(p) });
+            const g = guardCamCall(name, args, { reps, repList, camName: s.rep, ownerOf: c => owners.get(c), providerOwners: p => providers.get(p) });
             callArgs = g.args;
             camFilter = g.filter;
             camCalls = g.calls;

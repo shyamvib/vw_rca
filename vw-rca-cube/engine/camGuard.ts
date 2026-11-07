@@ -20,6 +20,8 @@ export type CamScope = {
   reps: ReadonlySet<string>;
   /** Salesperson that owns the clinic in the current snapshot, or undefined when the clinic is unknown. */
   ownerOf: (clinic: string) => string | undefined;
+  /** The CAM's name, as shown on tickets they raise. */
+  camName?: string;
   /** The CAM's reps with their team leads, for the rep picker (rides along on the page's first call). */
   repList?: ReadonlyArray<{ name: string; teamLead: string }>;
   /** Salespeople whose recent orders carry this provider (customer) id; empty or undefined when unknown. */
@@ -42,6 +44,8 @@ type Rule = {
   forbid?: string[];
   /** Cuts the result down to the CAM's reps. */
   filter?: (value: unknown, scope: CamScope) => unknown;
+  /** Sets arguments only the service may set (the browser's own values for them are dropped first). */
+  stamp?: (scope: CamScope) => Args;
   /** Runs the call once per rep (with `sales` set to that rep) and merges the answers. */
   fanOut?: (results: unknown[]) => unknown;
 };
@@ -85,7 +89,7 @@ export const CAM_RULES: Record<string, Rule> = {
   "geo:geoSummary": BOOK,
   "geo:scopeTotals": BOOK,
   "feed:repQuestions": BOOK,
-  "feed:raiseQuestion": { sales: true },
+  "feed:raiseQuestion": { sales: true, stamp: scope => ({ asCam: scope.camName }) },
   // Clinic-level lookups: the clinic must sit in one of the CAM's reps' books.
   "families:portfolioAction": { clinic: ["clinic"] },
   "families:customersAction": { clinic: ["clinic"] },
@@ -158,6 +162,12 @@ export function guardCamCall(
   }
   // Never let the caller's own team scope through, even if a handler would accept it.
   delete out.teamLead;
+  // Arguments only the service sets: a browser's own value is dropped, then ours (if any) is added.
+  if (rule.stamp) {
+    const stamped = rule.stamp(scope);
+    for (const k of Object.keys(stamped)) delete out[k];
+    Object.assign(out, Object.fromEntries(Object.entries(stamped).filter(([, v]) => v !== undefined)));
+  }
   const filter = rule.filter;
   if (rule.fanOut) {
     const reps = [...scope.reps].slice(0, 40);

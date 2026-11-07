@@ -179,3 +179,12 @@ test("cam-compare's diff finds real differences and ignores rounding and per-req
   assert.equal(diff({ rows: [{ x: 1 }] }, { rows: [{ x: 1 }, { x: 2 }] }).length, 1);
   assert.equal(diff({ n: "a" }, { n: "b" }).length, 1);
 });
+
+test("a ticket raised by a CAM is stamped with the CAM's name, and the browser cannot choose it", () => {
+  const sc = { ...scope, camName: "Cam One" };
+  const g = guardCamCall("feed:raiseQuestion", { password: "rs:x", question: "q", sales: "Ann", asCam: "Someone Else" }, sc);
+  assert.equal(g.args.asCam, "Cam One");
+  const none = guardCamCall("feed:raiseQuestion", { password: "rs:x", question: "q", sales: "Ann", asCam: "Spoof" }, scope);
+  assert.equal("asCam" in none.args, false);
+  denied("feed:raiseQuestion", { question: "q", sales: "Zed" });
+});
