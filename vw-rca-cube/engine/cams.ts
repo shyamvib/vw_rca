@@ -18,6 +18,7 @@ const SHARE = 0.25;
 
 export type CamRep = { name: string; teamLead: string };
 export type Cam = { camId: string; name: string; email: string; reps: CamRep[] };
+let raw: { users: Array<Record<string, unknown>>; pairs: Array<Record<string, unknown>> } | null = null;
 let cache: { at: number; cams: Cam[] } | null = null;
 let inflight: Promise<Cam[]> | null = null;
 
@@ -84,6 +85,7 @@ async function fetchCams(): Promise<Cam[]> {
       { [`${O}.sales_id`]: "salesId", [`${O}.cam_id`]: "camId", [`${O}.team_lead`]: "teamLead", [`${O}.orders`]: "orders" },
     ),
   ]);
+  raw = { users, pairs };
   return buildCams(users, pairs);
 }
 
@@ -118,4 +120,44 @@ export async function repsOfCam(who: string, email: string): Promise<CamRep[]> {
   const byEmail = e ? cams.filter(c => c.email === e) : [];
   const hit = byEmail.length ? byEmail : cams.filter(c => c.name.toLowerCase() === who.trim().toLowerCase());
   return hit.flatMap(c => c.reps);
+}
+
+/**
+ * Why is someone (not) paired? For each search term: matching internal_user rows, the order shares of any rep whose name matches
+ * (who their orders list as CAM, and how big a share each CAM holds), and, for a CAM whose name matches, every rep their id is on.
+ * Admin-only (see /admin/cams?debug=Name,Name). Share is the fraction of the rep's orders in the window; SHARE is the cut-off.
+ */
+export async function camDiagnostics(terms: string[]) {
+  await allCams();
+  const { users, pairs } = raw ?? { users: [], pairs: [] };
+  const name = new Map(users.map(u => [text(u.id), text(u.name)]));
+  const total = new Map<string, number>();
+  for (const p of pairs) total.set(text(p.salesId), (total.get(text(p.salesId)) ?? 0) + Number(p.orders ?? 0));
+  const share = (p: Record<string, unknown>) => Math.round((Number(p.orders ?? 0) / (total.get(text(p.salesId)) || 1)) * 1000) / 10;
+  const row = (p: Record<string, unknown>) => ({
+    rep: name.get(text(p.salesId)) ?? `(no user ${text(p.salesId)})`,
+    teamLead: text(p.teamLead),
+    cam: text(p.camId) ? `${name.get(text(p.camId)) ?? "(no internal_user row)"} [id ${text(p.camId)}]` : "(no CAM on these orders)",
+    orders: Number(p.orders ?? 0),
+    sharePct: share(p),
+    paired: share(p) >= SHARE * 100 && !!text(p.camId),
+  });
+  return {
+    windowDays: WINDOW_DAYS,
+    minSharePct: SHARE * 100,
+    terms: terms.map(t => {
+      const q = t.trim().toLowerCase();
+      const hit = (u: Record<string, unknown>) => `${text(u.name)} ${text(u.email)}`.toLowerCase().includes(q);
+      const matched = users.filter(hit);
+      const ids = new Set(matched.map(u => text(u.id)));
+      return {
+        term: t,
+        users: matched.slice(0, 10).map(u => ({ id: text(u.id), name: text(u.name), email: text(u.email) })),
+        // orders of the reps who match the term
+        asRep: pairs.filter(p => ids.has(text(p.salesId))).map(row).sort((a, b) => a.rep.localeCompare(b.rep) || b.sharePct - a.sharePct),
+        // orders that carry the matching person's id as CAM
+        asCam: pairs.filter(p => ids.has(text(p.camId))).map(row).sort((a, b) => b.orders - a.orders),
+      };
+    }),
+  };
 }
