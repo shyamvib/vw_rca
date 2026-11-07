@@ -34,6 +34,7 @@ import { Host, loadExport } from "./host";
 import { verifyPassword } from "../analytics/password";
 import { checkJira } from "../analytics/jira";
 import { CamDenied, guardCamCall } from "./camGuard";
+import { mirrorRep as mirrorInto } from "./mirror";
 import { allCams, camDiagnostics, ownersOfProvider, repsOfCam, unmatchedCamIds } from "./cams";
 import type { Mode } from "./builder";
 
@@ -74,20 +75,6 @@ async function repSession(credential: string): Promise<RepSess | null> {
   const value = (await convex.query("repAuth:me" as any, { credential })) as RepSess | null;
   sessionCache.set(credential, { at: Date.now(), value });
   return value;
-}
-
-/** Mirror a verified rep session into the in-memory db so the handlers' own login check passes. */
-async function mirrorRep(l: Loaded, credential: string, s: RepSess) {
-  const db = l.host.db;
-  const token = credential.slice(3);
-  const sess = await db.query("repSessions").withIndex("by_token", q => q.eq("token", token)).unique();
-  const now = Date.now();
-  if (sess) await db.patch(sess._id, { lastSeen: now, rep: s.rep, email: s.email });
-  else await db.insert("repSessions", { token, email: s.email, rep: s.rep, createdAt: now, lastSeen: now });
-  const acct = await db.query("repAccounts").withIndex("by_email", q => q.eq("email", s.email)).unique();
-  // `all` = a rep-view-only login that may open any rep's book: the handlers read it from this mirrored account.
-  if (acct) await db.patch(acct._id, { rep: s.rep, allReps: s.all === true });
-  else await db.insert("repAccounts", { email: s.email, rep: s.rep, allReps: s.all === true, salt: "", hash: "", createdAt: now, updatedAt: now });
 }
 
 /** Refresh the user-edited app-state tables (target, window, eligibility, plans) from Convex. */
@@ -389,8 +376,8 @@ const server = http.createServer(async (req, res) => {
             if (e instanceof CamDenied) return send(res, 403, { error: e.message });
             throw e;
           }
-          await mirrorRep(current, cred, { ...s, all: true });
-        } else if (s) await mirrorRep(current, cred, s);
+          await mirrorInto(current.host.db, cred, { ...s, all: true });
+        } else if (s) await mirrorInto(current.host.db, cred, s);
       }
       let value: unknown;
       try {

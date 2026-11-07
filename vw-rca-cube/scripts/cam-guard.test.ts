@@ -134,3 +134,30 @@ test("the page's first call and the rep panels", () => {
   }
   denied("families:unmappedTestsAction", { periodId: "all" }); // team only
 });
+
+test("mirroring a session from many parallel requests leaves one session and one account", async () => {
+  const { mirrorRep } = await import("../engine/mirror.ts");
+  // A slow in-memory db: every call yields first, as real I/O would, so unserialised callers interleave.
+  const tables: Record<string, Array<Record<string, any>>> = { repSessions: [], repAccounts: [] };
+  let n = 0;
+  const tick = () => new Promise(r => setImmediate(r));
+  const db = {
+    query: (table: string) => ({ withIndex: (_: string, range: (q: any) => any) => {
+      let field = "", value = "";
+      range({ eq: (f: string, v: string) => { field = f; value = v; return {}; } });
+      return { collect: async () => { await tick(); return tables[table].filter(r => r[field] === value); } };
+    } }),
+    insert: async (table: string, v: Record<string, unknown>) => { await tick(); tables[table].push({ ...v, _id: `id${++n}` }); },
+    patch: async (id: string, p: Record<string, unknown>) => { await tick(); for (const t of Object.values(tables)) for (const r of t) if (r._id === id) Object.assign(r, p); },
+    delete: async (id: string) => { await tick(); for (const k of Object.keys(tables)) tables[k] = tables[k].filter(r => r._id !== id); },
+  };
+  const s = { rep: "Cam One", email: "cam@x", all: true };
+  await Promise.all(Array.from({ length: 8 }, () => mirrorRep(db, "rs:tok", s)));
+  assert.equal(tables.repSessions.length, 1);
+  assert.equal(tables.repAccounts.length, 1);
+  assert.equal(tables.repAccounts[0].allReps, true);
+  // and duplicates left behind by an older build are cleaned up on the next mirror
+  tables.repAccounts.push({ _id: "dup1", email: "cam@x" }, { _id: "dup2", email: "cam@x" });
+  await mirrorRep(db, "rs:tok", s);
+  assert.equal(tables.repAccounts.length, 1);
+});
