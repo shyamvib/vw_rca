@@ -40,10 +40,22 @@ const writeOwnerOnly = (file, rows) => {
 const parseCsv = text =>
   text.trim().split("\n").map(l => [...l.matchAll(/"((?:[^"]|"")*)"|([^,]+)/g)].map(m => (m[1] ?? m[2]).replace(/""/g, '"').trim()));
 
+/** Reads the CLI's reply: it prints the result over several lines, as JSON or JS-style ({ ok: true }), with colour codes. */
+const parseReply = raw => {
+  const text = raw.replace(/\x1b\[[0-9;]*m/g, "");
+  const body = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  try {
+    return JSON.parse(body);
+  } catch {
+    const ok = body.match(/\bok\W+(true|false)\b/);
+    if (!ok) throw new Error(`Could not read the Convex reply: ${text.trim().slice(0, 300) || "(empty)"}`);
+    return { ok: ok[1] === "true", error: body.match(/\berror\W+(['"`])([\s\S]*?)\1/)?.[2] };
+  }
+};
+
 const run = payload => {
   const cli = ["convex", "run", "repAuth:adminUpsert", JSON.stringify(payload), ...(has("--prod") ? ["--prod"] : [])];
-  const text = execFileSync("npx", cli, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return JSON.parse(text.trim().split("\n").filter(l => l.trim().startsWith("{")).pop() ?? "{}");
+  return parseReply(execFileSync("npx", cli, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
 };
 
 /** Creates the account, or (when it exists) only sets its CAM flag. Returns "made" | "kept" | an error string. */
