@@ -7,7 +7,10 @@
  *
  *   SERVICE_URL=https://<engine-url> CONVEX_URL=https://<prod>.convex.cloud \
  *   CAM_EMAIL=emma.b@vibrant-wellness.com CAM_PASSWORD=... TEAM_EMAIL=you@vibrant-wellness.com TEAM_PASSWORD=... \
- *   node scripts/cam-compare.mjs [--rep "Rep Name"] [--outsider "Some Other Rep"]
+ *   node scripts/cam-compare.mjs [--rep "Rep Name"] [--outsider "Some Other Rep"] [--leaderboard-only]
+ *
+ * --leaderboard-only prints what the service returns for the leaderboard (rows, team leads, and how many survive the rail's own
+ * filters) as the CAM and as the team login, side by side, and stops. Use it when the rail shows fewer reps than expected.
  *
  * Passwords come from the environment, never from arguments (they would land in shell history). Read-only: it only reads data. It
  * signs in once as the CAM, which adds one line to the access log.
@@ -79,6 +82,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   ];
   let bad = 0;
   let compared = 0;
+  if (args.includes("--leaderboard-only")) {
+    // What the rail does with the rows (RepView rankBoard): drop reps with no target in the window and the team leads themselves.
+    const shape = rows => {
+      const leads = new Set(rows.map(r => r.teamLead).filter(x => x && x !== "—"));
+      const kept = rows.filter(r => r.expected > 0 && !leads.has(r.name));
+      const byLead = {};
+      for (const r of kept) byLead[r.teamLead ?? "—"] = (byLead[r.teamLead ?? "—"] ?? 0) + 1;
+      return { rows: rows.length, teamLeadsInRows: leads.size, shownInRail: kept.length, noTarget: rows.filter(r => !(r.expected > 0)).length, byTeamLead: byLead };
+    };
+    for (const [pid, label] of windows) {
+      const [cam, team] = await Promise.all([rpc("geo:salesReps", CAM, { periodId: pid }), rpc("geo:salesReps", TEAM, { periodId: pid })]);
+      console.log(`\n${label} (${pid})`);
+      for (const [who, r] of [["CAM ", cam], ["team", team]]) console.log(`  ${who}: ${r.ok ? JSON.stringify(shape(r.value)) : `${r.status} ${r.error}`}`);
+    }
+    process.exit(0);
+  }
   for (const rep of reps) {
     for (const [pid, label] of windows)
       for (const [name, mk] of CALLS) {
