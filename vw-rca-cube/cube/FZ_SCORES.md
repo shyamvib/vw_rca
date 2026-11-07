@@ -163,17 +163,18 @@ in `~/cube-rca/model-backups/` and restarts Cube.
   - *led to an order* = not Optimal, no product before or with the FZ, and the Zoomer (or Baseline) ordered later;
   - *still open* = a target (`is_target`);
   - *at stake* = Baseline–Zoomer price per open result; *likely* = at the area's conversion rate;
-  - *cross-sell* = FZ orders open in 2+ areas, with the most common pairs per clinic.
-  The panel also shows the company's follow-up rate in the same window.
-- **Where it is in the Rep view:** Product families → **Foundation Zoomer** tile (its second line: "FZ targets ·
-  N clinics · $"). Selecting it shows the **FZ score targets** panel above the matrix (KPIs, a two-line note for
-  the rep, one button per Zoomer) and turns **Expansion × Cross-sell candidates** into the FZ clinic list: Zoomer
-  buttons (counting clinics), Top 20% only, KPIs for what is picked, every clinic's usual columns plus "FZ open" and
-  "At stake". Expanding a clinic shows its FZ breakdown per Zoomer, a one-line reason with the price, the pairs to
-  pitch together, then the clinic card. The always-on FZ card, product block, list and Stack mix cell were removed.
-- **Windows:** This · Last toggle on the Week, Month and Quarter tabs. "Show all results on file" now really means
-  every FZ result (from 2026-02-20), not the dashboard's analysis window (from 2026-05-01). No "last year": there
-  is no FZ data before 2026-02-20.
+  - *cross-sell* = FZ orders open in 2+ areas (kept in the data; on the page only as "one patient needs more than one
+    of these" in the clinic note; the KPI was removed 2026-11-06 as unclear for sales).
+  The clinic list also shows the company's follow-up rate in the same window.
+- **Where it is in the Rep view:** Product families → **Foundation Zoomer** tile. Selecting it turns
+  **Expansion × Cross-sell candidates** into the FZ clinic list: Zoomer buttons (counting clinics), Top 20% only,
+  KPIs and a two-line note for what is picked, every clinic's usual columns plus "FZ open" and "At stake". Expanding
+  a clinic shows a plain-language note (Why call / Suggest / Ask the provider), one chip per Zoomer, then the clinic
+  card. Removed on 2026-11-06 at Thiru's request: the FZ score targets panel above the matrix, the "FZ targets · N
+  clinics · $" line on the tile, the cross-sell KPI, and "Show all results on file".
+- **Windows:** This · Last toggle on the Week, Month and Quarter tabs. The engine's `"all"` window means every FZ
+  result (from 2026-02-20), not the dashboard's analysis window (from 2026-05-01). No "last year": there is no FZ
+  data before 2026-02-20.
 - **Numbers after the fix**, company-wide (`team:*`): Q3 317 clinics, 2,893 FZ results pointing to a Zoomer,
   39 led to an order, 2,854 open, $1.36M–$1.50M at stake; Q4 to date 142 clinics, 550 / 8 / 542, $259K–$286K.
   The sales story: about **1 in 75** FZ results that point to a Zoomer leads to one.

@@ -2353,9 +2353,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
   const hz: Fam | undefined = (fams?.all ?? []).find((f: Fam) => /hormone\s*zoomer/i.test(f.family));
   const totalRev = b.totals.actual;
   const pgd = usePG(sales, periodId);
-  // FZ targets follow the window; when it has no results the rep can widen just the FZ blocks to every result on file.
-  const [fzAll, setFzAll] = useState(false);
-  const fz = useFz(sales, fzAll ? "all" : periodId);
+  // FZ targets follow the window (Foundation Zoomer selected → Cross-sell candidates opens the FZ clinic list).
+  const fz = useFz(sales, periodId);
   const [wsFam, setWsFam] = useState<string>("");
   const famList = useMemo(() => {
     const t = new Map<string, number>();
@@ -2544,7 +2543,6 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
                   <span>{f.family}</span>
                   <b>{f.orders.toFixed(0)} orders</b>
                   <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
-                  {isFzFamily(f.family) && fzTileLine(fz) ? <em className="rv-fz-tile">{fzTileLine(fz)}</em> : null}
                 </button>
               );
             })}
@@ -2602,7 +2600,6 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
           </table>
         </div>
       ) : null}
-      {isFz ? <FzPanel fz={fz} wide={fzAll} onWide={setFzAll} onOpen={a => openFz(a)} /> : null}
       <div className={`rv-matrix${picked ? " has-pick" : ""}`}>
         <div className="rv-mx-h">Pillar</div>
         <div className="rv-mx-h">Outcome<span>Did it happen?</span></div>
@@ -4574,12 +4571,6 @@ const FZ_NOT_READY: Record<string, string> = {
 /** Followed-up share, or null when nothing was flagged. */
 const fzRate = (followed: number, flagged: number) => (flagged ? followed / flagged : null);
 
-/** Second line on the Foundation Zoomer family tile. */
-function fzTileLine(fz: FzResp): string | null {
-  if (!fz?.ready || !fz.totals.clinics) return null;
-  return `FZ targets · ${plural(fz.totals.clinics, "clinic")} · ${KR(fz.totals.low, fz.totals.high)}`;
-}
-
 /** Expansion × Cross-sell candidates while Foundation Zoomer is selected: the clinics whose FZ results point to other Zoomers. */
 function fzCrossCell(fz: FzResp): Cell {
   const label = "Cross-sell candidates";
@@ -4610,8 +4601,7 @@ function fzContrib(fz: FzReady): Contribution {
 const fzRowLine = (c?: FzClinicRow) =>
   c ? `${c.products.filter(p => p.open).map(p => `${p.product} ${p.open}`).join(" · ")} · ${KR(c.low, c.high)} at stake${c.isTop20 ? " · top 20% clinic" : ""}` : "";
 
-type FzWide = { wide?: boolean; onWide?: (v: boolean) => void };
-function FzStatus({ fz, wide, onWide }: { fz: FzResp } & FzWide) {
+function FzStatus({ fz }: { fz: FzResp }) {
   if (fz === undefined) return <p className="rv-dim rv-small">Loading FZ scores…</p>;
   if (!fz.ready) return <p className="rv-dim rv-small">{FZ_NOT_READY[fz.reason] ?? "FZ scores are not available."}</p>;
   const year = fz.scoresThrough.slice(0, 4);
@@ -4622,13 +4612,6 @@ function FzStatus({ fz, wide, onWide }: { fz: FzResp } & FzWide) {
         {fz.allOnFile ? " (every result on file)" : ""}. Latest result on file: {fmtD(fz.scoresThrough)}. <b>Top 20%</b> = the
         company's top 20% of clinics by {year} revenue to date.
       </p>
-      {!fz.totals.flagged && !wide && onWide ? (
-        <p className="rv-small">
-          No FZ results that point to a Zoomer came back in this window.{" "}
-          <button type="button" className="rca-tab" onClick={() => onWide(true)}>Show all results on file</button>
-        </p>
-      ) : null}
-      {wide && onWide ? <button type="button" className="rca-tab" onClick={() => onWide(false)}>Back to the selected window</button> : null}
     </div>
   );
 }
@@ -4654,33 +4637,6 @@ function fzSalesNote(t: Pick<FzTotals, "flagged" | "followed" | "open">, who: st
   const what = product ? `point to ${product}` : "point to a Zoomer";
   return `${t.flagged} FZ results in ${who} ${what}; only ${t.followed} led to an order, so ${t.open} are still open. ` +
     `Ask each provider what the plan is for those patients: the list shows which Zoomer and why, clinic by clinic.`;
-}
-
-/** Above the matrix while Foundation Zoomer is selected. */
-function FzPanel({ fz, wide, onWide, onOpen }: { fz: FzResp; onOpen: (area?: string) => void } & FzWide) {
-  const ready = fz?.ready ? fz : null;
-  return (
-    <div className="rv-fz-card" data-tour="rv-fz-card">
-      <div className="rv-sec-head">
-        <h2>FZ score targets<Info k="fz" /></h2>
-        {ready?.clinics.length ? <button type="button" className="rca-tab is-active" onClick={() => onOpen()}>See clinics →</button> : null}
-      </div>
-      {ready?.totals.flagged ? (
-        <>
-          <FzKpis t={ready.totals} company={ready.company} />
-          <p className="rv-fz-say">{fzSalesNote(ready.totals, "your book")}</p>
-          <div className="rv-famchips">
-            {ready.products.filter(p => p.open).map(p => (
-              <button type="button" key={p.area} onClick={() => onOpen(p.area)} title={`${p.flagged} FZ results point to ${p.product}; ${p.followed} led to an order. ${P(p.rate)} of similar results company-wide led to an order.`}>
-                {p.product} · {plural(p.clinics, "clinic")} · {p.open} open
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
-      <FzStatus fz={fz} wide={wide} onWide={onWide} />
-    </div>
-  );
 }
 
 /** Expanded clinic row: a short note in plain words for the rep, then one chip per Zoomer (details on hover). */

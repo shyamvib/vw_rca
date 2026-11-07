@@ -889,7 +889,6 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-fz-kpis span { font-size: 12px; color: var(--text-secondary); }
 .rv-fz-note p { margin: 6px 0; }
 /* FZ score targets v2: Foundation Zoomer tile line, sales note, clinic-list lead, expanded breakdown */
-.rv-famcard em.rv-fz-tile { color: var(--vw-blue); font-weight: 600; }
 .rv-fz-say { margin: 4px 0 10px; font-size: 13px; }
 .rv-fz-kpis b small { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
 .rv-fz-lead { padding: 4px 0 8px; }
