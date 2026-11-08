@@ -1027,12 +1027,14 @@ async function searchClinics(ctx: QueryCtx, term: string, sales?: string) {
 }
 
 export const clinicSearch = scopedQuery({
-  args: { term: v.string() },
-  handler: async (ctx, { term }) =>
+  // `sales`: one rep's book. A rep login is pinned to its own name; the CAM guard (engine/camGuard.ts) runs the search once per
+  // paired rep so each hit is ranked inside that rep's own book, as in the rep's own view.
+  args: { term: v.string(), sales: v.optional(v.string()) },
+  handler: async (ctx, { term, sales }) =>
     await searchClinics(
       ctx,
       term,
-      ctx.viewer.kind === "rep" ? ctx.viewer.rep : undefined,
+      ctx.viewer.kind === "rep" ? ctx.viewer.rep : sales || undefined,
     ),
 });
 
@@ -1140,14 +1142,17 @@ export const raiseQuestion = scopedAction({
     context: v.optional(v.string()),
     card: v.optional(v.object({ id: v.string(), question: v.string(), fact: v.string() })),
     sales: v.optional(v.string()),
+    // Set by the CAM guard (engine/camGuard.ts), never by the browser: the account manager's name, so the ticket's Scope line says so.
+    asCam: v.optional(v.string()),
   },
-  handler: async (ctx, { question, email, context, card, sales }): Promise<{ ok: true; key?: string; url?: string }> => {
+  handler: async (ctx, { question, email, context, card, sales, asCam }): Promise<{ ok: true; key?: string; url?: string }> => {
     const q = question.trim();
     if (!q) throw new Error("Question is empty.");
     if (q.length > 4000) throw new Error("Question is too long (4000 characters at most).");
     const who = (ctx.viewer.email ?? email ?? "").trim() || "unknown (email not captured)";
     const scope =
       ctx.viewer.kind === "rep" ? `Rep login, ${ctx.viewer.rep}'s book`
+      : ctx.viewer.kind === "lead" && asCam ? `Account manager login (${asCam})${sales ? `, looking at ${sales}'s book` : ""}`
       : ctx.viewer.kind === "lead" ? `Manager login${sales ? (isTeamScope(sales) ? `, looking at ${teamOf(sales)}'s whole team` : `, looking at ${sales}'s book`) : ""}`
       : "Team login, company-wide";
     const now = Date.now();

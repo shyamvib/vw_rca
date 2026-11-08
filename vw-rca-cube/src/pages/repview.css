@@ -270,7 +270,12 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 
 /* Round 3 (Shyam, 2026-09-28): rail leaderboard, Great Job banner, tree
  * simplify/exact toggle, inline focus table, thermometer legend, chips. */
-.rv-rail-lb-wrap { max-height: 320px; overflow-y: auto; }
+/* The whole board shows: 320px cut it at 8 reps and hid the rest behind a scrollbar that macOS keeps invisible, so "All reps" looked
+   the same as one team. A long board still scrolls inside the rail, now with a scrollbar that stays visible. */
+.rv-rail-lb-wrap { max-height: 62vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #5a5a5a transparent; }
+.rv-rail-lb-wrap::-webkit-scrollbar { width: 6px; }
+.rv-rail-lb-wrap::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 3px; }
+.rv-rail-lb-wrap::-webkit-scrollbar-track { background: transparent; }
 .rv-rail-lb { display: flex; flex-direction: column; gap: 2px; }
 .rv-rail-lb-row { display: grid; grid-template-columns: 18px 1fr auto 14px; gap: 8px; align-items: center; padding: 6px 4px; border-top: 1px solid #2c2c2c; font-size: 12px; }
 .rv-rail-lb-row.me { background: rgba(255,255,255,.06); border-radius: 3px; }

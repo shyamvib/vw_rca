@@ -56,8 +56,9 @@ export function setEmail(value: string) {
  */
 export const REP_KEY = "vw-rca-rep";
 
-/** `all`: a rep-view-only login that may open any rep's book (no dashboard, no business feed). */
-export type RepSession = { rep: string; email: string; all?: boolean };
+/** `all`: a rep-view-only login that may open any rep's book (no dashboard, no business feed). `cam`: a client account manager,
+ * rep view only and limited to the reps paired with them (`rep` holds their name); the analytics service enforces the limit. */
+export type RepSession = { rep: string; email: string; all?: boolean; cam?: boolean };
 
 export function repSession(): RepSession | null {
   try {

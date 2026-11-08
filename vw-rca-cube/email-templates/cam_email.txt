@@ -1,0 +1,31 @@
+Hi {{FIRST_NAME}},
+
+You now have access to the Sales KPI dashboard as a client account manager. It shows, for each salesperson you work with, how their book of clinics is doing against its goal, which clinics to call first, and a plan for their selling week. Everything in it is built from your reps' clinics, and nothing else is shown.
+
+YOUR REPS
+{{REPS_TEXT}}
+  The list follows who you are paired with as their client account manager, so it updates on its own if that changes.
+
+YOUR SIGN-IN DETAILS
+  Link:              {{LINK}}
+  Email:             {{EMAIL}}
+  One-time password: {{PASSWORD}}
+
+YOUR FIRST FIVE MINUTES
+  1. Sign in with the email and password above. Use your work email exactly as shown.
+  2. Pick a rep. The first screen lists your reps by team lead; use "Switch rep" (left side) to move between them.
+  3. Press "Quick tour" (top right) for a short walk through each section, then open Today's agenda to see who that rep should call first.
+
+WHERE TO FIND THINGS
+  Business feed .............. questions about the rep's book, answered in four steps
+  This week / month / quarter  your scorecard against goal, with the clinics behind every number
+  Search ..................... "Search clinic" and "Search provider" (top bar) find clinics and providers in your reps' books
+  Scorecard guide ............ every metric explained in plain words
+  FAQ and Raise a question ... the FAQ button (top bar) explains terms; "Raise a question" (left side) asks the analytics team
+
+PLEASE KEEP THIS PRIVATE
+The login shows your reps' clinics' data and is just for you. Do not forward this email or share the password. If you stay away for two weeks you are signed out and simply sign in again. If you lose the password or suspect someone else has it, tell us and we will reset it.
+
+Questions or trouble signing in? Contact Decision Intelligence at biziQ@vibrant-wellness.com
+
+You received this email because an account was created for {{EMAIL}}. Internal use only.

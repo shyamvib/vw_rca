@@ -77,6 +77,9 @@ export function RepView(props: {
   canSwitchRep?: boolean;
   /** A VP of sales: the lead's own name, which names the "All reps (my team)" scope. */
   teamName?: string;
+  /** A client account manager: the rep list is their paired reps, grouped under each rep's team lead. */
+  isCam?: boolean;
+  repLeads?: Record<string, string>;
   periodId: string;
   periodLabel: string;
   weeks: RepViewPeriod[];
@@ -311,12 +314,26 @@ export function RepView(props: {
     return (
       <div className="rv-pick">
         <h2>Sales rep view</h2>
-        <p>Pick a rep to open their day, week and scorecard{props.teamName ? ", or open your whole team as one book" : ""}.</p>
+        <p>{props.isCam ? "Pick one of your reps to open their day, week and scorecard." : <>Pick a rep to open their day, week and scorecard{props.teamName ? ", or open your whole team as one book" : ""}.</>}</p>
         {props.teamName ? (
           <div className="rv-pick-team">
             <button type="button" onClick={() => props.onPickRep(`team:${props.teamName}`)}>All reps · my team ({props.teamName} and every rep under them)</button>
           </div>
         ) : null}
+        {props.isCam && !props.reps.length ? <p className="rv-dim">No salespeople are paired with your account yet. If that looks wrong, ask the Decision Intelligence team.</p> : null}
+        {props.isCam ? (
+          // A CAM's reps, grouped under their team lead.
+          Object.entries(props.reps.reduce<Record<string, string[]>>((g, r) => { const l = props.repLeads?.[r] || "Other"; (g[l] ??= []).push(r); return g; }, {}))
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([lead, names]) => (
+              <div key={lead}>
+                <div className="rv-eyebrow" style={{ margin: "14px 0 6px" }}>{lead === "Other" ? "Other" : `Team lead · ${lead}`}</div>
+                <div className="rv-pick-list">
+                  {names.map(r => <button key={r} type="button" onClick={() => props.onPickRep(r)}>{r}</button>)}
+                </div>
+              </div>
+            ))
+        ) : (
         <div className="rv-pick-list">
           {props.reps.map(r => (
             <button key={r} type="button" onClick={() => props.onPickRep(r)}>
@@ -324,6 +341,7 @@ export function RepView(props: {
             </button>
           ))}
         </div>
+        )}
       </div>
     );
   }
