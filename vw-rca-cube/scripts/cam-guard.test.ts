@@ -18,6 +18,13 @@ test("a rep's book: only the CAM's own reps", () => {
   denied("repView:book", { periodId: "all", sales: "team:Ann" });
 });
 
+test("FZ score targets: only the CAM's own reps", () => {
+  assert.equal(ok("fzScores:clinics", { periodId: "q:2026-Q4", sales: "Ann" }).args.sales, "Ann");
+  denied("fzScores:clinics", { periodId: "q:2026-Q4", sales: "Zed" });
+  denied("fzScores:clinics", { periodId: "q:2026-Q4", sales: "team:*" });
+  denied("fzScores:clinics", { periodId: "q:2026-Q4" });
+});
+
 test("teamLead is refused on every call", () => {
   denied("repView:book", { periodId: "all", sales: "Ann", teamLead: "Lee" });
   denied("geo:salesReps", { periodId: "all", teamLead: "Lee" });

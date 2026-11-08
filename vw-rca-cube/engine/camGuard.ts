@@ -72,6 +72,8 @@ const BOOK: Rule = { sales: true };
 export const CAM_RULES: Record<string, Rule> = {
   // One rep's book and everything the rep view computes from it.
   "repView:book": BOOK,
+  // FZ score targets (Foundation Zoomer -> Cross-sell candidates): same shape as the book, one rep only.
+  "fzScores:clinics": BOOK,
   "repView:pace": BOOK,
   "repView:clinicDetail": BOOK,
   "repView:rowsByFocus": BOOK,
