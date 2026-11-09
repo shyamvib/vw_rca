@@ -3925,6 +3925,13 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
   const fz = useFz(sales, periodId);
   const wsAll = pgd.data ? fzWhitespace(pgd.elig, pgd.data.clinics) : null;
   const xs = fz?.ready && fz.totals.clinics ? fzCrossSell(fz) : null;
+  // Each card can hide its action line and clinic names (kept per browser); the number, the dollars and the buttons stay.
+  const [folded, setFolded] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("rv-opp-folded") || "{}"); } catch { return {}; } });
+  const fold = (id: string) => setFolded(f => {
+    const n = { ...f, [id]: !f[id] };
+    try { localStorage.setItem("rv-opp-folded", JSON.stringify(n)); } catch { /* it just opens again next visit */ }
+    return n;
+  });
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   if (!o) return null;
@@ -3994,13 +4001,22 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
                 ) : (
                   <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
                 )}
-                <p className="rv-opp-act">{c.action}</p>
-                <p className="rv-opp-nm">
-                  {(c.names ?? []).slice(0, 3).map((x, i) => (
-                    <span key={x.clinic}>{i ? ", " : ""}<button type="button" onClick={() => onOpenClinic(x.clinic)}>{x.name}</button></span>
-                  ))}
-                  {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
-                </p>
+                {(c.names ?? []).length ? (
+                  <button type="button" className="rv-opp-fold" data-tour={`opp-${c.id}-fold`} aria-expanded={!folded[c.id]} onClick={() => fold(c.id)}>
+                    {folded[c.id] ? "▸ Show clinics" : "▾ Hide clinics"}
+                  </button>
+                ) : null}
+                {folded[c.id] ? null : (
+                  <>
+                    <p className="rv-opp-act">{c.action}</p>
+                    <p className="rv-opp-nm">
+                      {(c.names ?? []).slice(0, 3).map((x, i) => (
+                        <span key={x.clinic}>{i ? ", " : ""}<button type="button" onClick={() => onOpenClinic(x.clinic)}>{x.name}</button></span>
+                      ))}
+                      {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
+                    </p>
+                  </>
+                )}
                 <div className="rv-opp-btns">
                   {planning ? (
                     <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>

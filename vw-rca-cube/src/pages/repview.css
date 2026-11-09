@@ -933,3 +933,7 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-news-body p { margin: 0 0 8px; line-height: 1.55; }
 .rv-news-body ul { margin: 0 0 14px; padding-left: 20px; line-height: 1.55; }
 @media (max-width: 640px) { .rv-news-item { grid-template-columns: 1fr; gap: 6px; } }
+
+/* Opportunity agenda: hide / show a card's clinics */
+.rv-opp-fold { align-self: flex-start; margin: 6px 0 2px; padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--vw-blue); cursor: pointer; }
+.rv-opp-fold:hover { color: var(--vw-blue-hover); text-decoration: underline; }
