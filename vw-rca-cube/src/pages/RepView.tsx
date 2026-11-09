@@ -392,7 +392,7 @@ export function RepView(props: {
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
-        <nav className="rv-nav">
+        <nav className="rv-nav" data-tour="rv-nav">
           {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
             <button
               key={t}
@@ -2665,7 +2665,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} data-fz={isFz && c.label === "Cross-sell candidates" && c.ids?.length ? "ready" : undefined} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}{c.tenureTag ? <em className="rv-allp"> · {c.tenureTag}</em> : null}
                   <i className={c.tone} />
@@ -2711,11 +2711,6 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
       {pillar === "Product Growth" ? (
         <>
           {(sales ?? "").startsWith("team:") ? <p className="rv-dim rv-small">Product whitespace is marked rep by rep. Pick a rep to mark or review their clinics.</p> : <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />}
-        </>
-      ) : null}
-      {pillar === "Expansion" || pillar === EXISTING ? (
-        <>
-          <CrossSellList pg={pg} />
         </>
       ) : null}
     </>
@@ -3240,8 +3235,8 @@ function FocusTable({
     else { setSortKey(k); setSortDir(firstDir(k)); }
   };
   const arrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
-  const th = (k: string, text: string, cls = "", title?: string) => (
-    <th className={`${cls} rv-sort`.trim()} title={title ?? "Click to sort"} onClick={() => sortBy(k)}>{text}{arrow(k)}</th>
+  const th = (k: string, text: string, cls = "", title?: string, tour?: string) => (
+    <th data-tour={tour} className={`${cls} rv-sort`.trim()} title={title ?? "Click to sort"} onClick={() => sortBy(k)}>{text}{arrow(k)}</th>
   );
 
   const healthOptions = useMemo(() => {
@@ -3356,7 +3351,7 @@ function FocusTable({
                     {th("clinic", "Clinic")}
                     {th("state", "State")}
                     {th("cohort", "Cohort")}
-                    {(extraCols ?? []).map(c => <Fragment key={c.key}>{th(c.key, c.label, "rca-num", c.title)}</Fragment>)}
+                    {(extraCols ?? []).map(c => <Fragment key={c.key}>{th(c.key, c.label, "rca-num", c.title, `list-col-${c.key}`)}</Fragment>)}
                     {gap ? th("gap", gapLabel ?? "Orders short", "rca-num", "Orders short of what the clinic's baseline implies: click to sort") : null}
                     {th("baseline", "Baseline", "rca-num", "Mean run rate over the baseline window. Click to sort")}
                     {th("goal", "Goal", "rca-num", "Baseline plus the stretch: the yearly target spread over the year by baseline weekday weights. Click to sort")}
@@ -3902,8 +3897,8 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
 
 const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "Bundle growth", crosssell: "Expansion" };
 
-function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning, switcher, tourLink }: {
-  sales: string; periodId: string; /** The window buttons, shown inside the agenda's header. */ switcher?: React.ReactNode; /** The tour link: shown only when there is a Foundation Zoomer cross-sell list to walk through. */ tourLink?: React.ReactNode; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
+function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning, switcher, onGetClinics }: {
+  sales: string; periodId: string; /** The window buttons, shown inside the agenda's header. */ switcher?: React.ReactNode; /** Cross-sell card's "Get clinics": starts the Foundation Zoomer tour (or, with no tour set up, opens the scorecard on it). */ onGetClinics: () => void; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
 }) {
   const o = b.opp;
   const pgd = usePG(sales, periodId);
@@ -3937,7 +3932,7 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
       <div className="rv-opp-head">
         <div>
           <h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2>
-          <div className="rv-opp-switch">{switcher}{xs ? tourLink : null}</div>
+          <div className="rv-opp-switch">{switcher}</div>
           <div className="rv-opp-sub">The Opportunity column of your scorecard ({windowLabel}'s book), turned into today's work.{planning ? " Add what you'll act on." : " Switch to This week to add cards to today's plan."}</div>
         </div>
         <div className="rv-opp-tot">
@@ -3966,7 +3961,12 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
               </>
             ) : (
               <>
-                <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
+                {c.id === "crosssell" ? (
+                  // The list lives in the scorecard (Get clinics walks you there); there is no list under the agenda for this card.
+                  <div className="rv-opp-v">{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics</small></div>
+                ) : (
+                  <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
+                )}
                 <p className="rv-opp-act">{c.action}</p>
                 <p className="rv-opp-nm">
                   {(c.names ?? []).slice(0, 3).map((x, i) => (
@@ -3980,7 +3980,11 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
                       {planned[c.id] ? "✓ Added" : "Add to today"}
                     </button>
                   ) : null}
-                  <button type="button" className="rv-opp-link" data-tour={`opp-${c.id}-scorecard`} onClick={() => onScorecard(c.label, c.tag ? "fz" : undefined)}>See in scorecard</button>
+                  {c.id === "crosssell" ? (
+                    <button type="button" className="rv-opp-get" data-tour="opp-crosssell-get" onClick={onGetClinics}>Get clinics</button>
+                  ) : (
+                    <button type="button" className="rv-opp-link" data-tour={`opp-${c.id}-scorecard`} onClick={() => onScorecard(c.label, c.tag ? "fz" : undefined)}>See in scorecard</button>
+                  )}
                 </div>
               </>
             )}
@@ -4023,10 +4027,11 @@ function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onO
       })}
     </div>
   );
-  const tourLink = fzTourAvailable ? <button type="button" className="rv-explain" data-tour="opp-take-tour" onClick={startFzTour}>Tour: Foundation Zoomer cross-sell</button> : null;
+  // "Get clinics" starts the guided tour (window list on the left -> Foundation Zoomer card -> Cross-sell -> the list); with no tour set up it opens the scorecard on it.
+  const getClinics = () => (fzTourAvailable ? startFzTour() : onScorecard("Cross-sell candidates", "fz", grain));
   return b ? (
     <OppAgenda key={grain} b={b} st={st ?? undefined} planned={planned} onToggle={onToggle} onOpenClinic={onOpenClinic} sales={sales} periodId={pid}
-      windowLabel={g.phrase} planning={grain === "week"} switcher={switcher} tourLink={tourLink} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
+      windowLabel={g.phrase} planning={grain === "week"} switcher={switcher} onGetClinics={getClinics} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
   ) : (
     <div className="rv-opp">
       <div className="rv-opp-head"><div><h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2><div className="rv-opp-switch">{switcher}</div></div></div>
@@ -4713,11 +4718,11 @@ function FzStatus({ fz }: { fz: FzResp }) {
 }
 
 /** KPI strip for a set of FZ numbers (the whole book, or one Zoomer's clinics). */
-function FzKpis({ t, company }: { t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
+function FzKpis({ t, company, tour }: { tour?: string; t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
   const r = fzRate(t.followed, t.flagged);
   const cr = company ? fzRate(company.followed, company.flagged) : null;
   return (
-    <div className="rv-fz-kpis">
+    <div className="rv-fz-kpis" data-tour={tour}>
       <div><b>{t.clinics}</b><span>clinics to call{t.topClinics ? ` · ${t.topClinics} in the top 20%` : ""}</span></div>
       <div><b>{t.flagged}</b><span>FZ results pointing to a Zoomer</span></div>
       <div><b>{t.followed} <small>({P(r)})</small></b><span>led to a Zoomer order{cr !== null ? ` · company ${P(cr)}` : ""}</span></div>
@@ -4844,7 +4849,7 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
             ))}
             <button type="button" data-tour="fz-top20" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
           </div>
-          <FzKpis t={t} />
+          <FzKpis t={t} tour="fz-kpis" />
           <p className="rv-fz-say" data-tour="fz-list-say">{fzSalesNote(t, "this list", prodName)}</p>
           <FzStatus fz={fz} />
         </div>
@@ -4852,29 +4857,6 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
     />
   );
 }
-
-function CrossSellList({ pg }: { pg: PGStats | null }) {
-  if (!pg) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product mix…</p>;
-  return (
-    <div className="rv-ws">
-      <div className="rv-sec-head">
-        <h2>Cross-sell candidates</h2>
-        <span>{pg.xs.length} clinics · {K(pg.xsUp)} est. upside</span>
-      </div>
-      <p className="rv-dim rv-small">Clinics ordering this window that have only ever bought 1–2 product families. Suggested family = what clinics with the same mix buy most. Upside = their current spend per family, i.e. one more family at today's rate (estimate).</p>
-      <div className="rv-ws-list">
-        {pg.xs.slice(0, 60).map(x => (
-          <div className="rv-ws-row" key={x.clinic}>
-            <b>{x.name}</b>
-            <span className="rv-mono rv-dim">has {x.has.join(" + ")} → pitch <b>{x.suggest}</b> · {K(x.up)} upside</span>
-          </div>
-        ))}
-        {!pg.xs.length ? <p className="rv-dim rv-small">No candidates in this window.</p> : null}
-      </div>
-    </div>
-  );
-}
-
 
 /* ── Dial / progress-bar meters (Shyam, 2026-10-13) ───────────────────── */
 type MeterStyle = "dial" | "bar";

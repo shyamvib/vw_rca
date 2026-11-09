@@ -75,8 +75,8 @@ export function startGzRepTour() {
 /** True once the Foundation Zoomer cross-sell tour is configured. */
 export const fzTourAvailable = !!(TOKEN && FZ_FLOW);
 
-/** Start the Foundation Zoomer cross-sell tour from the Opportunity agenda: waits for the agenda's window switch, which is its first target. */
+/** Start the Foundation Zoomer cross-sell tour from the Opportunity agenda's "Get clinics": its first target is the window list in the left rail. */
 export function startFzTour() {
   if (!TOKEN || !FZ_FLOW || !ready) return;
-  startWhenReady(FZ_FLOW, '[data-tour="opp-grain"]', 10000);
+  startWhenReady(FZ_FLOW, '[data-tour="rv-nav"]', 10000);
 }

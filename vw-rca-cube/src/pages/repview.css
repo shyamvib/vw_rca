@@ -906,3 +906,5 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 /* Opportunity agenda: the window buttons and the tour link, inside the agenda's own header */
 .rv-opp-switch { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 8px 0 6px; }
 .rv-opp-switch .rv-win-toggle { margin: 0; }
+.rv-opp-get { border: 0; border-radius: 4px; background: var(--vw-ink); color: #fff; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 7px 12px; cursor: pointer; }
+.rv-opp-get:hover { background: #2a2a2a; }

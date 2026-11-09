@@ -40,10 +40,10 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `ov-cell-list` | Clinic list opened from a scorecard cell |
 | `rv-nav-<tab>` (e.g. `rv-nav-custom`) | Rep view left-rail tabs |
 | `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
-| `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard` | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, and its "See in scorecard" button. Cross-sell and Whitespace are Foundation Zoomer only. |
+| `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard`, `opp-crosssell-get` | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, its "See in scorecard" button (the Cross-sell card has "Get clinics", `opp-crosssell-get`, instead, and no list or scorecard button). Cross-sell and Whitespace are Foundation Zoomer only. |
 | `opp-grain`, `opp-grain-week`, `opp-grain-month`, `opp-grain-quarter`, `opp-grain-custom` | The agenda's window switch (This week / This month / This quarter / Custom window) and its four buttons |
-| `opp-take-tour` | The "Tour: Foundation Zoomer cross-sell" link in the agenda header |
-| `fz-zoomers`, `fz-top20`, `fz-list-say`, `fz-breakdown`, `list-first-row` | Inside the FZ clinic list: the Zoomer filter chips (and Top 20% only), the Top 20% button, the plain-words summary, a clinic's expanded breakdown, and the first row of any clinic list table |
+| `rv-nav` | The rep view's left rail list (Today's agenda, My week plan, Business feed, the window tabs, Scorecard guide); the window tabs also have `rv-nav-<tab>` and carry `is-on` when open |
+| `fz-kpis`, `fz-zoomers`, `fz-top20`, `fz-list-say`, `fz-breakdown`, `list-col-<key>` (`list-col-fzOpen`, `list-col-fzStake`), `list-first-row` | Inside the FZ clinic list: the KPI strip, the Zoomer filter chips, the Top 20% button, the plain-words summary, a clinic's expanded breakdown, the FZ columns' headings, and the first row of any clinic list table. The Foundation Zoomer cross-sell cell also carries `data-fz="ready"` once its list can open |
 
 ## Suggested Overview tour
 1. `ov-headline`: the one-sentence read of where revenue stands.
@@ -77,5 +77,13 @@ On the rep view's Today's agenda, a switch above the Opportunity agenda picks it
 
 A tour that goes agenda -> scorecard -> list: `opp-grain-<window>` (pick a window), `opp-crosssell` (explain), `opp-crosssell-scorecard` (click; the page changes tab), `rv-sc-cross-sell-candidates` (click; opens the list), `rv-sc-list` (explain). The step after the tab change must wait for its target, because a tooltip step whose target is missing ends the whole flow.
 
-### The Foundation Zoomer cross-sell flow (draft)
-Flow "Foundation Zoomer cross-sell list (rep view)": Pick a window (`opp-grain`) -> Cross-sell card (`opp-crosssell`) -> **click** See in scorecard (`opp-crosssell-scorecard`) -> [hidden wait: `rv-sc-cross-sell-candidates` present] -> **click** the scorecard cell -> [hidden wait: `rv-sc-list` present] -> the list -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> **click** the first clinic (`list-first-row`) -> [hidden wait: `fz-breakdown` present] -> the breakdown -> Done. No start rule: the app starts it (`startFzTour`) from the agenda link. The hidden "wait" steps are what carry the tour across the tab change and the list opening: a tooltip step whose target is missing ends the whole flow, and these steps only move on once the next target is on the page (the page scrolls both the cell and the list into view, which "present" requires). The link is shown only when the agenda has a cross-sell list, because a rep with no open FZ results has no See in scorecard button on that card.
+### The Foundation Zoomer cross-sell flow
+Flow "Foundation Zoomer cross-sell list (rep view)" (id `cmw8uvl8e0h3mw9w5vsz6ia7n`). Started by **Get clinics** on the Opportunity agenda's Cross-sell card (`startFzTour`); with no flow configured the button opens the scorecard on Foundation Zoomer instead. No start rule.
+
+1. **Pick a window** on the left rail (`rv-nav`). Advances when any window tab (`rv-nav-week|month|quarter|custom`) is open (`.is-on`).
+2. [hidden wait: the Foundation Zoomer card exists] -> **click the Foundation Zoomer card** (`rv-fam-foundation-zoomer`).
+3. [hidden wait: the cross-sell cell is `data-fz="ready"`] -> **click Cross-sell candidates** (`rv-sc-cross-sell-candidates`).
+4. [hidden wait: the list exists] -> the list (`rv-sc-list`) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open column (`list-col-fzOpen`) -> At stake column (`list-col-fzStake`).
+5. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown -> Done.
+
+The hidden wait steps use the element condition "unclicked", which only needs the element in the page: the "present" condition also needs it inside the viewport, and several targets are below the fold until the tooltip scrolls to them. The waits also carry the tour across tab changes and the list opening, because a tooltip step whose target is missing ends the whole flow. A rep with no open FZ results never gets the `data-fz="ready"` cell, so the tour waits invisibly at step 3: the Cross-sell card shows "no open FZ results in this window" and no Get clinics button in that case.
