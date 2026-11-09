@@ -24,6 +24,7 @@ import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
 import { findFzFamily, fzCrossSell, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
+import { QuietBoundary } from "@/components/QuietBoundary";
 import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, formatAnnouncementDate, hasUnseenAnnouncement, latestAnnouncementId, type Announcement } from "@/lib/announcements";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
 import { fzTourAvailable, gzRepTourAvailable, startFzTour, startGzRepTour } from "@/lib/usertour";
@@ -510,7 +511,7 @@ export function RepView(props: {
             <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
-            <NewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} />
+            <QuietBoundary><NewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
@@ -4116,22 +4117,28 @@ function NewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: strin
   );
 }
 
+/** Admins only: tells them the banner is hidden for everyone and lets them show it again. */
+function BannerRestore() {
+  const dismissed = useQuery(api.banners.dismissed, { password: pw() });
+  const restore = useMutation(api.banners.restore);
+  if (!dismissed?.includes(FZ_ANNOUNCEMENT_ID)) return null;
+  return (
+    <p className="rv-dim rv-small">
+      The Foundation Zoomer banner on Today's agenda is hidden for everyone.{" "}
+      <button type="button" className="rv-opp-link" onClick={() => void restore({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID })}>Show it again</button>
+    </p>
+  );
+}
+
 /** The What's new page: every feature update, newest first, each with the date it shipped. */
 function NewsPage({ isAdmin, onTab, onGetClinics }: { isAdmin: boolean; onTab: (t: "today" | "feed" | "week" | "month" | "quarter") => void; onGetClinics: () => void }) {
-  const dismissed = useQuery(api.banners.dismissed, isAdmin ? { password: pw() } : "skip");
-  const restore = useMutation(api.banners.restore);
   const run = (a: NonNullable<Announcement["action"]>) => (a.kind === "tab" ? onTab(a.tab) : onGetClinics());
   return (
     <div className="rv-news" data-tour="news-page">
       <div className="rv-eyebrow">What's new</div>
       <h1 className="rv-h1">Feature updates</h1>
       <p className="rv-dim rv-small">Everything new in the rep view, newest first, with the day it reached you.</p>
-      {isAdmin && dismissed?.includes(FZ_ANNOUNCEMENT_ID) ? (
-        <p className="rv-dim rv-small">
-          The Foundation Zoomer banner on Today's agenda is hidden for everyone.{" "}
-          <button type="button" className="rv-opp-link" onClick={() => void restore({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID })}>Show it again</button>
-        </p>
-      ) : null}
+      {isAdmin ? <QuietBoundary><BannerRestore /></QuietBoundary> : null}
       {ANNOUNCEMENTS.map(a => (
         <article className="rv-news-item" key={a.id} data-tour={`news-${a.id}`}>
           <div className="rv-news-date">{formatAnnouncementDate(a.date)}</div>
