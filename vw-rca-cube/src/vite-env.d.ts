@@ -12,6 +12,7 @@ interface ImportMetaEnv {
   readonly VITE_USERTOUR_OVERVIEW_FLOW?: string;
   readonly VITE_USERTOUR_GZ_FLOW?: string;
   readonly VITE_USERTOUR_GZ_REP_FLOW?: string;
+  readonly VITE_USERTOUR_FZ_FLOW?: string;
 }
 
 interface ImportMeta {

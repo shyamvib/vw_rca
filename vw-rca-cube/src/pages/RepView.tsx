@@ -23,12 +23,15 @@ import { RaiseQuestionDialog } from "./RaiseQuestion";
 import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
+import { findFzFamily, fzCrossSell, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
+import { QuietBoundary } from "@/components/QuietBoundary";
+import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, formatAnnouncementDate, hasUnseenAnnouncement, latestAnnouncementId, type Announcement } from "@/lib/announcements";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
-import { gzRepTourAvailable, startGzRepTour } from "@/lib/usertour";
+import { fzTourAvailable, gzRepTourAvailable, startFzTour, startGzRepTour } from "@/lib/usertour";
 
 const tourSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
+type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard" | "news";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
 
 const K = (n: number) => {
@@ -156,21 +159,26 @@ export function RepView(props: {
               ? { id: selWeek?.id, prevId: before("week")?.id, label: `${word("week")} week` }
               : { id: thisWeek?.id, prevId: lastWeek?.id, label: "This week" };
   // The scorecard lives in each window tab now; "See in scorecard" jumps to This week and highlights the cell.
-  const openScorecard = (focus: string | null = null) => {
+  const openScorecard = (focus: string | null = null, fam?: string, grain: "week" | "month" | "quarter" | "custom" = "week") => {
     setScFocus(focus);
-    setTab("week");
+    setScFam(fam ?? null);
+    // The tab of the window the agenda was showing, as "This ...": a tab left on "Last month" would show another period than the card.
+    if (grain !== "custom") setLast(grain, false);
+    setTab(grain);
   };
+  // Banner and What's new page: start the Foundation Zoomer tour; with no tour set up, open the scorecard on Foundation Zoomer instead.
+  const startFzFromNews = () => (fzTourAvailable ? startFzTour() : openScorecard("Cross-sell candidates", "fz", "week"));
   // Business Feed "Find Gut Zoomer clinics": the question quotes the whole analysis window, which is the Custom tab (periodId "all"),
   // not this week. Make sure the scorecard is shown there, then start the tour once the family cards are on the page.
   const findGz = () => {
     try { localStorage.setItem("rv-scorecard-open", "1"); } catch { /* the scorecard shows by default anyway */ }
     setSearchSel(null);
-    setScFocus(null);
+    setScFocus(null); setScFam(null);
     setTab("custom");
     startGzRepTour();
   };
   // "Explain this metric" on the scorecard opens the guide tab at that metric.
-  guideNav.go = () => { setSearchSel(null); setScFocus(null); setTab("scorecard"); };
+  guideNav.go = () => { setSearchSel(null); setScFocus(null); setScFam(null); setTab("scorecard"); };
   // Prior same-shape window for the scorecard's WoW/MoM/QoQ chips (Shyam, 2026-10-13).
   const prevFor = (pid: string | undefined) => {
     for (const list of [days, weeks, months, quarters] as Array<Array<{ id: string; label: string }>>) {
@@ -254,7 +262,18 @@ export function RepView(props: {
     api.leadFamilies.salesFamilies,
     sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
   );
+  // "What's new": the newest announcement the person has opened (kept in this browser), and the FZ tour both the banner and the page start.
+  const [newsSeen, setNewsSeen] = useState<string | null>(() => { try { return localStorage.getItem("rv-news-seen"); } catch { return null; } });
+  const markNewsSeen = () => {
+    const id = latestAnnouncementId();
+    if (!id) return;
+    setNewsSeen(id);
+    try { localStorage.setItem("rv-news-seen", id); } catch { /* the dot just comes back next visit */ }
+  };
+  useEffect(() => { if (tab === "news") markNewsSeen(); }, [tab]);
   const [scFocus, setScFocus] = useState<string | null>(null);
+  // A product family the scorecard should open scoped to ("fz" = Foundation Zoomer), set by the agenda's "See in scorecard".
+  const [scFam, setScFam] = useState<string | null>(null);
   const [planned, setPlanned] = useState<Record<string, boolean>>({});
   const planKey = `rv-opp-plan:${sales}:${thisWeek?.id ?? ""}`;
   useEffect(() => { try { setPlanned(JSON.parse(localStorage.getItem(planKey) || "{}")); } catch { setPlanned({}); } }, [planKey]);
@@ -386,14 +405,14 @@ export function RepView(props: {
         <div className="rv-rep-sub">
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
-        <nav className="rv-nav">
-          {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
+        <nav className="rv-nav" data-tour="rv-nav">
+          {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard", "news"] as Tab[]).map(t => (
             <button
               key={t}
               type="button"
               data-tour={`rv-nav-${t}`}
               className={tab === t ? "is-on" : ""}
-              onClick={() => { setTab(t); setSearchSel(null); setScFocus(null); }}
+              onClick={() => { setTab(t); setSearchSel(null); setScFocus(null); setScFam(null); }}
             >
               {t === "today"
                 ? "Today's agenda"
@@ -409,7 +428,10 @@ export function RepView(props: {
                       ? `${word("quarter")} quarter`
                       : t === "custom"
                         ? `Custom · ${periodLabel}`
-                        : "Scorecard guide"}
+                        : t === "news"
+                          ? "What's new"
+                          : "Scorecard guide"}
+              {t === "news" && hasUnseenAnnouncement(newsSeen) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
             </button>
           ))}
         </nav>
@@ -489,18 +511,19 @@ export function RepView(props: {
             <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
+            <QuietBoundary><NewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
-                <OppAgenda
-                  b={wb}
-                  st={pillarStatus(wb, weekFams)}
+                <OppAgendaWindows
+                  wb={wb}
+                  sales={sales}
+                  periods={{ week: thisWeek, month: thisMonth, quarter: thisQuarter }}
+                  customId={periodId}
                   planned={planned}
                   onToggle={togglePlanned}
                   onOpenClinic={setClinicSel}
-                  sales={sales}
-                  periodId={thisWeek?.id ?? ""}
-                  onScorecard={cell => openScorecard(cell)}
+                  onScorecard={(cell, fam, grain) => openScorecard(cell, fam, grain)}
                 />
               ) : null}
               b={tb}
@@ -550,6 +573,7 @@ export function RepView(props: {
               planBeat={planBeat}
               prev={prevFor(selWeek.id)}
               scFocus={scFocus}
+              scFam={scFam}
             />
             {isLast("week") ? null : <TouchKpis sales={sales} w="week" src={kpiSrc} />}
             </>
@@ -572,6 +596,8 @@ export function RepView(props: {
               showFunnel
               planBeat={planBeat}
               prev={prevFor(selMonth.id)}
+              scFocus={scFocus}
+              scFam={scFam}
             />
             {isLast("month") ? null : <TouchKpis sales={sales} w="month" src={kpiSrc} />}
             </>
@@ -594,6 +620,8 @@ export function RepView(props: {
               showFunnel
               planBeat={planBeat}
               prev={prevFor(selQuarter.id)}
+              scFocus={scFocus}
+              scFam={scFam}
             />
             {isLast("quarter") ? null : <TouchKpis sales={sales} w="quarter" src={kpiSrc} />}
             </>
@@ -612,10 +640,14 @@ export function RepView(props: {
               showFunnel={b.days >= 28}
               planBeat={planBeat}
               prev={prevFor(periodId)}
+              scFocus={scFocus}
+              scFam={scFam}
             />
           )
+        ) : tab === "news" ? (
+          <NewsPage isAdmin={!isRep} onTab={t => setTab(t)} onGetClinics={startFzFromNews} />
         ) : (
-          <ScorecardGuide onOpen={t => { setScFocus(null); setTab(t); }} />
+          <ScorecardGuide onOpen={t => { setScFocus(null); setScFam(null); setTab(t); }} />
         )}
       </main>
       {askOpen ? (
@@ -623,7 +655,7 @@ export function RepView(props: {
           onClose={() => setAskOpen(false)}
           sales={sales}
           withCards={tab === "feed"}
-          context={`Rep view · ${{ today: "Today's agenda", plan: "My week plan", feed: "Business feed", week: "This week", month: "This month", quarter: "This quarter", custom: "Custom dates", scorecard: "Scorecard guide" }[tab]}`}
+          context={`Rep view · ${{ today: "Today's agenda", plan: "My week plan", feed: "Business feed", week: "This week", month: "This month", quarter: "This quarter", custom: "Custom dates", scorecard: "Scorecard guide", news: "What's new" }[tab]}`}
         />
       ) : null}
       {clinicSel ? (
@@ -1121,7 +1153,7 @@ function Bar({ v, max }: { v: number; max: number }) {
 }
 
 /** The full Scorecard (dials, matrix, KPI cards, clinic lists) for one window, embedded in that window's tab. */
-function ScorecardInWindow({ b, sales, periodId, periodLabel, prev, focus }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string }; focus?: string | null }) {
+function ScorecardInWindow({ b, sales, periodId, periodLabel, prev, focus, fam }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string }; focus?: string | null; fam?: string | null }) {
   // Shown by default; the choice is remembered in this browser and shared by every window tab.
   const [open, setOpen] = useState(() => {
     try {
@@ -1147,15 +1179,15 @@ function ScorecardInWindow({ b, sales, periodId, periodLabel, prev, focus }: { b
           {open ? "Hide scorecard ▲" : "Show scorecard ▼"}
         </button>
       </div>
-      {open || focus ? <ScorecardWithFams b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={focus} /> : null}
+      {open || focus ? <ScorecardWithFams b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={focus} fam={fam} /> : null}
     </section>
   );
 }
 
 /** Loads the product families for the window (only while the scorecard is shown), then renders the scorecard. */
-function ScorecardWithFams({ b, sales, periodId, periodLabel, prev, focus }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string }; focus?: string | null }) {
+function ScorecardWithFams({ b, sales, periodId, periodLabel, prev, focus, fam }: { b: Book; sales: string; periodId: string; periodLabel: string; prev?: { id: string; label: string }; focus?: string | null; fam?: string | null }) {
   const fams = useRcaQuery(api.leadFamilies.salesFamilies, sales ? { password: pw(), periodId, sales } : "skip");
-  return <ScorecardTab key={`${periodId}|${focus ?? ""}`} b={b} fams={fams} periodLabel={periodLabel} focus={focus} sales={sales} periodId={periodId} prevId={prev?.id} prevLabel={prev?.label} />;
+  return <ScorecardTab key={`${periodId}|${focus ?? ""}|${fam ?? ""}`} b={b} fams={fams} periodLabel={periodLabel} focus={focus} startFam={fam} sales={sales} periodId={periodId} prevId={prev?.id} prevLabel={prev?.label} />;
 }
 
 type WinKind = "week" | "month" | "quarter";
@@ -1180,6 +1212,7 @@ function WindowTab({
   planBeat,
   prev,
   scFocus,
+  scFam,
 }: {
   b: Book;
   sales: string;
@@ -1191,6 +1224,8 @@ function WindowTab({
   prev?: { id: string; label: string };
   /** A scorecard cell to highlight (from "See in scorecard"). */
   scFocus?: string | null;
+  /** A family to open the scorecard scoped to ("fz"). */
+  scFam?: string | null;
 }) {
   const [simplify, setSimplify] = useState(true);
   // Exact view: product families under branches A and B, like the main tree.
@@ -1378,7 +1413,7 @@ function WindowTab({
         <p><b>New-logo wins:</b> this year's new clinics plus returning clinics that ordered in the window. <b>On pace to beat goal:</b> where the window is heading against its goal, existing plus new business.</p>
         <p><b>Touch line:</b> of existing, new and returning clinics you touched (call or meeting) in the last N days, the share that ordered on or after the touch. N follows the "Order within" choice in Touch effort (14 on any time).</p>
       </HowCalc>
-      <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={scFocus} />
+      <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={scFocus} fam={scFam} />
 
       <div className="rv-sec-head">
         <h2>Where the gap comes from<Info k="tree" /></h2>
@@ -2358,7 +2393,7 @@ function useCellContrib(b: Book, pg: PGStats | null, pgd: ReturnType<typeof useP
   return { listContrib, mixContrib };
 }
 
-function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
+function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, periodId, prevId, prevLabel }: { b: Book; fams: Wins; periodLabel: string; focus?: string | null; startFam?: string | null; sales?: string; periodId?: string; prevId?: string; prevLabel?: string }) {
   const [tenureSel, setTenureSel] = useState<TenureKey>("all");
   const [earlyOpen, setEarlyOpen] = useState(false);
   const b = useMemo(() => applyTenure(bAll, tenureSel), [bAll, tenureSel]);
@@ -2379,6 +2414,13 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
     for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
     return [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
   }, [pgd.data]);
+  // Opened from the agenda's Foundation Zoomer cards: scope to it once the family list has loaded (once only, so the rep can pick another).
+  const startedFam = useRef(false);
+  useEffect(() => {
+    if (startFam !== "fz" || startedFam.current) return;
+    const f = findFzFamily(famList);
+    if (f) { startedFam.current = true; setWsFam(f); }
+  }, [startFam, famList]);
   const family = wsFam || famList.find(f => /hormone\s*zoomer/i.test(f)) || famList[0] || "Hormone Zoomer";
   const pg = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, family) : null;
   const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family) ?? hz;
@@ -2642,7 +2684,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
               </div>
             </div>
             {r.cells.map(c => (
-              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
+              <div className={`rv-mx-c ${c.tone}${c.famScoped ? " is-fam" : ""}${cl?.key === c.label ? " is-open" : ""}${focus === c.label ? " is-focus" : ""}${c.ids?.length ? " rv-click" : ""}`} key={c.label} id={`sc-cell-${c.label}`} data-tour={`rv-sc-${tourSlug(c.label)}`} data-fz={isFz && c.label === "Cross-sell candidates" && c.ids?.length ? "ready" : undefined} onClick={e => openCell(c, e)} title={c.ids?.length ? "Click for the clinic list" : undefined}>
                 <div className="rv-mx-l">
                   {c.label}{c.allProducts ? <em className="rv-allp"> · all products</em> : null}{c.tenureTag ? <em className="rv-allp"> · {c.tenureTag}</em> : null}
                   <i className={c.tone} />
@@ -2688,11 +2730,6 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, sales, periodId, prev
       {pillar === "Product Growth" ? (
         <>
           {(sales ?? "").startsWith("team:") ? <p className="rv-dim rv-small">Product whitespace is marked rep by rep. Pick a rep to mark or review their clinics.</p> : <WhitespacePlanner sales={sales} clinics={pgd.data?.clinics ?? null} elig={pgd.elig} family={family} famList={famList} setFamily={setWsFam} />}
-        </>
-      ) : null}
-      {pillar === "Expansion" || pillar === EXISTING ? (
-        <>
-          <CrossSellList pg={pg} />
         </>
       ) : null}
     </>
@@ -3217,8 +3254,8 @@ function FocusTable({
     else { setSortKey(k); setSortDir(firstDir(k)); }
   };
   const arrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
-  const th = (k: string, text: string, cls = "", title?: string) => (
-    <th className={`${cls} rv-sort`.trim()} title={title ?? "Click to sort"} onClick={() => sortBy(k)}>{text}{arrow(k)}</th>
+  const th = (k: string, text: string, cls = "", title?: string, tour?: string) => (
+    <th data-tour={tour} className={`${cls} rv-sort`.trim()} title={title ?? "Click to sort"} onClick={() => sortBy(k)}>{text}{arrow(k)}</th>
   );
 
   const healthOptions = useMemo(() => {
@@ -3333,7 +3370,7 @@ function FocusTable({
                     {th("clinic", "Clinic")}
                     {th("state", "State")}
                     {th("cohort", "Cohort")}
-                    {(extraCols ?? []).map(c => <Fragment key={c.key}>{th(c.key, c.label, "rca-num", c.title)}</Fragment>)}
+                    {(extraCols ?? []).map(c => <Fragment key={c.key}>{th(c.key, c.label, "rca-num", c.title, `list-col-${c.key}`)}</Fragment>)}
                     {gap ? th("gap", gapLabel ?? "Orders short", "rca-num", "Orders short of what the clinic's baseline implies: click to sort") : null}
                     {th("baseline", "Baseline", "rca-num", "Mean run rate over the baseline window. Click to sort")}
                     {th("goal", "Goal", "rca-num", "Baseline plus the stretch: the yearly target spread over the year by baseline weekday weights. Click to sort")}
@@ -3352,6 +3389,7 @@ function FocusTable({
                   {shown.map((r, i) => (
                     <Fragment key={r.clinic}>
                       <tr
+                        data-tour={i === 0 ? "list-first-row" : undefined}
                         className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}`}
                         onClick={() => setExpanded(cur => (cur === r.clinic ? null : r.clinic))}
                       >
@@ -3737,8 +3775,8 @@ const UPSIDE_BASIS: Record<string, string> = {
   famBelow: "Orders below expected for the target product, times its revenue per order",
   famAdopt: "One order of the target product at its revenue per order, per new clinic ordering other Zoomers",
   famRepeat: "One more order of the target product per clinic that ordered it once",
-  whitespace: "One order of the target product per clinic you marked eligible",
-  crosssell: "A quarter of each clinic's per-family spend (one more family at today's rate)",
+  whitespace: "One Foundation Zoomer order, at its typical revenue per order, for each clinic you marked eligible that has never ordered it",
+  crosssell: "Foundation Zoomer cross-sell: the revenue if this week's open FZ results turn into orders, at the share of similar results that already did (company-wide)",
 };
 
 /** Likelihood a touched clinic orders, from this rep's own touch record over the quarter (shrunk toward 50% when the
@@ -3750,7 +3788,7 @@ function touchRate(b: Book): { pr: number; n: number; own: number | null } {
 }
 
 /** Product actions from the status model (STOPPED / DECLINING per test) and the product mix. Dollars are weekly. */
-function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string): Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> {
+function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string, fz?: FzResp): Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> {
   const d = pgd.data as ({ clinics: PGClinic[]; baseWeeks?: number } | null);
   if (!d || !d.baseWeeks) return [];
   const wk = d.baseWeeks;
@@ -3784,15 +3822,22 @@ function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string)
   if (newOrdering.length) out.push({ ids: newOrdering.map(c => c.clinic), id: "famAdopt", p: "Product Growth", label: `Introduce ${fam} to new clinics`, detail: `${newOrdering.length} new clinics ordering other Zoomers, not ${fam}`, hrs: hrsFor(newOrdering.length, 0.2), up: newOrdering.length * perOrder, prMul: 0.8 });
   const once = d.clinics.filter(c => (c.win[fam] ?? 0) === 1);
   if (once.length) out.push({ ids: once.map(c => c.clinic), id: "famRepeat", p: "Product Growth", label: `Ask for the ${fam} repeat`, detail: `${once.length} clinics ordered ${fam} once this week`, hrs: hrsFor(once.length, 0.15), up: once.length * perOrder, prMul: 0.9 });
-  const ws = pgd.elig.filter(e => e.family === fam && !((d.clinics.find(c => c.clinic === e.clinic)?.life[fam] ?? 0) > 0));
-  if (ws.length) out.push({ ids: [...new Set(ws.map(e => e.clinic))], id: "whitespace", p: "Product Growth", label: `Introduce ${fam} (whitespace)`, detail: `${new Set(ws.map(e => e.clinic)).size} clinics you marked eligible, never ordered`, hrs: hrsFor(ws.length, 0.25), up: ws.length * perOrder, prMul: 0.6 });
-  const pgA = pgStats(b, d.clinics, pgd.elig, "");
-  if (pgA.xs.length) out.push({ ids: pgA.xs.map(x => x.clinic), id: "crosssell", p: "Expansion", label: "Pitch a second product family", detail: `${pgA.xs.length} active clinics on 1-2 families`, hrs: hrsFor(pgA.xs.length, 0.2), up: pgA.xsUp / 4, prMul: 0.6 });
+  // Whitespace and cross-sell are Foundation Zoomer only, the same lists as the Opportunity agenda's cards (ids "whitespace" / "crosssell").
+  const fzFam = findFzFamily(d.clinics.flatMap(c => Object.keys(c.life)));
+  const fzWs = fzWhitespace(pgd.elig, d.clinics);
+  if (fzWs.ids.length) {
+    const fzRev = d.clinics.reduce((t, c) => t + (fzFam ? c.baseRev?.[fzFam] ?? 0 : 0), 0), fzOrd = d.clinics.reduce((t, c) => t + (fzFam ? c.base?.[fzFam] ?? 0 : 0), 0);
+    out.push({ ids: fzWs.ids, id: "whitespace", p: "Product Growth", label: "Introduce Foundation Zoomer (whitespace)", detail: `${fzWs.ids.length} clinics you marked eligible, never ordered`, hrs: hrsFor(fzWs.ids.length, 0.25), up: fzWs.ids.length * (fzOrd ? fzRev / fzOrd : 0), prMul: 0.6 });
+  }
+  if (fz?.ready && fz.totals.clinics) {
+    const x = fzCrossSell(fz);
+    out.push({ ids: x.ids, id: "crosssell", p: "Expansion", label: "Pitch the Zoomer each FZ result points to", detail: `${x.n} clinics with open FZ results`, hrs: hrsFor(x.n, 0.2), up: x.up, prMul: 0.6 });
+  }
   return out;
 }
 
 /** Everything the plan ranks: the scorecard's opportunity pools, the lifecycle and touch pools, and the product actions. */
-function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<typeof usePG>, famName = "Hormone Zoomer"): ActionRow[] {
+function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<typeof usePG>, famName = "Hormone Zoomer", fz?: FzResp): ActionRow[] {
   const o = b.opp;
   if (!o) return [];
   const st = pillarStatus(b, fams);
@@ -3818,7 +3863,7 @@ function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<type
   add(o.followUp?.n, { ids: o.followUp?.ids, id: "followUp", p: "Retention", label: "Follow up touched clinics that have not reordered", detail: `${o.followUp?.n} clinics touched this week, no order since`, per: 0.2, up: o.followUp?.up, prMul: 0.8 });
   add(o.idle?.n, { ids: o.idle?.ids, id: "idle", p: "Retention", label: "First touch for the biggest idle clinics", detail: `${o.idle?.n} untouched clinics with no order this week`, per: 0.25, up: o.idle?.up, prMul: 0.7 });
   add(o.gap?.n, { ids: o.gap?.ids, id: "gap", p: "Retention", label: "Close the gap: the clinics behind goal", detail: `${o.gap?.n} clinics make up most of this week's shortfall`, per: 0.3, up: o.gap?.up, prMul: 0.5 });
-  if (pgd) raw.push(...productActions(b, pgd, famName));
+  if (pgd) raw.push(...productActions(b, pgd, famName, fz));
   const rows: ActionRow[] = raw
     .map(({ prMul, ...a0 }) => {
       const set = plan.hrs?.[a0.id];
@@ -3845,7 +3890,9 @@ function usePlanRows(b: Book | null, fams: Wins, plan: PlanState, sales: string,
     const names = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
     return names.find(f => /hormone\s*zoomer/i.test(f)) ?? names[0] ?? "Hormone Zoomer";
   }, [pgd.data]);
-  return useMemo(() => (b ? rankActions(b, fams, plan, pgd, famName) : []), [b, fams, plan, pgd, famName]);
+  // The plan is this week's plan, so its FZ numbers are this week's too: the same as the agenda's "This week" window.
+  const fz = useFz(sales, periodId);
+  return useMemo(() => (b ? rankActions(b, fams, plan, pgd, famName, fz) : []), [b, fams, plan, pgd, famName, fz]);
 }
 
 function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => void }) {
@@ -3869,17 +3916,23 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
 
 const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "Bundle growth", crosssell: "Expansion" };
 
-function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId }: {
-  sales: string; periodId: string; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string) => void;
+function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning, switcher, onGetClinics }: {
+  sales: string; periodId: string; /** The window buttons, shown inside the agenda's header. */ switcher?: React.ReactNode; /** Cross-sell card's "Get clinics": starts the Foundation Zoomer tour (or, with no tour set up, opens the scorecard on it). */ onGetClinics: () => void; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
 }) {
   const o = b.opp;
   const pgd = usePG(sales, periodId);
-  const pgA = pgd.data ? pgStats(b, pgd.data.clinics, pgd.elig, "") : null;
-  const wsAll = pgd.data ? (() => {
-    const byId = new Map(pgd.data.clinics.map(c => [c.clinic, c]));
-    const ids = [...new Set(pgd.elig.filter(e => !((byId.get(e.clinic)?.life[e.family] ?? 0) > 0)).map(e => e.clinic))];
-    return { ids, names: ids.slice(0, 3).map(id => ({ clinic: id, name: byId.get(id)?.name ?? id, v: 0 })) };
-  })() : null;
+  // Cross-sell and Whitespace are Foundation Zoomer only (2026-11): the FZ results' open Zoomers, and the clinics marked eligible for FZ.
+  // The FZ numbers follow the window picked above the cards, the same window the scorecard tab behind "See in scorecard" uses.
+  const fz = useFz(sales, periodId);
+  const wsAll = pgd.data ? fzWhitespace(pgd.elig, pgd.data.clinics) : null;
+  const xs = fz?.ready && fz.totals.clinics ? fzCrossSell(fz) : null;
+  // Each card can hide its action line and clinic names (kept per browser); the number, the dollars and the buttons stay.
+  const [folded, setFolded] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("rv-opp-folded") || "{}"); } catch { return {}; } });
+  const fold = (id: string) => setFolded(f => {
+    const n = { ...f, [id]: !f[id] };
+    try { localStorage.setItem("rv-opp-folded", JSON.stringify(n)); } catch { /* it just opens again next visit */ }
+    return n;
+  });
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
   if (!o) return null;
@@ -3889,41 +3942,43 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
     { id: "atRisk", label: "At-risk customers", n: o.atRisk.n, up: o.atRisk.up, action: "Rescue calls before the next reorder window closes.", names: o.atRisk.names, ids: o.atRisk.ids },
     { id: "prospects", label: "Unconverted prospects", na: "needs CRM lead data" },
     wsAll && wsAll.ids.length
-      ? { id: "whitespace", label: "Product whitespace", n: wsAll.ids.length, up: 0, action: "Introduce the product you marked them eligible for.", names: wsAll.names, ids: wsAll.ids }
-      : { id: "whitespace", label: "Product whitespace", na: "mark eligible clinics in Scorecard → Product Growth" },
+      ? { id: "whitespace", label: "Product whitespace", tag: "Foundation Zoomer", n: wsAll.ids.length, up: 0, action: "Introduce Foundation Zoomer to the clinics you marked eligible.", names: wsAll.names, ids: wsAll.ids }
+      : { id: "whitespace", label: "Product whitespace", tag: "Foundation Zoomer", na: "mark clinics eligible for Foundation Zoomer in Scorecard → Product Growth" },
     { id: "lowAov", label: "Low-AOV customers", n: o.lowAov.n, up: o.lowAov.up, action: "Suggest a bundle on the next order to lift them past $400.", names: o.lowAov.names, ids: o.lowAov.ids },
-    pgA && pgA.xs.length
-      ? { id: "crosssell", label: "Cross-sell candidates", n: pgA.xs.length, up: pgA.xsUp, action: "Pitch the family similar clinics already buy.", names: pgA.xs.slice(0, 3).map(x => ({ clinic: x.clinic, name: `${x.name} → ${x.suggest}`, v: x.up })), ids: pgA.xs.map(x => x.clinic) }
-      : { id: "crosssell", label: "Cross-sell candidates", na: pgd.data ? "no active clinics on 1–2 families" : "loading product mix…" },
-  ] as Array<{ id: string; label: string; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
+    xs
+      ? { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", n: xs.n, up: xs.up, trio: { low: xs.low, high: xs.high, likely: xs.up }, action: "Pitch the Zoomer their FZ results point to.", names: xs.names, ids: xs.ids }
+      : { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", na: !fz ? "loading FZ scores…" : !fz.ready ? FZ_NOT_READY[fz.reason] ?? "FZ scores not loaded" : "no open FZ results in this window" },
+  ] as Array<{ id: string; label: string; tag?: string; trio?: { low: number; high: number; likely: number }; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
   const total = cards.reduce((s, c) => s + (c.up ?? 0), 0);
-  const done = cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0);
+  const done = planning ? cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0) : 0;
+  const isPlanned = (id: string) => planning && !!planned[id];
   const dot = (id: string) => { const v = st?.[OPP_PILLAR[id]]; return v === "behind" ? "bad" : v === "watch" ? "watch" : v ? "good" : "na"; };
   return (
     <div className="rv-opp">
       <div className="rv-opp-head">
         <div>
           <h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2>
-          <div className="rv-opp-sub">The Opportunity column of your scorecard (this week's book), turned into today's work. Add what you'll act on.</div>
+          <div className="rv-opp-switch">{switcher}</div>
+          <div className="rv-opp-sub">The Opportunity column of your scorecard ({windowLabel}'s book), turned into today's work.{planning ? " Add what you'll act on." : " Switch to This week to add cards to today's plan."}</div>
         </div>
         <div className="rv-opp-tot">
-          <div><b>{K(done)}</b> <span>of {K(total)} planned</span></div>
+          {planning ? <div><b>{K(done)}</b> <span>of {K(total)} planned</span></div> : <div><b>{K(total)}</b> <span>opportunity</span></div>}
           <div className="rv-opp-sub">Total revenue opportunity on your scorecard</div>
         </div>
       </div>
       <HowCalc>
-        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> is one more product family at each clinic's current per-family spend; <b>Whitespace</b> is clinics you marked eligible for the selected product that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
+        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> (Foundation Zoomer) shows three numbers: <b>Low</b> and <b>High</b> are the revenue if every open FZ result orders the Baseline or the Zoomer, and <b>Likely</b> is the expected revenue at the share of similar results that usually order (the figure the card and the total count); it counts the FZ results that came back in the window picked above and that no order has followed (the custom window counts every result on file). <b>Whitespace</b> (Foundation Zoomer) is clinics you marked eligible for it that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
       </HowCalc>
       <div className="rv-opp-seg">
         {cards.filter(c => c.up).map(c => (
-          <i key={c.id} style={{ flex: c.up }} className={planned[c.id] ? "on" : ""} />
+          <i key={c.id} style={{ flex: c.up }} className={isPlanned(c.id) ? "on" : ""} />
         ))}
       </div>
-      <div className="rv-opp-grid">
+      <div className="rv-opp-grid" data-tour="opp-grid">
         {cards.map(c => (
-          <div key={c.id} className={`rv-opp-card${c.na ? " na" : ""}${planned[c.id] ? " is-planned" : ""}`}>
+          <div key={c.id} data-tour={`opp-${c.id}`} className={`rv-opp-card${c.na ? " na" : ""}${isPlanned(c.id) ? " is-planned" : ""}`}>
             <div className="rv-opp-pil"><span>{OPP_PILLAR[c.id]}</span><i className={dot(c.id)} /></div>
-            <div className="rv-opp-t">{c.label}</div>
+            <div className="rv-opp-t">{c.label}{c.tag ? <small className="rv-opp-tag">{c.tag}</small> : null}</div>
             {c.na ? (
               <>
                 <div className="rv-opp-v">—</div>
@@ -3932,19 +3987,48 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
               </>
             ) : (
               <>
-                <button type="button" className="rv-opp-v rv-opp-vbtn" title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · this week`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
-                <p className="rv-opp-act">{c.action}</p>
-                <p className="rv-opp-nm">
-                  {(c.names ?? []).slice(0, 3).map((x, i) => (
-                    <span key={x.clinic}>{i ? ", " : ""}<button type="button" onClick={() => onOpenClinic(x.clinic)}>{x.name}</button></span>
-                  ))}
-                  {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
-                </p>
-                <div className="rv-opp-btns">
-                  <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>
-                    {planned[c.id] ? "✓ Added" : "Add to today"}
+                {c.id === "crosssell" ? (
+                  // The list lives in the scorecard (Get clinics walks you there); there is no list under the agenda for this card.
+                  <>
+                    <div className="rv-opp-v">{c.n}<small> clinics</small></div>
+                    {c.trio ? (
+                      <div className="rv-opp-trio" data-tour="opp-crosssell-trio">
+                        <div title="If every open FZ result orders the Baseline (the lower price)"><b>{K(c.trio.low)}</b><span>Low</span></div>
+                        <div title="If every open FZ result orders the Zoomer (the upper price)"><b>{K(c.trio.high)}</b><span>High</span></div>
+                        <div title="At the share of similar results that usually order (company-wide), at the Baseline price"><b>{K(c.trio.likely)}</b><span>Likely</span></div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
+                )}
+                {(c.names ?? []).length ? (
+                  <button type="button" className="rv-opp-fold" data-tour={`opp-${c.id}-fold`} aria-expanded={!folded[c.id]} onClick={() => fold(c.id)}>
+                    {folded[c.id] ? "▸ Show clinics" : "▾ Hide clinics"}
                   </button>
-                  <button type="button" className="rv-opp-link" onClick={() => onScorecard(c.label)}>See in scorecard</button>
+                ) : null}
+                {folded[c.id] ? null : (
+                  <>
+                    <p className="rv-opp-act">{c.action}</p>
+                    <p className="rv-opp-nm">
+                      {(c.names ?? []).slice(0, 3).map((x, i) => (
+                        <span key={x.clinic}>{i ? ", " : ""}<button type="button" onClick={() => onOpenClinic(x.clinic)}>{x.name}</button></span>
+                      ))}
+                      {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
+                    </p>
+                  </>
+                )}
+                <div className="rv-opp-btns">
+                  {planning ? (
+                    <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>
+                      {planned[c.id] ? "✓ Added" : "Add to today"}
+                    </button>
+                  ) : null}
+                  {c.id === "crosssell" ? (
+                    <button type="button" className="rv-opp-get" data-tour="opp-crosssell-get" onClick={onGetClinics}>Get clinics</button>
+                  ) : (
+                    <button type="button" className="rv-opp-link" data-tour={`opp-${c.id}-scorecard`} onClick={() => onScorecard(c.label, c.tag ? "fz" : undefined)}>See in scorecard</button>
+                  )}
                 </div>
               </>
             )}
@@ -3952,6 +4036,120 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
         ))}
       </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+    </div>
+  );
+}
+
+/** The agenda's own time grain (2026-11): Week / Month / Quarter / Custom, so it is not tied to this week alone, and "See in scorecard" opens the
+ * matching scorecard tab with the same window. Only This week can add cards to today's plan. */
+type Grain = "week" | "month" | "quarter" | "custom";
+const GRAINS: Array<{ key: Grain; label: string; phrase: string }> = [
+  { key: "week", label: "This week", phrase: "this week" },
+  { key: "month", label: "This month", phrase: "this month" },
+  { key: "quarter", label: "This quarter", phrase: "this quarter" },
+  { key: "custom", label: "Custom window", phrase: "the custom window" },
+];
+function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onOpenClinic, onScorecard }: {
+  wb: Book; sales: string; customId: string;
+  periods: { week?: RepViewPeriod; month?: RepViewPeriod; quarter?: RepViewPeriod };
+  planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam: string | undefined, grain: Grain) => void;
+}) {
+  const [grain, setGrain] = useState<Grain>("week");
+  const pid = grain === "custom" ? customId : periods[grain]?.id ?? "";
+  // This week's book is already loaded by the page; the others load when picked (the cache shares them with the tabs).
+  const otherQ = useRcaQuery(api.repView.book, sales && grain !== "week" && pid ? { password: pw(), periodId: pid, sales } : "skip");
+  const b = grain === "week" ? wb : otherQ?.ready ? otherQ : null;
+  const st = usePillarStatus(sales, pid || undefined);
+  const g = GRAINS.find(x => x.key === grain)!;
+  const switcher = (
+    <div className="rv-win-toggle" role="group" aria-label="Opportunity agenda window" data-tour="opp-grain">
+      {GRAINS.map(x => {
+        const has = x.key === "custom" ? !!customId : !!periods[x.key];
+        return (
+          <button key={x.key} type="button" data-tour={`opp-grain-${x.key}`} className={`rca-tab${grain === x.key ? " is-active" : ""}`} disabled={!has} onClick={() => setGrain(x.key)}>{x.label}</button>
+        );
+      })}
+    </div>
+  );
+  // "Get clinics" starts the guided tour (window list on the left -> Foundation Zoomer card -> Cross-sell -> the list); with no tour set up it opens the scorecard on it.
+  const getClinics = () => (fzTourAvailable ? startFzTour() : onScorecard("Cross-sell candidates", "fz", grain));
+  return b ? (
+    <OppAgenda key={grain} b={b} st={st ?? undefined} planned={planned} onToggle={onToggle} onOpenClinic={onOpenClinic} sales={sales} periodId={pid}
+      windowLabel={g.phrase} planning={grain === "week"} switcher={switcher} onGetClinics={getClinics} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
+  ) : (
+    <div className="rv-opp">
+      <div className="rv-opp-head"><div><h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2><div className="rv-opp-switch">{switcher}</div></div></div>
+      <div className="rv-loading">Loading {g.phrase}…</div>
+    </div>
+  );
+}
+
+/**
+ * The banner at the top of Today's agenda announcing the Foundation Zoomer cross-sell. It keeps showing for every rep: only an admin (a team login,
+ * not a rep, manager or account manager login) can dismiss it, and that hides it for everyone (stored in Convex, convex/banners.ts), not just in
+ * one browser. Its button starts the same tour as the Cross-sell card's Get clinics.
+ */
+function NewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: string; isAdmin: boolean; onOpenNews: () => void; onGetClinics: () => void }) {
+  const dismissed = useQuery(api.banners.dismissed, { password: pw() });
+  const dismiss = useMutation(api.banners.dismiss);
+  // A rep with no Foundation Zoomer results has no list to walk through, so the banner then only announces it.
+  const fz = useFz(sales, "all");
+  const a = ANNOUNCEMENTS.find(x => x.id === FZ_ANNOUNCEMENT_ID);
+  // Until the list of dismissed banners has loaded, show nothing, so a dismissed banner does not flash up.
+  if (!a || dismissed === undefined || dismissed.includes(FZ_ANNOUNCEMENT_ID)) return null;
+  const hasFz = !!(fz?.ready && fz.totals.clinics);
+  const hideForAll = () => {
+    if (window.confirm("Hide this banner for every rep? You can show it again from What's new.")) void dismiss({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID });
+  };
+  return (
+    <div className="rv-banner" role="region" aria-label="New: Foundation Zoomer cross-sell" data-tour="news-banner">
+      <div className="rv-banner-tag">New · {formatAnnouncementDate(a.date)}</div>
+      <div className="rv-banner-body">
+        <b>{a.title}</b>
+        <span>{a.summary}</span>
+      </div>
+      <div className="rv-banner-btns">
+        {hasFz ? <button type="button" className="rv-banner-go" data-tour="news-banner-cta" onClick={onGetClinics}>Get clinics</button> : null}
+        <button type="button" className="rv-opp-link" onClick={onOpenNews}>See what's new</button>
+        {isAdmin ? <button type="button" className="rv-opp-link" data-tour="news-banner-dismiss" title="Admins only: hides the banner for every rep" onClick={hideForAll}>Dismiss for everyone</button> : null}
+      </div>
+    </div>
+  );
+}
+
+/** Admins only: tells them the banner is hidden for everyone and lets them show it again. */
+function BannerRestore() {
+  const dismissed = useQuery(api.banners.dismissed, { password: pw() });
+  const restore = useMutation(api.banners.restore);
+  if (!dismissed?.includes(FZ_ANNOUNCEMENT_ID)) return null;
+  return (
+    <p className="rv-dim rv-small">
+      The Foundation Zoomer banner on Today's agenda is hidden for everyone.{" "}
+      <button type="button" className="rv-opp-link" onClick={() => void restore({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID })}>Show it again</button>
+    </p>
+  );
+}
+
+/** The What's new page: every feature update, newest first, each with the date it shipped. */
+function NewsPage({ isAdmin, onTab, onGetClinics }: { isAdmin: boolean; onTab: (t: "today" | "feed" | "week" | "month" | "quarter") => void; onGetClinics: () => void }) {
+  const run = (a: NonNullable<Announcement["action"]>) => (a.kind === "tab" ? onTab(a.tab) : onGetClinics());
+  return (
+    <div className="rv-news" data-tour="news-page">
+      <div className="rv-eyebrow">What's new</div>
+      <h1 className="rv-h1">Feature updates</h1>
+      <p className="rv-dim rv-small">Everything new in the rep view, newest first, with the day it reached you.</p>
+      {isAdmin ? <QuietBoundary><BannerRestore /></QuietBoundary> : null}
+      {ANNOUNCEMENTS.map(a => (
+        <article className="rv-news-item" key={a.id} data-tour={`news-${a.id}`}>
+          <div className="rv-news-date">{formatAnnouncementDate(a.date)}</div>
+          <div className="rv-news-body">
+            <h2>{a.title}</h2>
+            <p>{a.summary}</p>
+            <ul>{a.points.map(x => <li key={x}>{x}</li>)}</ul>
+            {a.action ? <button type="button" className="rv-banner-go" onClick={() => run(a.action!)}>{a.action.label}</button> : null}
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -4576,7 +4774,6 @@ type FzResp = FzReady | { ready: false; reason: string } | undefined;
 function useFz(sales?: string, periodId?: string): FzResp {
   return useRcaQuery(api.fzScores.clinics, sales && periodId ? { password: pw(), periodId, sales } : "skip") as FzResp;
 }
-const isFzFamily = (f?: string) => /foundation\s*zoomer/i.test(f ?? "");
 const KR = (lo: number, hi: number) => (Math.round(lo) === Math.round(hi) ? K(lo) : `${K(lo)}–${K(hi)}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const AREA_OF = new Map(AREAS.map(a => [a.area as string, a]));
@@ -4635,11 +4832,11 @@ function FzStatus({ fz }: { fz: FzResp }) {
 }
 
 /** KPI strip for a set of FZ numbers (the whole book, or one Zoomer's clinics). */
-function FzKpis({ t, company }: { t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
+function FzKpis({ t, company, tour }: { tour?: string; t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
   const r = fzRate(t.followed, t.flagged);
   const cr = company ? fzRate(company.followed, company.flagged) : null;
   return (
-    <div className="rv-fz-kpis">
+    <div className="rv-fz-kpis" data-tour={tour}>
       <div><b>{t.clinics}</b><span>clinics to call{t.topClinics ? ` · ${t.topClinics} in the top 20%` : ""}</span></div>
       <div><b>{t.flagged}</b><span>FZ results pointing to a Zoomer</span></div>
       <div><b>{t.followed} <small>({P(r)})</small></b><span>led to a Zoomer order{cr !== null ? ` · company ${P(cr)}` : ""}</span></div>
@@ -4674,7 +4871,7 @@ function FzClinicBreakdown({ c }: { c: FzClinicRow }) {
   const afterProduct = c.reasons["After product – not improved"] ?? 0;
   const repeat = c.reasons["Repeat test – not improving"] ?? 0;
   return (
-    <div className="rv-fz-break">
+    <div className="rv-fz-break" data-tour="fz-breakdown">
       <p>
         <b>Why call:</b> {c.openOrders} of {plural(c.fzOrders, "Foundation Zoomer test")} from this clinic came back with
         low {andList(words)} scores, and no follow-up Zoomer has been ordered for them yet.
@@ -4757,46 +4954,23 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
       expandTop={cl => { const c = byId.get(cl); return c ? <FzClinicBreakdown c={c} /> : null; }}
       lead={
         <div className="rv-fz-lead">
-          <div className="rv-famchips">
+          <div className="rv-famchips" data-tour="fz-zoomers">
             <button type="button" className={area === "" ? "on" : ""} onClick={() => setArea("")}>All Zoomers · {fz.clinics.length}</button>
             {fz.products.filter(p => p.open).map(p => (
               <button type="button" key={p.area} className={area === p.area ? "on" : ""} onClick={() => setArea(a => (a === p.area ? "" : p.area))}>
                 {p.product} · {p.clinics}
               </button>
             ))}
-            <button type="button" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
+            <button type="button" data-tour="fz-top20" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
           </div>
-          <FzKpis t={t} />
-          <p className="rv-fz-say">{fzSalesNote(t, "this list", prodName)}</p>
+          <FzKpis t={t} tour="fz-kpis" />
+          <p className="rv-fz-say" data-tour="fz-list-say">{fzSalesNote(t, "this list", prodName)}</p>
           <FzStatus fz={fz} />
         </div>
       }
     />
   );
 }
-
-function CrossSellList({ pg }: { pg: PGStats | null }) {
-  if (!pg) return <p className="rv-dim rv-small" style={{ marginTop: 16 }}>Loading product mix…</p>;
-  return (
-    <div className="rv-ws">
-      <div className="rv-sec-head">
-        <h2>Cross-sell candidates</h2>
-        <span>{pg.xs.length} clinics · {K(pg.xsUp)} est. upside</span>
-      </div>
-      <p className="rv-dim rv-small">Clinics ordering this window that have only ever bought 1–2 product families. Suggested family = what clinics with the same mix buy most. Upside = their current spend per family, i.e. one more family at today's rate (estimate).</p>
-      <div className="rv-ws-list">
-        {pg.xs.slice(0, 60).map(x => (
-          <div className="rv-ws-row" key={x.clinic}>
-            <b>{x.name}</b>
-            <span className="rv-mono rv-dim">has {x.has.join(" + ")} → pitch <b>{x.suggest}</b> · {K(x.up)} upside</span>
-          </div>
-        ))}
-        {!pg.xs.length ? <p className="rv-dim rv-small">No candidates in this window.</p> : null}
-      </div>
-    </div>
-  );
-}
-
 
 /* ── Dial / progress-bar meters (Shyam, 2026-10-13) ───────────────────── */
 type MeterStyle = "dial" | "bar";
