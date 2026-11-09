@@ -30,6 +30,9 @@ Not rolled up (left on raw BigQuery): `customers` signups and the signup→first
 (customer-level rows, a rollup would just be a copy), `internal_user`, `sales_commission`,
 `portfolio_changes` (small dimension tables).
 
+`fz_scores` (FZ system scores, added 2026-11-05): `snapshot` (original_sql, 6 h) + `fz_rows` (row level) +
+`fz_clinic_day` (clinic × area × day). Rules and validation: `cube/FZ_SCORES.md`.
+
 ## 3. How to verify locally
 1. Run the SQL check above.
 2. Restart cube-rca and let the first build finish (lifetime partitions from the earliest order).

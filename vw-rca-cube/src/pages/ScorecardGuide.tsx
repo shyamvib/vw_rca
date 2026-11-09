@@ -522,6 +522,33 @@ const SECTIONS: Section[] = [
         },
       },
       {
+        id: "fz-cross-sell",
+        name: "Cross-sell candidates with Foundation Zoomer selected (FZ score targets)",
+        asks: "Which of my clinics have Foundation Zoomer results that point to another Zoomer the provider hasn't ordered?",
+        see: "Click the Foundation Zoomer tile under Product families: the Cross-sell candidates cell then counts the clinics to call. Click the cell for the list.",
+        how: [
+          "Take every Foundation Zoomer result from your clinics that came back from the lab in the window. Each FZ carries six system scores: Gut, Neural, Hormone, Nutrition, Immune and Cardio.",
+          "For each patient and area keep the latest FZ in the window: one FZ result. Its reason already looks at every earlier test, not only the first and the last.",
+          "A result points to that area's Zoomer when it needs support (65 or lower), sits at 75 or lower with two other low areas, has not really improved across repeat tests, or is still low after the Zoomer was ordered on an earlier order. A Zoomer ordered on the same order as the FZ is not counted: the provider is already on it.",
+          "Led to an order = the provider ordered that Zoomer (or its Baseline) afterwards. Still open = it points to the Zoomer and none was ordered yet. The cell counts the clinics with at least one open result.",
+        ],
+        who: "Clinics in your book with at least one open FZ result.",
+        click: "The clinic list with a button per Zoomer (Gut Zoomer, Nutrient Zoomer, …) and a Top 20% toggle, the numbers above it for what you picked, and every clinic's usual columns. Expand a clinic for its FZ breakdown per Zoomer, the products to pitch together, and the clinic card.",
+        good: "A \"where to act\" cell. The question for the provider: these patients came back low on gut; what is the plan for them?",
+        watch: [
+          "The window is the day the result came back from the lab (about 2–3 weeks after the order). A short window can have none: try This quarter or Last quarter.",
+          "Top 20% marks the company's top 20% of clinics by this year's revenue to date. It is the same in every window and for every rep.",
+          "Clinic level only: patient names and IDs are never shown; the provider knows which patients.",
+        ],
+        example: {
+          story: "Clinic Y had 6 FZ results this quarter that came back low on gut; 1 led to a Gut Zoomer order, so 5 are open: $2.3K–$2.8K at stake. 2 of those FZ orders were also low on nutrition, so the list suggests pitching Gut + Nutrient Zoomer together.",
+          viz: <Chips groups={[
+            { name: "Gut", items: ["6 pointing here", "1 ordered", "5 open"] },
+            { name: "Pitch together", items: ["Gut Zoomer", "Nutrient Zoomer"], note: "2 FZ orders" },
+          ]} />,
+        },
+      },
+      {
         id: "nrr",
         name: "NRR (net revenue retention)",
         asks: "Counting growth and losses together, are my existing clinics bringing as much as they normally do?",
@@ -678,7 +705,7 @@ const MATRIX: Array<{ pillar: string; cells: MxCell[] }> = [
   { pillar: "Expansion", cells: [
     { label: "Expansion Revenue", says: "Extra revenue from growing clinics." },
     { label: "Products per customer", says: "How many product families a clinic buys." },
-    { label: "Cross-sell candidates", says: "Clinics to offer another product.", kind: "act" },
+    { label: "Cross-sell candidates", says: "Clinics to offer another product. With Foundation Zoomer selected: clinics whose FZ results point to another Zoomer.", kind: "act" },
     { label: "NRR", says: "Revenue against normal, growth and losses together." },
   ] },
   { pillar: "Combined", cells: [

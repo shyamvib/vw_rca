@@ -1,0 +1,34 @@
+# A developer's own copy of the analytics service, running next to production's `rca-engine` on the same
+# server without touching it. Full walkthrough: ../../HOSTING_THIRU_DEV.md (and LOCAL_DEV.md for the background).
+#
+# Run from the folder where the engine tarball is unpacked (it holds analytics/, engine/, package.json):
+#   cp engine/deploy/env.dev.example .env.dev && chmod 600 .env.dev      # then fill it in
+#   docker compose -p rca-thiru -f engine/deploy/docker-compose.dev.yml --project-directory . --env-file .env.dev up -d --build
+#
+# Differences from production's docker-compose.yml:
+#   - its own names (project rca-thiru, container rca-engine-thiru, volume rca_engine_data_thiru)
+#   - it does not join production's cube-rca_default network; CUBE_API_URL in .env.dev points at the
+#     Cube's published port instead (http://10.6.2.34:4002)
+#
+# Public address: TUNNEL=1 runs a Cloudflare quick tunnel inside the container (no Cloudflare account needed).
+# Each start gets a new https://<random>.trycloudflare.com address, which the engine writes to the Convex in
+# CONVEX_URL; the dashboard looks it up there. That is only safe because CONVEX_URL is YOUR Convex project:
+# never run this with production's CONVEX_URL.
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: engine/deploy/Dockerfile
+    container_name: rca-engine-thiru
+    restart: unless-stopped
+    env_file: .env.dev          # secrets live here (chmod 600), never in git
+    environment:
+      TUNNEL: "1"
+      DATA_DIR: /data
+    volumes:
+      - engine_data:/data
+    mem_limit: 3g
+
+volumes:
+  engine_data:
+    name: rca_engine_data_thiru

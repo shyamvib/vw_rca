@@ -18,6 +18,9 @@ cubes:
       - { name: test_lines, type: count }
       - { name: orders, type: count_distinct, sql: sample_id }
     pre_aggregations:
+      # Refresh (2026-11-06): every partition, all history, once a day at 12:00 UTC (an hour before the engine's
+      # 13:00 UTC rebuild). Was hourly for the last 7 days only, so older months kept orders BigQuery later removed
+      # or re-priced (2026 YTD was $574K / 864 orders too high). Check: scripts/revenue-reconcile.ts.
       - name: family_daily
         type: rollup
         measures: [order_tests.orders, rfm_orders.revenue]
@@ -25,6 +28,6 @@ cubes:
         time_dimension: rfm_orders.order_date
         granularity: day
         partition_granularity: month
-        refresh_key: { every: 1 hour, incremental: true, update_window: 7 day }
+        refresh_key: { every: "0 12 * * *", timezone: UTC, incremental: true, update_window: 4000 day }
 # Caveat: rfm_orders.revenue joined to test lines sums correctly only because Cube
 # dedupes by primary key (sample_id); verify against Power BI family totals.

@@ -83,7 +83,7 @@ let cachedToken: { token: string; exp: number } | null = null;
 
 /** Short-lived HS256 JWT signed with the Cube API secret (cached ~50 min).
  * Web Crypto, so it runs in both the Convex V8 and Node runtimes. */
-async function token(): Promise<string> {
+export async function token(): Promise<string> {
   const secret = process.env.CUBE_API_SECRET;
   if (!secret) throw new Error("CUBE_API_SECRET is not set");
   const now = Math.floor(Date.now() / 1000);
@@ -104,7 +104,7 @@ async function token(): Promise<string> {
   return cachedToken.token;
 }
 
-function baseUrl(): string {
+export function baseUrl(): string {
   const url = process.env.CUBE_API_URL;
   if (!url) throw new Error("CUBE_API_URL is not set");
   return url.replace(/\/+$/, "").replace(/\/cubejs-api(\/v1)?$/, "");

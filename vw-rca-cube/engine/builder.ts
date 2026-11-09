@@ -73,7 +73,7 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "families"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "families", "fzScores"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   const fn = mode === "weekly" ? "refresh:weeklySnapshotTick" : mode === "monthly" ? "refresh:monthlySnapshotTick" : "refresh:refreshData";
@@ -91,6 +91,12 @@ export async function buildSnapshot(
       console.log("family stops:", JSON.stringify(r));
     } catch (e) {
       console.error("family stops failed:", String(e).slice(0, 200));
+    }
+    // FZ-score cross-sell targets (cube/FZ_SCORES.md). Best effort: without it the Rep view says "score data not available".
+    try {
+      console.log("fz scores:", JSON.stringify(await host.invoke("fzScores:build", {})));
+    } catch (e) {
+      console.error("fz scores failed:", String(e).slice(0, 200));
     }
     // rebuildDecline reads each team's product mix through families:context, so that module has to be registered above.
     try {
