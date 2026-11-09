@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import { gatedMutation, gatedQuery } from "./gated";
 
@@ -11,20 +12,39 @@ import { gatedMutation, gatedQuery } from "./gated";
  * survive. A field listed in `edited` is never overwritten by an ingest.
  */
 
-/** Generated rows from the analytics service: insert new ones, update auto fields on existing ones. */
+/**
+ * Generated rows from the analytics service: insert new ones, update auto fields on existing ones.
+ *
+ * Each row is found through the `by_date` index, once per date in the batch. It used to be a `.filter()` on insightId, which scans the
+ * whole table for every row; with 40 rows per call that passed Convex's per-function read limit once the table grew, the push failed
+ * ("consider using more selective index range expressions"), and with it the whole snapshot rebuild. An insight id carries its date, so
+ * the rows of that date are all a lookup ever needs.
+ */
 export const ingest = internalMutation({
   args: { rows: v.array(v.any()) },
   handler: async (ctx, { rows }) => {
     let inserted = 0;
     let updated = 0;
+    const byId = new Map<string, Doc<"insights">>();
+    const loaded = new Set<string>();
+    const load = async (date: string) => {
+      if (loaded.has(date)) return;
+      loaded.add(date);
+      for (const d of await ctx.db.query("insights").withIndex("by_date", q => q.eq("date", date)).collect()) byId.set(d.insightId, d);
+    };
     for (const r of rows as Array<Record<string, any>>) {
       const { _id, _creationTime, ...doc } = r;
-      const existing = await ctx.db
-        .query("insights")
-        .filter(q => q.eq(q.field("insightId"), doc.insightId))
-        .unique();
+      if (typeof doc.date === "string") await load(doc.date);
+      // A row with no date (never produced by the service) falls back to the old scan, one row at a time.
+      const existing =
+        byId.get(doc.insightId) ??
+        (typeof doc.date === "string"
+          ? null
+          : await ctx.db.query("insights").filter(q => q.eq(q.field("insightId"), doc.insightId)).unique());
       if (!existing) {
-        await ctx.db.insert("insights", doc as any);
+        const id = await ctx.db.insert("insights", doc as any);
+        const made = await ctx.db.get(id);
+        if (made) byId.set(made.insightId, made);
         inserted++;
         continue;
       }
