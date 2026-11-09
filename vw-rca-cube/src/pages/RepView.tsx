@@ -23,7 +23,7 @@ import { RaiseQuestionDialog } from "./RaiseQuestion";
 import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
-import { findFzFamily, fzCrossSell, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
+import { findFzFamily, fzCrossSell, fzListSel, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
 import { QuietBoundary } from "@/components/QuietBoundary";
 import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, formatAnnouncementDate, hasUnseenAnnouncement, latestAnnouncementId, type Announcement } from "@/lib/announcements";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
@@ -5124,7 +5124,7 @@ const addDaysStr = (d: string, n: number) => { const t = new Date(d + "T00:00:00
 
 /* ── Executive overview hooks (company-wide scorecard) ─────────────────── */
 /** A clinic list the overview can open: what the rep scorecard's openCell builds for a cell. */
-export type ExecSel = { key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution };
+export type ExecSel = { key: string; label: string; ids: string[]; tone: Tone; contrib?: Contribution; /** The Foundation Zoomer clinic list (the same one the rep view opens) instead of the contributor panel. */ fz?: boolean };
 type ExecCell = Cell & {
   /** What the cell is measured against: the goal or baseline (it follows the page's switches), or a fixed rule of its own. */
   ref?: string;
@@ -5291,6 +5291,9 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
   }, [b, fams, pace, pg, pgd.data, launchQ, family, scoped, mode, elapsed]);
   // Same rule as the rep scorecard's openCell: up / down split where one exists, otherwise the plain list.
   const pick = (label: string): ExecSel | null => {
+    // Foundation Zoomer selected: the Cross-sell cell opens the FZ clinic list, over the Overview's scope (the whole company or one team lead's team).
+    const fzSel = fzListSel(label, family, scoped, fz);
+    if (fzSel) return fzSel;
     const c = base?.rows.flatMap(r => r.cells).find(x => x.label === label);
     if (!b || !c?.ids?.length) return null;
     const contrib = listContrib(c.label, c.ids) ?? mixContrib(c.label) ?? (scoped && !c.allProducts ? undefined : CONTRIB[c.label]);
@@ -5303,6 +5306,8 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
 /** The clinic list for a picked dial or scorecard cell: up / down tabs, map and list, as in the rep scorecard. */
 export function ExecClinicList({ sel, sales, periodId, onClose }: { sel: ExecSel; sales: string; periodId: string; onClose: () => void }) {
   const q = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId, sales, focus: `ids:${sel.ids.join(",")}` });
+  const fz = useFz(sales, periodId);
+  if (sel.fz && fz?.ready) return <FzClinicList key={sel.key} fz={fz} rows={q?.ready ? q.rows : null} onClose={onClose} periodId={periodId} sales={sales} />;
   return <ContributorPanel key={sel.key} label={sel.label} tone={sel.tone} contrib={sel.contrib} rows={q?.ready ? q.rows : null} onClose={onClose} periodId={periodId} sales={sales} />;
 }
 

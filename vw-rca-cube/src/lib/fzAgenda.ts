@@ -56,3 +56,18 @@ export function fzWhitespace(
   const ids = [...new Set(elig.filter(e => isFzFamily(e.family) && !((byId.get(e.clinic)?.life[e.family] ?? 0) > 0)).map(e => e.clinic))];
   return { ids, names: ids.slice(0, 3).map(id => ({ clinic: id, name: byId.get(id)?.name ?? id, v: 0 })) };
 }
+
+/**
+ * What the Overview opens when its Cross-sell candidates cell is clicked while Foundation Zoomer is the selected family: the FZ clinic list
+ * (the same one the rep view opens), over the clinics the FZ data returns for the Overview's scope (the whole company, or one team lead's
+ * team). Null for any other cell or family, or while there are no FZ clinics, so the caller falls back to the ordinary list.
+ */
+export function fzListSel(
+  label: string,
+  family: string,
+  scoped: boolean,
+  fz: { ready: boolean; clinics?: Array<{ clinic: string }> } | undefined,
+) {
+  if (label !== "Cross-sell candidates" || !scoped || !isFzFamily(family) || !fz?.ready || !fz.clinics?.length) return null;
+  return { key: "Cross-sell candidates", label: "FZ score targets", ids: fz.clinics.map(c => c.clinic), tone: "act" as const, fz: true as const };
+}

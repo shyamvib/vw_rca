@@ -37,7 +37,7 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `ov-signals` | Growth signals (only when there are any) |
 | `ov-fam-<family>` (e.g. `ov-fam-gut-zoomer`) | Product family cards |
 | `sc-<metric>` (e.g. `sc-target-product-orders`) | Scorecard cells |
-| `ov-cell-list` | Clinic list opened from a scorecard cell |
+| `ov-cell-list` | Clinic list opened from a scorecard cell. With Foundation Zoomer selected, the Cross-sell candidates cell (`sc-cross-sell-candidates`, which also carries `data-fz="ready"` once its list can open) opens the FZ clinic list: the same one as the rep view, so it has the rep view's `fz-kpis`, `fz-zoomers`, `fz-top20`, `fz-list-say`, `list-col-fzOpen`, `list-col-fzStake`, `list-first-row` and `fz-breakdown` hooks, over the whole company or the team lead picked at the top |
 | `rv-nav-<tab>` (e.g. `rv-nav-custom`) | Rep view left-rail tabs |
 | `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
 | `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard`, `opp-crosssell-get`, `opp-crosssell-trio`, `opp-<card>-fold` (the Hide / Show clinics toggle) | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, its "See in scorecard" button (the Cross-sell card has "Get clinics", `opp-crosssell-get`, instead, and no list or scorecard button). Cross-sell and Whitespace are Foundation Zoomer only; the Cross-sell card shows Low, High and Likely revenue (`opp-crosssell-trio`). |

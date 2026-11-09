@@ -54,3 +54,18 @@ test("whitespace is only clinics marked eligible for Foundation Zoomer that neve
   assert.deepEqual(r.ids, ["b", "c", "zz"]);
   assert.deepEqual(r.names.map(x => x.name), ["B", "C", "zz"]);
 });
+
+test("the Overview opens the FZ list only for the Foundation Zoomer cross-sell cell, with data", async () => {
+  const { fzListSel } = await import("../src/lib/fzAgenda.ts");
+  const fz = { ready: true, clinics: [{ clinic: "c1" }, { clinic: "c2" }] };
+  const ok = fzListSel("Cross-sell candidates", "Foundation Zoomer", true, fz);
+  assert.deepEqual(ok?.ids, ["c1", "c2"]);
+  assert.equal(ok?.fz, true);
+  assert.equal(ok?.label, "FZ score targets");
+  assert.equal(fzListSel("Product whitespace", "Foundation Zoomer", true, fz), null);           // another cell
+  assert.equal(fzListSel("Cross-sell candidates", "Hormone Zoomer", true, fz), null);            // another family
+  assert.equal(fzListSel("Cross-sell candidates", "Foundation Zoomer", false, fz), null);        // family not selected
+  assert.equal(fzListSel("Cross-sell candidates", "Foundation Zoomer", true, undefined), null);  // still loading
+  assert.equal(fzListSel("Cross-sell candidates", "Foundation Zoomer", true, { ready: false }), null);
+  assert.equal(fzListSel("Cross-sell candidates", "Foundation Zoomer", true, { ready: true, clinics: [] }), null); // nothing to list
+});
