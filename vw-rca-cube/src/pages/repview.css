@@ -362,6 +362,7 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
 .rv-nba-t{font-size:20px;font-weight:600;margin-top:4px}
 .rv-nba-s{font-size:13px;opacity:.85;margin-top:4px}
 .rv-opp-tot{text-align:right;min-width:180px}
+.rv-opp-t .rv-opp-tag { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 10px; font-weight: 400; letter-spacing: .08em; text-transform: uppercase; color: var(--vw-gray-50); }
 .rv-opp-tot b{font-size:20px}
 .rv-opp-bar{height:6px;border-radius:3px;background:var(--vw-gray-15);margin-top:6px;overflow:hidden}
 .rv-opp-bar i{display:block;height:100%;background:var(--vw-success)}
