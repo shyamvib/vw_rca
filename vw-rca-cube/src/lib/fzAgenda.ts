@@ -16,7 +16,7 @@ type FzLineLike = { product: string; open: number; likely: number };
 export type FzClinicLike = { clinic: string; name: string; likely: number; open: number; products: FzLineLike[] };
 export type FzAgendaInput = {
   ready: true;
-  totals: { clinics: number; likely: number };
+  totals: { clinics: number; likely: number; low: number; high: number };
   clinics: FzClinicLike[];
 };
 
@@ -30,12 +30,15 @@ export function suggestOf(c: Pick<FzClinicLike, "products">): string | null {
 /**
  * The Cross-sell card: clinics whose FZ results point to a Zoomer they have not ordered, biggest likely revenue first.
  * `up` is the likely revenue: what the open results bring at the share of similar results that already turned into an order.
+ * `low` / `high` are the bounds: every open result ordering the Baseline (lower price) / the Zoomer (upper price).
  */
 export function fzCrossSell(fz: FzAgendaInput) {
   const sorted = [...fz.clinics].sort((a, b) => b.likely - a.likely || a.name.localeCompare(b.name));
   return {
     n: fz.totals.clinics,
     up: fz.totals.likely,
+    low: fz.totals.low,
+    high: fz.totals.high,
     ids: sorted.map(c => c.clinic),
     names: sorted.slice(0, 3).map(c => {
       const s = suggestOf(c);

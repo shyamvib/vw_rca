@@ -3920,9 +3920,9 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
       : { id: "whitespace", label: "Product whitespace", tag: "Foundation Zoomer", na: "mark clinics eligible for Foundation Zoomer in Scorecard → Product Growth" },
     { id: "lowAov", label: "Low-AOV customers", n: o.lowAov.n, up: o.lowAov.up, action: "Suggest a bundle on the next order to lift them past $400.", names: o.lowAov.names, ids: o.lowAov.ids },
     xs
-      ? { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", n: xs.n, up: xs.up, action: "Pitch the Zoomer their FZ results point to.", names: xs.names, ids: xs.ids }
+      ? { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", n: xs.n, up: xs.up, trio: { low: xs.low, high: xs.high, likely: xs.up }, action: "Pitch the Zoomer their FZ results point to.", names: xs.names, ids: xs.ids }
       : { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", na: !fz ? "loading FZ scores…" : !fz.ready ? FZ_NOT_READY[fz.reason] ?? "FZ scores not loaded" : "no open FZ results in this window" },
-  ] as Array<{ id: string; label: string; tag?: string; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
+  ] as Array<{ id: string; label: string; tag?: string; trio?: { low: number; high: number; likely: number }; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
   const total = cards.reduce((s, c) => s + (c.up ?? 0), 0);
   const done = planning ? cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0) : 0;
   const isPlanned = (id: string) => planning && !!planned[id];
@@ -3941,7 +3941,7 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
         </div>
       </div>
       <HowCalc>
-        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> (Foundation Zoomer) is the revenue if the open FZ results turn into orders, at the share of similar results that already did; it counts the FZ results that came back in the window picked above and that no order has followed (the custom window counts every result on file). <b>Whitespace</b> (Foundation Zoomer) is clinics you marked eligible for it that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
+        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> (Foundation Zoomer) shows three numbers: <b>Low</b> and <b>High</b> are the revenue if every open FZ result orders the Baseline or the Zoomer, and <b>Likely</b> is the expected revenue at the share of similar results that usually order (the figure the card and the total count); it counts the FZ results that came back in the window picked above and that no order has followed (the custom window counts every result on file). <b>Whitespace</b> (Foundation Zoomer) is clinics you marked eligible for it that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
       </HowCalc>
       <div className="rv-opp-seg">
         {cards.filter(c => c.up).map(c => (
@@ -3963,7 +3963,16 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
               <>
                 {c.id === "crosssell" ? (
                   // The list lives in the scorecard (Get clinics walks you there); there is no list under the agenda for this card.
-                  <div className="rv-opp-v">{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics</small></div>
+                  <>
+                    <div className="rv-opp-v">{c.n}<small> clinics</small></div>
+                    {c.trio ? (
+                      <div className="rv-opp-trio" data-tour="opp-crosssell-trio">
+                        <div title="If every open FZ result orders the Baseline (the lower price)"><b>{K(c.trio.low)}</b><span>Low</span></div>
+                        <div title="If every open FZ result orders the Zoomer (the upper price)"><b>{K(c.trio.high)}</b><span>High</span></div>
+                        <div title="At the share of similar results that usually order (company-wide), at the Baseline price"><b>{K(c.trio.likely)}</b><span>Likely</span></div>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
                 )}

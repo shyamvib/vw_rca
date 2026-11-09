@@ -23,11 +23,13 @@ test("cross-sell lists every clinic, biggest likely revenue first, and names the
   const clinic = (id: string, name: string, likely: number, products = [line("Gut Zoomer", 1, likely)]) => ({ clinic: id, name, likely, open: 1, products });
   const r = fzCrossSell({
     ready: true,
-    totals: { clinics: 4, likely: 1000 },
+    totals: { clinics: 4, likely: 1000, low: 5000, high: 9000 },
     clinics: [clinic("c1", "Alpha", 100), clinic("c2", "Bravo", 500), clinic("c3", "Charlie", 300), clinic("c4", "Delta", 100, [])],
   });
   assert.equal(r.n, 4);
   assert.equal(r.up, 1000);
+  assert.equal(r.low, 5000);
+  assert.equal(r.high, 9000);
   assert.deepEqual(r.ids, ["c2", "c3", "c1", "c4"]); // ties keep alphabetical order
   assert.deepEqual(r.names.map(x => x.name), ["Bravo → Gut Zoomer", "Charlie → Gut Zoomer", "Alpha → Gut Zoomer"]);
   assert.deepEqual(r.names.map(x => x.v), [500, 300, 100]);

@@ -906,5 +906,12 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 /* Opportunity agenda: the window buttons and the tour link, inside the agenda's own header */
 .rv-opp-switch { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 8px 0 6px; }
 .rv-opp-switch .rv-win-toggle { margin: 0; }
-.rv-opp-get { border: 0; border-radius: 4px; background: var(--vw-ink); color: #fff; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 7px 12px; cursor: pointer; }
-.rv-opp-get:hover { background: #2a2a2a; }
+/* Get clinics: brand blue, the same size as Add to today */
+.rv-opp-btns .rv-opp-get { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; border: 2px solid var(--vw-blue); background: var(--vw-blue); color: var(--vw-white); border-radius: 6px; padding: 8px 14px; cursor: pointer; width: 100%; }
+.rv-opp-btns .rv-opp-get:hover { background: var(--vw-blue-hover); border-color: var(--vw-blue-hover); }
+/* Cross-sell card: low, high and likely revenue */
+.rv-opp-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 2px; }
+.rv-opp-trio div { display: flex; flex-direction: column; }
+.rv-opp-trio b { font-family: var(--font-mono); font-size: 15px; font-weight: 600; }
+.rv-opp-trio span { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--vw-gray-60); }
+.rv-opp-trio div:last-child b { color: var(--vw-blue); }
