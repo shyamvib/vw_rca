@@ -24,12 +24,13 @@ import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
 import { findFzFamily, fzCrossSell, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
+import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, formatAnnouncementDate, hasUnseenAnnouncement, latestAnnouncementId, type Announcement } from "@/lib/announcements";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
 import { fzTourAvailable, gzRepTourAvailable, startFzTour, startGzRepTour } from "@/lib/usertour";
 
 const tourSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard";
+type Tab = "today" | "plan" | "feed" | "week" | "month" | "quarter" | "custom" | "scorecard" | "news";
 type Tone = "good" | "watch" | "bad" | "act" | "na";
 
 const K = (n: number) => {
@@ -164,6 +165,8 @@ export function RepView(props: {
     if (grain !== "custom") setLast(grain, false);
     setTab(grain);
   };
+  // Banner and What's new page: start the Foundation Zoomer tour; with no tour set up, open the scorecard on Foundation Zoomer instead.
+  const startFzFromNews = () => (fzTourAvailable ? startFzTour() : openScorecard("Cross-sell candidates", "fz", "week"));
   // Business Feed "Find Gut Zoomer clinics": the question quotes the whole analysis window, which is the Custom tab (periodId "all"),
   // not this week. Make sure the scorecard is shown there, then start the tour once the family cards are on the page.
   const findGz = () => {
@@ -258,6 +261,15 @@ export function RepView(props: {
     api.leadFamilies.salesFamilies,
     sales && thisWeek ? { password: pw(), periodId: thisWeek.id, sales } : "skip",
   );
+  // "What's new": the newest announcement the person has opened (kept in this browser), and the FZ tour both the banner and the page start.
+  const [newsSeen, setNewsSeen] = useState<string | null>(() => { try { return localStorage.getItem("rv-news-seen"); } catch { return null; } });
+  const markNewsSeen = () => {
+    const id = latestAnnouncementId();
+    if (!id) return;
+    setNewsSeen(id);
+    try { localStorage.setItem("rv-news-seen", id); } catch { /* the dot just comes back next visit */ }
+  };
+  useEffect(() => { if (tab === "news") markNewsSeen(); }, [tab]);
   const [scFocus, setScFocus] = useState<string | null>(null);
   // A product family the scorecard should open scoped to ("fz" = Foundation Zoomer), set by the agenda's "See in scorecard".
   const [scFam, setScFam] = useState<string | null>(null);
@@ -393,7 +405,7 @@ export function RepView(props: {
           {activeBook ? `${activeBook.clinics} clinics` : "…"} · data to {fmtD((activeBook ?? b)?.cutoff)}
         </div>
         <nav className="rv-nav" data-tour="rv-nav">
-          {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard"] as Tab[]).map(t => (
+          {(["today", "plan", "feed", "week", "month", "quarter", "custom", "scorecard", "news"] as Tab[]).map(t => (
             <button
               key={t}
               type="button"
@@ -415,7 +427,10 @@ export function RepView(props: {
                       ? `${word("quarter")} quarter`
                       : t === "custom"
                         ? `Custom · ${periodLabel}`
-                        : "Scorecard guide"}
+                        : t === "news"
+                          ? "What's new"
+                          : "Scorecard guide"}
+              {t === "news" && hasUnseenAnnouncement(newsSeen) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
             </button>
           ))}
         </nav>
@@ -495,6 +510,7 @@ export function RepView(props: {
             <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
+            <NewsBanner sales={sales} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} />
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
@@ -627,6 +643,8 @@ export function RepView(props: {
               scFam={scFam}
             />
           )
+        ) : tab === "news" ? (
+          <NewsPage onTab={t => setTab(t)} onGetClinics={startFzFromNews} />
         ) : (
           <ScorecardGuide onOpen={t => { setScFocus(null); setScFam(null); setTab(t); }} />
         )}
@@ -636,7 +654,7 @@ export function RepView(props: {
           onClose={() => setAskOpen(false)}
           sales={sales}
           withCards={tab === "feed"}
-          context={`Rep view · ${{ today: "Today's agenda", plan: "My week plan", feed: "Business feed", week: "This week", month: "This month", quarter: "This quarter", custom: "Custom dates", scorecard: "Scorecard guide" }[tab]}`}
+          context={`Rep view · ${{ today: "Today's agenda", plan: "My week plan", feed: "Business feed", week: "This week", month: "This month", quarter: "This quarter", custom: "Custom dates", scorecard: "Scorecard guide", news: "What's new" }[tab]}`}
         />
       ) : null}
       {clinicSel ? (
@@ -4045,6 +4063,55 @@ function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onO
     <div className="rv-opp">
       <div className="rv-opp-head"><div><h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2><div className="rv-opp-switch">{switcher}</div></div></div>
       <div className="rv-loading">Loading {g.phrase}…</div>
+    </div>
+  );
+}
+
+/** The banner at the top of Today's agenda announcing the Foundation Zoomer cross-sell. Its button starts the same tour as the Cross-sell card's Get clinics. */
+function NewsBanner({ sales, onOpenNews, onGetClinics }: { sales: string; onOpenNews: () => void; onGetClinics: () => void }) {
+  const key = `rv-news-banner:${FZ_ANNOUNCEMENT_ID}`;
+  const [gone, setGone] = useState(() => { try { return localStorage.getItem(key) === "1"; } catch { return false; } });
+  // A rep with no Foundation Zoomer results has no list to walk through, so the banner then only announces it.
+  const fz = useFz(sales, "all");
+  const a = ANNOUNCEMENTS.find(x => x.id === FZ_ANNOUNCEMENT_ID);
+  if (gone || !a) return null;
+  const hasFz = !!(fz?.ready && fz.totals.clinics);
+  const dismiss = () => { setGone(true); try { localStorage.setItem(key, "1"); } catch { /* it shows again next visit */ } };
+  return (
+    <div className="rv-banner" role="region" aria-label="New: Foundation Zoomer cross-sell" data-tour="news-banner">
+      <div className="rv-banner-tag">New · {formatAnnouncementDate(a.date)}</div>
+      <div className="rv-banner-body">
+        <b>{a.title}</b>
+        <span>{a.summary}</span>
+      </div>
+      <div className="rv-banner-btns">
+        {hasFz ? <button type="button" className="rv-banner-go" data-tour="news-banner-cta" onClick={() => { dismiss(); onGetClinics(); }}>Get clinics</button> : null}
+        <button type="button" className="rv-opp-link" onClick={onOpenNews}>See what's new</button>
+        <button type="button" className="rv-banner-x" aria-label="Dismiss" onClick={dismiss}>×</button>
+      </div>
+    </div>
+  );
+}
+
+/** The What's new page: every feature update, newest first, each with the date it shipped. */
+function NewsPage({ onTab, onGetClinics }: { onTab: (t: "today" | "feed" | "week" | "month" | "quarter") => void; onGetClinics: () => void }) {
+  const run = (a: NonNullable<Announcement["action"]>) => (a.kind === "tab" ? onTab(a.tab) : onGetClinics());
+  return (
+    <div className="rv-news" data-tour="news-page">
+      <div className="rv-eyebrow">What's new</div>
+      <h1 className="rv-h1">Feature updates</h1>
+      <p className="rv-dim rv-small">Everything new in the rep view, newest first, with the day it reached you.</p>
+      {ANNOUNCEMENTS.map(a => (
+        <article className="rv-news-item" key={a.id} data-tour={`news-${a.id}`}>
+          <div className="rv-news-date">{formatAnnouncementDate(a.date)}</div>
+          <div className="rv-news-body">
+            <h2>{a.title}</h2>
+            <p>{a.summary}</p>
+            <ul>{a.points.map(x => <li key={x}>{x}</li>)}</ul>
+            {a.action ? <button type="button" className="rv-banner-go" onClick={() => run(a.action!)}>{a.action.label}</button> : null}
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
