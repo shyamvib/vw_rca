@@ -157,12 +157,12 @@ export function RepView(props: {
               ? { id: selWeek?.id, prevId: before("week")?.id, label: `${word("week")} week` }
               : { id: thisWeek?.id, prevId: lastWeek?.id, label: "This week" };
   // The scorecard lives in each window tab now; "See in scorecard" jumps to This week and highlights the cell.
-  const openScorecard = (focus: string | null = null, fam?: string) => {
+  const openScorecard = (focus: string | null = null, fam?: string, grain: "week" | "month" | "quarter" | "custom" = "week") => {
     setScFocus(focus);
     setScFam(fam ?? null);
-    // Foundation Zoomer counts every FZ result on file (as the agenda does), and only the Custom tab's window ("all") does that; this week's
-    // window would show only results that came back in the last 7 days.
-    setTab(fam === "fz" ? "custom" : "week");
+    // The tab of the window the agenda was showing, as "This ...": a tab left on "Last month" would show another period than the card.
+    if (grain !== "custom") setLast(grain, false);
+    setTab(grain);
   };
   // Business Feed "Find Gut Zoomer clinics": the question quotes the whole analysis window, which is the Custom tab (periodId "all"),
   // not this week. Make sure the scorecard is shown there, then start the tour once the family cards are on the page.
@@ -498,15 +498,15 @@ export function RepView(props: {
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
-                <OppAgenda
-                  b={wb}
-                  st={pillarStatus(wb, weekFams)}
+                <OppAgendaWindows
+                  wb={wb}
+                  sales={sales}
+                  periods={{ week: thisWeek, month: thisMonth, quarter: thisQuarter }}
+                  customId={periodId}
                   planned={planned}
                   onToggle={togglePlanned}
                   onOpenClinic={setClinicSel}
-                  sales={sales}
-                  periodId={thisWeek?.id ?? ""}
-                  onScorecard={(cell, fam) => openScorecard(cell, fam)}
+                  onScorecard={(cell, fam, grain) => openScorecard(cell, fam, grain)}
                 />
               ) : null}
               b={tb}
@@ -579,6 +579,8 @@ export function RepView(props: {
               showFunnel
               planBeat={planBeat}
               prev={prevFor(selMonth.id)}
+              scFocus={scFocus}
+              scFam={scFam}
             />
             {isLast("month") ? null : <TouchKpis sales={sales} w="month" src={kpiSrc} />}
             </>
@@ -601,6 +603,8 @@ export function RepView(props: {
               showFunnel
               planBeat={planBeat}
               prev={prevFor(selQuarter.id)}
+              scFocus={scFocus}
+              scFam={scFam}
             />
             {isLast("quarter") ? null : <TouchKpis sales={sales} w="quarter" src={kpiSrc} />}
             </>
@@ -3757,7 +3761,7 @@ const UPSIDE_BASIS: Record<string, string> = {
   famAdopt: "One order of the target product at its revenue per order, per new clinic ordering other Zoomers",
   famRepeat: "One more order of the target product per clinic that ordered it once",
   whitespace: "One Foundation Zoomer order, at its typical revenue per order, for each clinic you marked eligible that has never ordered it",
-  crosssell: "Foundation Zoomer cross-sell: the revenue if the open FZ results turn into orders at the share of similar results that already did (company-wide)",
+  crosssell: "Foundation Zoomer cross-sell: the revenue if this week's open FZ results turn into orders, at the share of similar results that already did (company-wide)",
 };
 
 /** Likelihood a touched clinic orders, from this rep's own touch record over the quarter (shrunk toward 50% when the
@@ -3871,7 +3875,8 @@ function usePlanRows(b: Book | null, fams: Wins, plan: PlanState, sales: string,
     const names = [...t].filter(([f]) => f !== "Unmapped" && f !== NON_ZOOMER).sort((a, b2) => b2[1] - a[1]).map(([f]) => f);
     return names.find(f => /hormone\s*zoomer/i.test(f)) ?? names[0] ?? "Hormone Zoomer";
   }, [pgd.data]);
-  const fz = useFz(sales, FZ_AGENDA_WINDOW);
+  // The plan is this week's plan, so its FZ numbers are this week's too: the same as the agenda's "This week" window.
+  const fz = useFz(sales, periodId);
   return useMemo(() => (b ? rankActions(b, fams, plan, pgd, famName, fz) : []), [b, fams, plan, pgd, famName, fz]);
 }
 
@@ -3896,13 +3901,14 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
 
 const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "Bundle growth", crosssell: "Expansion" };
 
-function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId }: {
-  sales: string; periodId: string; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
+function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning }: {
+  sales: string; periodId: string; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
 }) {
   const o = b.opp;
   const pgd = usePG(sales, periodId);
   // Cross-sell and Whitespace are Foundation Zoomer only (2026-11): the FZ results' open Zoomers, and the clinics marked eligible for FZ.
-  const fz = useFz(sales, FZ_AGENDA_WINDOW);
+  // The FZ numbers follow the window picked above the cards, the same window the scorecard tab behind "See in scorecard" uses.
+  const fz = useFz(sales, periodId);
   const wsAll = pgd.data ? fzWhitespace(pgd.elig, pgd.data.clinics) : null;
   const xs = fz?.ready && fz.totals.clinics ? fzCrossSell(fz) : null;
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
@@ -3919,34 +3925,35 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
     { id: "lowAov", label: "Low-AOV customers", n: o.lowAov.n, up: o.lowAov.up, action: "Suggest a bundle on the next order to lift them past $400.", names: o.lowAov.names, ids: o.lowAov.ids },
     xs
       ? { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", n: xs.n, up: xs.up, action: "Pitch the Zoomer their FZ results point to.", names: xs.names, ids: xs.ids }
-      : { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", na: !fz ? "loading FZ scores…" : !fz.ready ? FZ_NOT_READY[fz.reason] ?? "FZ scores not loaded" : "no open FZ results on file" },
+      : { id: "crosssell", label: "Cross-sell candidates", tag: "Foundation Zoomer", na: !fz ? "loading FZ scores…" : !fz.ready ? FZ_NOT_READY[fz.reason] ?? "FZ scores not loaded" : "no open FZ results in this window" },
   ] as Array<{ id: string; label: string; tag?: string; n?: number; up?: number; action?: string; names?: Array<{ clinic: string; name: string; v: number }>; ids?: string[]; na?: string }>;
   const total = cards.reduce((s, c) => s + (c.up ?? 0), 0);
-  const done = cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0);
+  const done = planning ? cards.reduce((s, c) => s + (planned[c.id] ? c.up ?? 0 : 0), 0) : 0;
+  const isPlanned = (id: string) => planning && !!planned[id];
   const dot = (id: string) => { const v = st?.[OPP_PILLAR[id]]; return v === "behind" ? "bad" : v === "watch" ? "watch" : v ? "good" : "na"; };
   return (
     <div className="rv-opp">
       <div className="rv-opp-head">
         <div>
           <h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2>
-          <div className="rv-opp-sub">The Opportunity column of your scorecard (this week's book), turned into today's work. Add what you'll act on.</div>
+          <div className="rv-opp-sub">The Opportunity column of your scorecard ({windowLabel}'s book), turned into today's work.{planning ? " Add what you'll act on." : " Switch to This week to add cards to today's plan."}</div>
         </div>
         <div className="rv-opp-tot">
-          <div><b>{K(done)}</b> <span>of {K(total)} planned</span></div>
+          {planning ? <div><b>{K(done)}</b> <span>of {K(total)} planned</span></div> : <div><b>{K(total)}</b> <span>opportunity</span></div>}
           <div className="rv-opp-sub">Total revenue opportunity on your scorecard</div>
         </div>
       </div>
       <HowCalc>
-        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> (Foundation Zoomer) is the revenue if the open FZ results turn into orders, at the share of similar results that already did; it counts every FZ result on file that no order has followed. <b>Whitespace</b> (Foundation Zoomer) is clinics you marked eligible for it that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
+        <p>The dollar figure on each card is its upside: <b>At-risk</b> is how far those clinics are below baseline; <b>Low-AOV</b> is the gap between $400 and each clinic's average order, times its orders; <b>Cross-sell</b> (Foundation Zoomer) is the revenue if the open FZ results turn into orders, at the share of similar results that already did; it counts the FZ results that came back in the window picked above and that no order has followed (the custom window counts every result on file). <b>Whitespace</b> (Foundation Zoomer) is clinics you marked eligible for it that have never ordered it. The bar sizes the cards by upside, and "planned" adds up the cards you added. The My week plan tab ranks these actions, and more, by expected revenue per hour.</p>
       </HowCalc>
       <div className="rv-opp-seg">
         {cards.filter(c => c.up).map(c => (
-          <i key={c.id} style={{ flex: c.up }} className={planned[c.id] ? "on" : ""} />
+          <i key={c.id} style={{ flex: c.up }} className={isPlanned(c.id) ? "on" : ""} />
         ))}
       </div>
       <div className="rv-opp-grid" data-tour="opp-grid">
         {cards.map(c => (
-          <div key={c.id} data-tour={`opp-${c.id}`} className={`rv-opp-card${c.na ? " na" : ""}${planned[c.id] ? " is-planned" : ""}`}>
+          <div key={c.id} data-tour={`opp-${c.id}`} className={`rv-opp-card${c.na ? " na" : ""}${isPlanned(c.id) ? " is-planned" : ""}`}>
             <div className="rv-opp-pil"><span>{OPP_PILLAR[c.id]}</span><i className={dot(c.id)} /></div>
             <div className="rv-opp-t">{c.label}{c.tag ? <small className="rv-opp-tag">{c.tag}</small> : null}</div>
             {c.na ? (
@@ -3957,7 +3964,7 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
               </>
             ) : (
               <>
-                <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · this week`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
+                <button type="button" className="rv-opp-v rv-opp-vbtn" data-tour={`opp-${c.id}-list`} title="Show clinic list" onClick={() => openIds(c.ids, `${c.label} · ${windowLabel}`)}>{c.n}<span>+{K(c.up ?? 0)}</span><small> clinics ↓</small></button>
                 <p className="rv-opp-act">{c.action}</p>
                 <p className="rv-opp-nm">
                   {(c.names ?? []).slice(0, 3).map((x, i) => (
@@ -3966,10 +3973,12 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
                   {(c.n ?? 0) > 3 ? ` and ${(c.n ?? 0) - 3} more.` : "."}
                 </p>
                 <div className="rv-opp-btns">
-                  <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>
-                    {planned[c.id] ? "✓ Added" : "Add to today"}
-                  </button>
-                  <button type="button" className="rv-opp-link" onClick={() => onScorecard(c.label, c.tag ? "fz" : undefined)}>See in scorecard</button>
+                  {planning ? (
+                    <button type="button" className={`rv-opp-add${planned[c.id] ? " is-on" : ""}`} onClick={() => onToggle(c.id)}>
+                      {planned[c.id] ? "✓ Added" : "Add to today"}
+                    </button>
+                  ) : null}
+                  <button type="button" className="rv-opp-link" data-tour={`opp-${c.id}-scorecard`} onClick={() => onScorecard(c.label, c.tag ? "fz" : undefined)}>See in scorecard</button>
                 </div>
               </>
             )}
@@ -3977,6 +3986,47 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
         ))}
       </div>
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
+    </div>
+  );
+}
+
+/** The agenda's own time grain (2026-11): Week / Month / Quarter / Custom, so it is not tied to this week alone, and "See in scorecard" opens the
+ * matching scorecard tab with the same window. Only This week can add cards to today's plan. */
+type Grain = "week" | "month" | "quarter" | "custom";
+const GRAINS: Array<{ key: Grain; label: string; phrase: string }> = [
+  { key: "week", label: "This week", phrase: "this week" },
+  { key: "month", label: "This month", phrase: "this month" },
+  { key: "quarter", label: "This quarter", phrase: "this quarter" },
+  { key: "custom", label: "Custom window", phrase: "the custom window" },
+];
+function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onOpenClinic, onScorecard }: {
+  wb: Book; sales: string; customId: string;
+  periods: { week?: RepViewPeriod; month?: RepViewPeriod; quarter?: RepViewPeriod };
+  planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam: string | undefined, grain: Grain) => void;
+}) {
+  const [grain, setGrain] = useState<Grain>("week");
+  const pid = grain === "custom" ? customId : periods[grain]?.id ?? "";
+  // This week's book is already loaded by the page; the others load when picked (the cache shares them with the tabs).
+  const otherQ = useRcaQuery(api.repView.book, sales && grain !== "week" && pid ? { password: pw(), periodId: pid, sales } : "skip");
+  const b = grain === "week" ? wb : otherQ?.ready ? otherQ : null;
+  const st = usePillarStatus(sales, pid || undefined);
+  const g = GRAINS.find(x => x.key === grain)!;
+  return (
+    <div>
+      <div className="rv-win-toggle" role="group" aria-label="Opportunity agenda window" data-tour="opp-grain">
+        {GRAINS.map(x => {
+          const has = x.key === "custom" ? !!customId : !!periods[x.key];
+          return (
+            <button key={x.key} type="button" data-tour={`opp-grain-${x.key}`} className={`rca-tab${grain === x.key ? " is-active" : ""}`} disabled={!has} onClick={() => setGrain(x.key)}>{x.label}</button>
+          );
+        })}
+      </div>
+      {b ? (
+        <OppAgenda key={grain} b={b} st={st ?? undefined} planned={planned} onToggle={onToggle} onOpenClinic={onOpenClinic} sales={sales} periodId={pid}
+          windowLabel={g.phrase} planning={grain === "week"} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
+      ) : (
+        <div className="rv-loading">Loading {g.phrase}…</div>
+      )}
     </div>
   );
 }
@@ -4601,8 +4651,6 @@ type FzResp = FzReady | { ready: false; reason: string } | undefined;
 function useFz(sales?: string, periodId?: string): FzResp {
   return useRcaQuery(api.fzScores.clinics, sales && periodId ? { password: pw(), periodId, sales } : "skip") as FzResp;
 }
-/** Which FZ results the agenda uses: every one on file, because "open" is a state (no order since the result), not a time window. This week alone would be almost always empty. */
-const FZ_AGENDA_WINDOW = "all";
 const KR = (lo: number, hi: number) => (Math.round(lo) === Math.round(hi) ? K(lo) : `${K(lo)}–${K(hi)}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const AREA_OF = new Map(AREAS.map(a => [a.area as string, a]));

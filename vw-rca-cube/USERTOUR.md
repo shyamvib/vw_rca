@@ -39,7 +39,8 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `ov-cell-list` | Clinic list opened from a scorecard cell |
 | `rv-nav-<tab>` (e.g. `rv-nav-custom`) | Rep view left-rail tabs |
 | `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
-| `opp-grid`, `opp-<card>`, `opp-<card>-list` | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), and the number button that opens its clinic list. Cross-sell and Whitespace are Foundation Zoomer only. |
+| `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard` | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, and its "See in scorecard" button. Cross-sell and Whitespace are Foundation Zoomer only. |
+| `opp-grain`, `opp-grain-week`, `opp-grain-month`, `opp-grain-quarter`, `opp-grain-custom` | The agenda's window switch (This week / This month / This quarter / Custom window) and its four buttons |
 
 ## Suggested Overview tour
 1. `ov-headline`: the one-sentence read of where revenue stands.
@@ -63,5 +64,12 @@ Started by the "Find Gut Zoomer clinics" button on the Business Feed's Gut Zoome
 ## Gut Zoomer tour, rep view
 Same idea, started by "Find Gut Zoomer clinics" on the rep Business feed's `gz-loss` card. The rep feed question quotes the **whole analysis window** (period "all"), not this week, so the button switches to the **Custom** tab (`rv-nav-custom`), which shows that window, makes sure the scorecard is expanded, and starts the flow once the family cards have loaded. Steps: the Custom tab (why this window), the Gut Zoomer family card (`rv-fam-gut-zoomer`), the Target Product Orders cell (`rv-sc-target-product-orders`), the clinic list (`rv-sc-list`). If a team lead has picked a different window in the top bar, the Custom tab shows that window and its numbers will differ from the question.
 
-## Opportunity agenda: Cross-sell and Whitespace are Foundation Zoomer only
-On the rep view's Today's agenda, the Opportunity agenda's **Cross-sell candidates** card lists the clinics whose Foundation Zoomer (FZ) results point to a Zoomer they have not ordered, biggest likely revenue first, each named with the Zoomer to pitch. It counts every FZ result on file that no order has followed (not just this week). **Product whitespace** is the clinics the rep marked eligible for Foundation Zoomer that have never ordered it. My week plan ranks the same two lists. "See in scorecard" on either card opens the scorecard already scoped to Foundation Zoomer.
+## Opportunity agenda: window switch, and Cross-sell / Whitespace are Foundation Zoomer only
+On the rep view's Today's agenda, a switch above the Opportunity agenda picks its window: **This week** (the default), **This month**, **This quarter** or **Custom window**. Every card follows it, including the FZ numbers, so the agenda and the scorecard tab behind it always show the same window.
+
+- **Cross-sell candidates** lists the clinics whose Foundation Zoomer (FZ) results, from the chosen window, point to a Zoomer they have not ordered and that no order has followed, biggest likely revenue first, each with the Zoomer to pitch. The custom window counts every FZ result on file.
+- **Product whitespace** is the clinics the rep marked eligible for Foundation Zoomer that have never ordered it (lifetime, so it does not change with the window).
+- Only **This week** can **Add to today**, because My week plan is this week's plan; the other windows are for looking. My week plan ranks the same two lists, with this week's FZ numbers.
+- **See in scorecard** opens the matching tab (Week / Month / Quarter / Custom), set to "This ...", with the same window; on the two FZ cards the scorecard is also scoped to Foundation Zoomer, so the Cross-sell cell shows the same number. Clicking that cell opens the FZ clinic list (`rv-sc-list`).
+
+A tour that goes agenda -> scorecard -> list: `opp-grain-<window>` (pick a window), `opp-crosssell` (explain), `opp-crosssell-scorecard` (click; the page changes tab), `rv-sc-cross-sell-candidates` (click; opens the list), `rv-sc-list` (explain). The step after the tab change must wait for its target, because a tooltip step whose target is missing ends the whole flow.
