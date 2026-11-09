@@ -902,3 +902,7 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-fz-break { border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; margin: 4px 0 10px; background: var(--surface-card); display: flex; flex-direction: column; gap: 6px; }
 .rv-fz-break p { margin: 0; font-size: 13px; line-height: 1.45; }
 .rv-win-toggle { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+
+/* Opportunity agenda: the window buttons and the tour link, inside the agenda's own header */
+.rv-opp-switch { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 8px 0 6px; }
+.rv-opp-switch .rv-win-toggle { margin: 0; }

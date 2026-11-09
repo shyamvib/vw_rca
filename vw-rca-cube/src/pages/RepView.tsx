@@ -25,7 +25,7 @@ import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
 import { findFzFamily, fzCrossSell, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
-import { gzRepTourAvailable, startGzRepTour } from "@/lib/usertour";
+import { fzTourAvailable, gzRepTourAvailable, startFzTour, startGzRepTour } from "@/lib/usertour";
 
 const tourSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -3375,6 +3375,7 @@ function FocusTable({
                   {shown.map((r, i) => (
                     <Fragment key={r.clinic}>
                       <tr
+                        data-tour={i === 0 ? "list-first-row" : undefined}
                         className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}`}
                         onClick={() => setExpanded(cur => (cur === r.clinic ? null : r.clinic))}
                       >
@@ -3901,8 +3902,8 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
 
 const OPP_PILLAR: Record<string, string> = { atRisk: "Retention", prospects: "New Business", whitespace: "Product Growth", lowAov: "Bundle growth", crosssell: "Expansion" };
 
-function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning }: {
-  sales: string; periodId: string; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
+function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales, periodId, windowLabel, planning, switcher, tourLink }: {
+  sales: string; periodId: string; /** The window buttons, shown inside the agenda's header. */ switcher?: React.ReactNode; /** The tour link: shown only when there is a Foundation Zoomer cross-sell list to walk through. */ tourLink?: React.ReactNode; /** "this week", "this month", … in the sentence "the Opportunity column of your scorecard (this week's book)". */ windowLabel: string; /** Only This week feeds My week plan, so only it can add cards to today. */ planning: boolean; b: Book; st?: Record<string, string>; planned: Record<string, boolean>; onToggle: (id: string) => void; onOpenClinic: (c: string) => void; onScorecard: (cell: string, fam?: string) => void;
 }) {
   const o = b.opp;
   const pgd = usePG(sales, periodId);
@@ -3936,6 +3937,7 @@ function OppAgenda({ b, st, planned, onToggle, onOpenClinic, onScorecard, sales,
       <div className="rv-opp-head">
         <div>
           <h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2>
+          <div className="rv-opp-switch">{switcher}{xs ? tourLink : null}</div>
           <div className="rv-opp-sub">The Opportunity column of your scorecard ({windowLabel}'s book), turned into today's work.{planning ? " Add what you'll act on." : " Switch to This week to add cards to today's plan."}</div>
         </div>
         <div className="rv-opp-tot">
@@ -4011,22 +4013,24 @@ function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onO
   const b = grain === "week" ? wb : otherQ?.ready ? otherQ : null;
   const st = usePillarStatus(sales, pid || undefined);
   const g = GRAINS.find(x => x.key === grain)!;
-  return (
-    <div>
-      <div className="rv-win-toggle" role="group" aria-label="Opportunity agenda window" data-tour="opp-grain">
-        {GRAINS.map(x => {
-          const has = x.key === "custom" ? !!customId : !!periods[x.key];
-          return (
-            <button key={x.key} type="button" data-tour={`opp-grain-${x.key}`} className={`rca-tab${grain === x.key ? " is-active" : ""}`} disabled={!has} onClick={() => setGrain(x.key)}>{x.label}</button>
-          );
-        })}
-      </div>
-      {b ? (
-        <OppAgenda key={grain} b={b} st={st ?? undefined} planned={planned} onToggle={onToggle} onOpenClinic={onOpenClinic} sales={sales} periodId={pid}
-          windowLabel={g.phrase} planning={grain === "week"} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
-      ) : (
-        <div className="rv-loading">Loading {g.phrase}…</div>
-      )}
+  const switcher = (
+    <div className="rv-win-toggle" role="group" aria-label="Opportunity agenda window" data-tour="opp-grain">
+      {GRAINS.map(x => {
+        const has = x.key === "custom" ? !!customId : !!periods[x.key];
+        return (
+          <button key={x.key} type="button" data-tour={`opp-grain-${x.key}`} className={`rca-tab${grain === x.key ? " is-active" : ""}`} disabled={!has} onClick={() => setGrain(x.key)}>{x.label}</button>
+        );
+      })}
+    </div>
+  );
+  const tourLink = fzTourAvailable ? <button type="button" className="rv-explain" data-tour="opp-take-tour" onClick={startFzTour}>Tour: Foundation Zoomer cross-sell</button> : null;
+  return b ? (
+    <OppAgenda key={grain} b={b} st={st ?? undefined} planned={planned} onToggle={onToggle} onOpenClinic={onOpenClinic} sales={sales} periodId={pid}
+      windowLabel={g.phrase} planning={grain === "week"} switcher={switcher} tourLink={tourLink} onScorecard={(cell, fam) => onScorecard(cell, fam, grain)} />
+  ) : (
+    <div className="rv-opp">
+      <div className="rv-opp-head"><div><h2 className="rv-opp-h">Opportunity agenda<Info k="opp" /></h2><div className="rv-opp-switch">{switcher}</div></div></div>
+      <div className="rv-loading">Loading {g.phrase}…</div>
     </div>
   );
 }
@@ -4748,7 +4752,7 @@ function FzClinicBreakdown({ c }: { c: FzClinicRow }) {
   const afterProduct = c.reasons["After product – not improved"] ?? 0;
   const repeat = c.reasons["Repeat test – not improving"] ?? 0;
   return (
-    <div className="rv-fz-break">
+    <div className="rv-fz-break" data-tour="fz-breakdown">
       <p>
         <b>Why call:</b> {c.openOrders} of {plural(c.fzOrders, "Foundation Zoomer test")} from this clinic came back with
         low {andList(words)} scores, and no follow-up Zoomer has been ordered for them yet.
@@ -4831,17 +4835,17 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
       expandTop={cl => { const c = byId.get(cl); return c ? <FzClinicBreakdown c={c} /> : null; }}
       lead={
         <div className="rv-fz-lead">
-          <div className="rv-famchips">
+          <div className="rv-famchips" data-tour="fz-zoomers">
             <button type="button" className={area === "" ? "on" : ""} onClick={() => setArea("")}>All Zoomers · {fz.clinics.length}</button>
             {fz.products.filter(p => p.open).map(p => (
               <button type="button" key={p.area} className={area === p.area ? "on" : ""} onClick={() => setArea(a => (a === p.area ? "" : p.area))}>
                 {p.product} · {p.clinics}
               </button>
             ))}
-            <button type="button" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
+            <button type="button" data-tour="fz-top20" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
           </div>
           <FzKpis t={t} />
-          <p className="rv-fz-say">{fzSalesNote(t, "this list", prodName)}</p>
+          <p className="rv-fz-say" data-tour="fz-list-say">{fzSalesNote(t, "this list", prodName)}</p>
           <FzStatus fz={fz} />
         </div>
       }
