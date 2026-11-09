@@ -12,6 +12,7 @@ import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
 import type * as access from "../access.js";
 import type * as appState from "../appState.js";
 import type * as auth from "../auth.js";
+import type * as banners from "../banners.js";
 import type * as config from "../config.js";
 import type * as constants from "../constants.js";
 import type * as functions from "../functions.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   access: typeof access;
   appState: typeof appState;
   auth: typeof auth;
+  banners: typeof banners;
   config: typeof config;
   constants: typeof constants;
   functions: typeof functions;

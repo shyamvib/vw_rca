@@ -925,7 +925,6 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-banner-btns { display: flex; align-items: center; gap: 14px; }
 .rv-banner-go { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; border: 2px solid var(--vw-blue); background: var(--vw-blue); color: var(--vw-white); border-radius: 6px; padding: 8px 16px; cursor: pointer; }
 .rv-banner-go:hover { background: var(--vw-blue-hover); border-color: var(--vw-blue-hover); }
-.rv-banner-x { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--vw-gray-60); cursor: pointer; padding: 0 4px; }
 .rv-news { max-width: 820px; }
 .rv-news-item { display: grid; grid-template-columns: 110px 1fr; gap: 18px; padding: 22px 0; border-top: 1px solid var(--vw-gray-20); }
 .rv-news-date { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--vw-gray-60); padding-top: 4px; }
