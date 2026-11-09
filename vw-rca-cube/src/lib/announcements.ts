@@ -26,13 +26,14 @@ export const ANNOUNCEMENTS: Announcement[] = [
   {
     id: FZ_ANNOUNCEMENT_ID,
     date: "2026-11-09",
-    title: "Foundation Zoomer cross-sell: find the clinics to pitch",
+    title: "Gut Baseline and Gut Zoomer: find the clinics to pitch",
     summary:
-      "Today's agenda has a Cross-sell card built from Foundation Zoomer results: the clinics whose results point to a Zoomer they haven't ordered yet, with the low, high and likely revenue.",
+      "Gut Baseline is new and leads into Gut Zoomer. Today's agenda has a Cross-sell card built from Foundation Zoomer results: the clinics whose gut results point to Gut Baseline or Gut Zoomer, with the low, high and likely revenue. The same list also covers the other Zoomers.",
     points: [
       "Pick This week, This month, This quarter or Custom window above the agenda cards; every card follows it.",
       "Get clinics walks you from the window list to the Foundation Zoomer card, the Cross-sell metric and the clinic list, then explains each number and column.",
-      "Open a clinic to see why to call, which Zoomer to suggest and what to ask the provider.",
+      "In the list, choose the Gut Zoomer filter to see only the clinics whose gut results point to Gut Baseline or Gut Zoomer. Low is the revenue if every one orders Gut Baseline (the lower price), High if every one orders Gut Zoomer, and Likely is what usually converts.",
+      "Open a clinic to see why to call, what to suggest and what to ask the provider.",
     ],
     action: { kind: "fzTour", label: "Get clinics" },
   },

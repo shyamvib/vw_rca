@@ -4102,7 +4102,7 @@ function NewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: strin
     if (window.confirm("Hide this banner for every rep? You can show it again from What's new.")) void dismiss({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID });
   };
   return (
-    <div className="rv-banner" role="region" aria-label="New: Foundation Zoomer cross-sell" data-tour="news-banner">
+    <div className="rv-banner" role="region" aria-label={`New: ${a.title}`} data-tour="news-banner">
       <div className="rv-banner-tag">New · {formatAnnouncementDate(a.date)}</div>
       <div className="rv-banner-body">
         <b>{a.title}</b>
