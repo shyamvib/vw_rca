@@ -36,6 +36,19 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "overview-this-last",
+    date: "2026-11-10",
+    pages: ["overview"],
+    title: "This / Last switch on the Overview and Teams",
+    summary: "Next to the Week, Month and Quarter buttons there is now a This / Last switch, so you can look back at last week, last month or last quarter with the same page.",
+    points: [
+      "Pick Week, Month or Quarter, then press Last. The headline, dials, scorecard, map, funnel and the clinic lists all follow it.",
+      "Last is a finished period, so the To date / To period end switch disappears: there is nothing left to wait for.",
+      "The change against the period before (WoW, MoM, QoQ) now compares last week with the week before it, and so on.",
+      "Last quarter needs an earlier quarter inside the analysis window; if there isn't one, the button is greyed out. Your choice is remembered in this browser.",
+    ],
+  },
+  {
     id: FZ_OVERVIEW_ANNOUNCEMENT_ID,
     date: "2026-11-09",
     pages: ["overview"],
