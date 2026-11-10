@@ -25,7 +25,8 @@ import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
 import { findFzFamily, fzCrossSell, fzListSel, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
 import { QuietBoundary } from "@/components/QuietBoundary";
-import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, formatAnnouncementDate, hasUnseenAnnouncement, latestAnnouncementId, type Announcement } from "@/lib/announcements";
+import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
+import { NewsBanner, NewsPage } from "@/components/WhatsNew";
 import type { FzClinic, FzProduct, FzTotals } from "../../analytics/fzTargets";
 import { fzTourAvailable, gzRepTourAvailable, startFzTour, startGzRepTour } from "@/lib/usertour";
 
@@ -265,7 +266,7 @@ export function RepView(props: {
   // "What's new": the newest announcement the person has opened (kept in this browser), and the FZ tour both the banner and the page start.
   const [newsSeen, setNewsSeen] = useState<string | null>(() => { try { return localStorage.getItem("rv-news-seen"); } catch { return null; } });
   const markNewsSeen = () => {
-    const id = latestAnnouncementId();
+    const id = latestAnnouncementId(announcementsFor("rep"));
     if (!id) return;
     setNewsSeen(id);
     try { localStorage.setItem("rv-news-seen", id); } catch { /* the dot just comes back next visit */ }
@@ -431,7 +432,7 @@ export function RepView(props: {
                         : t === "news"
                           ? "What's new"
                           : "Scorecard guide"}
-              {t === "news" && hasUnseenAnnouncement(newsSeen) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
+              {t === "news" && hasUnseenAnnouncement(newsSeen, announcementsFor("rep")) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
             </button>
           ))}
         </nav>
@@ -511,7 +512,7 @@ export function RepView(props: {
             <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
-            <QuietBoundary><NewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
+            <QuietBoundary><RepNewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
@@ -645,7 +646,7 @@ export function RepView(props: {
             />
           )
         ) : tab === "news" ? (
-          <NewsPage isAdmin={!isRep} onTab={t => setTab(t)} onGetClinics={startFzFromNews} />
+          <NewsPage audience="rep" isAdmin={!isRep} bannerId={FZ_ANNOUNCEMENT_ID} where="on Today's agenda" intro="Everything new in the rep view, newest first, with the day it reached you." onTab={t => setTab(t)} onTour={startFzFromNews} />
         ) : (
           <ScorecardGuide onOpen={t => { setScFocus(null); setScFam(null); setTab(t); }} />
         )}
@@ -4084,74 +4085,12 @@ function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onO
   );
 }
 
-/**
- * The banner at the top of Today's agenda announcing the Foundation Zoomer cross-sell. It keeps showing for every rep: only an admin (a team login,
- * not a rep, manager or account manager login) can dismiss it, and that hides it for everyone (stored in Convex, convex/banners.ts), not just in
- * one browser. Its button starts the same tour as the Cross-sell card's Get clinics.
- */
-function NewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: string; isAdmin: boolean; onOpenNews: () => void; onGetClinics: () => void }) {
-  const dismissed = useQuery(api.banners.dismissed, { password: pw() });
-  const dismiss = useMutation(api.banners.dismiss);
-  // A rep with no Foundation Zoomer results has no list to walk through, so the banner then only announces it.
+/** The rep view's banner: the Foundation Zoomer announcement, with its Get clinics button only for a rep who has FZ results (otherwise there is no list to tour). */
+function RepNewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: string; isAdmin: boolean; onOpenNews: () => void; onGetClinics: () => void }) {
   const fz = useFz(sales, "all");
   const a = ANNOUNCEMENTS.find(x => x.id === FZ_ANNOUNCEMENT_ID);
-  // Until the list of dismissed banners has loaded, show nothing, so a dismissed banner does not flash up.
-  if (!a || dismissed === undefined || dismissed.includes(FZ_ANNOUNCEMENT_ID)) return null;
-  const hasFz = !!(fz?.ready && fz.totals.clinics);
-  const hideForAll = () => {
-    if (window.confirm("Hide this banner for every rep? You can show it again from What's new.")) void dismiss({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID });
-  };
-  return (
-    <div className="rv-banner" role="region" aria-label={`New: ${a.title}`} data-tour="news-banner">
-      <div className="rv-banner-tag">New · {formatAnnouncementDate(a.date)}</div>
-      <div className="rv-banner-body">
-        <b>{a.title}</b>
-        <span>{a.summary}</span>
-      </div>
-      <div className="rv-banner-btns">
-        {hasFz ? <button type="button" className="rv-banner-go" data-tour="news-banner-cta" onClick={onGetClinics}>Get clinics</button> : null}
-        <button type="button" className="rv-opp-link" onClick={onOpenNews}>See what's new</button>
-        {isAdmin ? <button type="button" className="rv-opp-link" data-tour="news-banner-dismiss" title="Admins only: hides the banner for every rep" onClick={hideForAll}>Dismiss for everyone</button> : null}
-      </div>
-    </div>
-  );
-}
-
-/** Admins only: tells them the banner is hidden for everyone and lets them show it again. */
-function BannerRestore() {
-  const dismissed = useQuery(api.banners.dismissed, { password: pw() });
-  const restore = useMutation(api.banners.restore);
-  if (!dismissed?.includes(FZ_ANNOUNCEMENT_ID)) return null;
-  return (
-    <p className="rv-dim rv-small">
-      The Foundation Zoomer banner on Today's agenda is hidden for everyone.{" "}
-      <button type="button" className="rv-opp-link" onClick={() => void restore({ password: pw(), bannerId: FZ_ANNOUNCEMENT_ID })}>Show it again</button>
-    </p>
-  );
-}
-
-/** The What's new page: every feature update, newest first, each with the date it shipped. */
-function NewsPage({ isAdmin, onTab, onGetClinics }: { isAdmin: boolean; onTab: (t: "today" | "feed" | "week" | "month" | "quarter") => void; onGetClinics: () => void }) {
-  const run = (a: NonNullable<Announcement["action"]>) => (a.kind === "tab" ? onTab(a.tab) : onGetClinics());
-  return (
-    <div className="rv-news" data-tour="news-page">
-      <div className="rv-eyebrow">What's new</div>
-      <h1 className="rv-h1">Feature updates</h1>
-      <p className="rv-dim rv-small">Everything new in the rep view, newest first, with the day it reached you.</p>
-      {isAdmin ? <QuietBoundary><BannerRestore /></QuietBoundary> : null}
-      {ANNOUNCEMENTS.map(a => (
-        <article className="rv-news-item" key={a.id} data-tour={`news-${a.id}`}>
-          <div className="rv-news-date">{formatAnnouncementDate(a.date)}</div>
-          <div className="rv-news-body">
-            <h2>{a.title}</h2>
-            <p>{a.summary}</p>
-            <ul>{a.points.map(x => <li key={x}>{x}</li>)}</ul>
-            {a.action ? <button type="button" className="rv-banner-go" onClick={() => run(a.action!)}>{a.action.label}</button> : null}
-          </div>
-        </article>
-      ))}
-    </div>
-  );
+  if (!a) return null;
+  return <NewsBanner announcement={a} audienceLabel="every rep" isAdmin={isAdmin} showCta={!!(fz?.ready && fz.totals.clinics)} onCta={onGetClinics} onOpenNews={onOpenNews} />;
 }
 
 function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; periodId: string; b: Book; fams: Wins; plan: PlanState; onPlan: (p: PlanState) => void }) {

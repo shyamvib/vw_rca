@@ -6,7 +6,10 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
-import { gzTourAvailable, startGzTour, startUsertour } from "@/lib/usertour";
+import { fzOverviewTourAvailable, gzTourAvailable, startFzOverviewTour, startGzTour, startUsertour } from "@/lib/usertour";
+import { ANNOUNCEMENTS, FZ_OVERVIEW_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
+import { NewsBanner, NewsPage } from "@/components/WhatsNew";
+import { QuietBoundary } from "@/components/QuietBoundary";
 import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
@@ -1284,7 +1287,16 @@ export function RcaDashboardPage() {
   const repLogin = useMemo(() => repSession(), []);
   const isRep = repLogin !== null;
   // Reps only get their own view: no company dashboard, no Business Feed.
-  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep">(isRep ? "rep" : "overview");
+  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep" | "news">(isRep ? "rep" : "overview");
+  // "What's new" on the Overview side: the newest announcement the person has opened (kept in this browser).
+  const [newsSeen, setNewsSeen] = useState<string | null>(() => { try { return localStorage.getItem("ov-news-seen"); } catch { return null; } });
+  useEffect(() => {
+    if (view !== "news") return;
+    const id = latestAnnouncementId(announcementsFor("overview"));
+    if (!id) return;
+    setNewsSeen(id);
+    try { localStorage.setItem("ov-news-seen", id); } catch { /* the dot just comes back next visit */ }
+  }, [view]);
   const isCam = repLogin?.cam === true; // rep-view only, limited to the reps paired with this account manager
   const isLead = repLogin?.all === true || isCam; // rep-view only: may switch between reps
   // Guided tours (Usertour): signed-in work email and role only; inert unless the token is configured.
@@ -1950,6 +1962,15 @@ export function RcaDashboardPage() {
               Business Feed
             </button>
           )}
+          <button
+            type="button"
+            className={`rca-tab${view === "news" ? " is-active" : ""}`}
+            data-tour="nav-news"
+            onClick={() => setView("news")}
+          >
+            What's new
+            {hasUnseenAnnouncement(newsSeen, announcementsFor("overview")) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
+          </button>
         </div>
         )}
           <span className="rca-eyebrow rca-dim rca-top-sub">
@@ -2144,7 +2165,25 @@ export function RcaDashboardPage() {
             provTerm={provSearch}
             onClearSearch={() => { setSearch(""); setProvSearch(""); }}
           />
+        ) : view === "news" ? (
+          <NewsPage
+            audience="overview"
+            isAdmin
+            bannerId={FZ_OVERVIEW_ANNOUNCEMENT_ID}
+            where="on the Overview"
+            intro="Everything new on the Overview and in the rep view, newest first, with the day it shipped."
+            onTour={() => { setView("overview"); startFzOverviewTour(); }}
+          />
         ) : view === "overview" ? (
+          <>
+          <QuietBoundary>
+            {(() => {
+              const entry = ANNOUNCEMENTS.find(x => x.id === FZ_OVERVIEW_ANNOUNCEMENT_ID);
+              return entry ? (
+                <NewsBanner announcement={entry} audienceLabel="everyone on the Overview" isAdmin showCta={fzOverviewTourAvailable} onCta={startFzOverviewTour} onOpenNews={() => setView("news")} />
+              ) : null;
+            })()}
+          </QuietBoundary>
           <ExecutiveView
             periods={periods as never}
             windowLabel={`${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`}
@@ -2152,6 +2191,7 @@ export function RcaDashboardPage() {
             onOpenFeed={() => setView("feed")}
             onOpenTree={id => { setSelected(id); setView("dashboard"); }}
           />
+          </>
         ) : view === "teams" ? (
           <TeamsView
             periods={periods as never}

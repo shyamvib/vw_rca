@@ -2,9 +2,14 @@
  * Feature announcements shown on the rep view's "What's new" page and, for the newest one, as a banner on Today's agenda.
  *
  * To announce something: add an entry at the TOP of ANNOUNCEMENTS (newest first) with the date it shipped (YYYY-MM-DD). The page lists them in
- * this order, and the unread dot on the rail shows while the newest id is not the one the person last opened. Dates are written by hand, so
- * set the date to the day the change reached production.
+ * this order, and the unread dot shows while the newest id is not the one the person last opened. Dates are written by hand, so set the date to
+ * the day the change reached production.
+ *
+ * Two places show announcements: the rep view and the Overview (team logins). An entry with no `audience` shows in both; its button (which
+ * points into the rep view) is only offered in the rep view. An entry with `audience` set shows only there, with its button.
  */
+export type Audience = "rep" | "overview";
+
 export type AnnouncementAction =
   | { kind: "tab"; label: string; tab: "today" | "feed" | "week" | "month" | "quarter" }
   | { kind: "fzTour"; label: string };
@@ -16,13 +21,33 @@ export type Announcement = {
   title: string;
   summary: string;
   points: string[];
+  /** Who sees it; leave out for both. */
+  audience?: Audience;
   action?: AnnouncementAction;
 };
 
-/** The id the Today's agenda banner announces. */
+/** The id the rep view's Today's agenda banner announces. */
 export const FZ_ANNOUNCEMENT_ID = "fz-cross-sell";
+/** The id the Overview's banner announces. */
+export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
+  {
+    id: FZ_OVERVIEW_ANNOUNCEMENT_ID,
+    date: "2026-11-09",
+    audience: "overview",
+    title: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead",
+    summary:
+      "Gut Baseline is new and leads into Gut Zoomer. The Overview's Foundation Zoomer cross-sell now opens the full clinic list: the clinics whose gut results point to Gut Baseline or Gut Zoomer, for the whole company or for one team lead's team, with the low, high and likely revenue. The same list also covers the other Zoomers.",
+    points: [
+      "Leave the team lead filter at the top on all leads for the whole company, or pick a team lead to see that team.",
+      "Pick a window with the Week, Month, Quarter or full window buttons; the list follows it.",
+      "Under Product families, click Foundation Zoomer, then Cross-sell candidates in the scorecard to open the list. Get clinics walks you through it.",
+      "In the list, choose the Gut Zoomer filter to see only the clinics whose gut results point to Gut Baseline or Gut Zoomer. Low is the revenue if every one orders Gut Baseline (the lower price), High if every one orders Gut Zoomer, and Likely is what usually converts.",
+      "Open a clinic to see why to call, what to suggest and what to ask the provider.",
+    ],
+    action: { kind: "fzTour", label: "Get clinics" },
+  },
   {
     id: FZ_ANNOUNCEMENT_ID,
     date: "2026-11-09",
@@ -78,3 +103,10 @@ export const latestAnnouncementId = (list: Announcement[] = ANNOUNCEMENTS): stri
 /** Is there something the person has not opened? `seenId` is the newest id they have seen. */
 export const hasUnseenAnnouncement = (seenId: string | null, list: Announcement[] = ANNOUNCEMENTS): boolean =>
   list.length > 0 && seenId !== list[0].id;
+
+/** The announcements one place shows, newest first. */
+export const announcementsFor = (audience: Audience, list: Announcement[] = ANNOUNCEMENTS): Announcement[] =>
+  list.filter(a => !a.audience || a.audience === audience);
+
+/** Does this announcement offer its button here? Buttons into the rep view are for the rep view only; an entry made for a place offers its own. */
+export const offersAction = (a: Announcement, audience: Audience): boolean => !!a.action && (a.audience ? a.audience === audience : audience === "rep");

@@ -9,6 +9,7 @@ Set these in Vercel (Production and Preview), then redeploy:
 | --- | --- |
 | `VITE_USERTOUR_TOKEN` | Environment token from Usertour (Settings > Environments). Public by design. |
 | `VITE_USERTOUR_OVERVIEW_FLOW` | Id of the Overview flow (the segment after `/flows/` in the flow's detail URL). Enables the "Take a tour" link on the Overview. |
+| `VITE_USERTOUR_FZ_OVERVIEW_FLOW` | Id of the Overview's Foundation Zoomer cross-sell flow (cmwa1c2aa0n6aw9w5psk0xwzs). Enables the Get clinics button on the Overview's banner and on its What's new page. |
 | `VITE_USERTOUR_FZ_FLOW` | Id of the Foundation Zoomer cross-sell flow (cmw8uvl8e0h3mw9w5vsz6ia7n). Enables the "Tour: Foundation Zoomer cross-sell" link in the Opportunity agenda's header (shown only when the agenda has a cross-sell list). |
 | `VITE_USERTOUR_GZ_REP_FLOW` | Id of the rep view's Gut Zoomer flow (cmw1lznay05gow9w5x0dgyhro). Enables "Find Gut Zoomer clinics" on the rep Business feed card. |
 | `VITE_USERTOUR_GZ_FLOW` | Id of the Gut Zoomer clinic list flow. Enables the "Find Gut Zoomer clinics" button on the Business Feed card. |
@@ -42,6 +43,7 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
 | `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard`, `opp-crosssell-get`, `opp-crosssell-trio`, `opp-<card>-fold` (the Hide / Show clinics toggle) | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, its "See in scorecard" button (the Cross-sell card has "Get clinics", `opp-crosssell-get`, instead, and no list or scorecard button). Cross-sell and Whitespace are Foundation Zoomer only; the Cross-sell card shows Low, High and Likely revenue (`opp-crosssell-trio`). |
 | `opp-grain`, `opp-grain-week`, `opp-grain-month`, `opp-grain-quarter`, `opp-grain-custom` | The agenda's window switch (This week / This month / This quarter / Custom window) and its four buttons |
+| `nav-news` | The top bar's "What's new" tab (Overview side; a blue dot shows until the newest announcement has been opened) |
 | `news-banner`, `news-banner-cta`, `news-banner-dismiss`, `news-page`, `news-<id>` | Rep view "What's new": the Foundation Zoomer banner at the top of Today's agenda and its Get clinics button (shown only when the rep has FZ results), the page, and each announcement on it. The rail entry is `rv-nav-news`. |
 | `rv-nav` | The rep view's left rail list (Today's agenda, My week plan, Business feed, the window tabs, Scorecard guide); the window tabs also have `rv-nav-<tab>` and carry `is-on` when open |
 | `fz-kpis`, `fz-zoomers`, `fz-top20`, `fz-list-say`, `fz-breakdown`, `list-col-<key>` (`list-col-fzOpen`, `list-col-fzStake`), `list-first-row` | Inside the FZ clinic list: the KPI strip, the Zoomer filter chips, the Top 20% button, the plain-words summary, a clinic's expanded breakdown, the FZ columns' headings, and the first row of any clinic list table. The Foundation Zoomer cross-sell cell also carries `data-fz="ready"` once its list can open |
@@ -91,3 +93,16 @@ The hidden wait steps use the element condition "unclicked", which only needs th
 
 ## What's new (announcements)
 The rep view's rail has a "What's new" page listing every feature update, newest first, each with the day it shipped, plus a blue dot on the rail entry until the newest one has been opened (kept per browser). The Foundation Zoomer cross-sell announcement also shows as a banner at the top of Today's agenda. It **keeps showing for every rep**: only an admin (a team login, not a rep, manager or account manager login) sees a **Dismiss for everyone** link, and that hides it for all reps (stored in Convex, `convex/banners.ts`, in the `appMeta` table; an admin can bring it back with **Show it again** on the What's new page). Its **Get clinics** button starts the Foundation Zoomer cross-sell tour (the same one the Cross-sell card starts), and is shown only when the rep has FZ results. The list lives in `src/lib/announcements.ts`: to announce something, add an entry at the top with the day it reached production. The page, the banner and the dot all read from that one list.
+
+## What's new and the banner on the Overview
+The Overview side has the same two things as the rep view, built from the same components (`src/components/WhatsNew.tsx`) and the same list (`src/lib/announcements.ts`):
+- A **What's new** tab at the right of the top bar (a blue dot until the newest entry has been opened, remembered per browser). It lists every announcement for the Overview, newest first: all the rep view's entries plus the Overview's own. Buttons that point into the rep view appear only in the rep view; the Overview's own entry has **Get clinics**.
+- A **banner** at the top of the Overview announcing the Foundation Zoomer cross-sell: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead" (`fz-cross-sell-overview`, so dismissing it never hides the rep view's banner). It keeps showing; every viewer on the Overview is a team login, so every viewer can **Dismiss for everyone** (hidden for everyone on the Overview, stored in Convex like the rep view's), and bring it back with **Show it again** on What's new. Its **Get clinics** button starts the Overview tour.
+
+### The Overview's Foundation Zoomer cross-sell flow
+Flow "Foundation Zoomer cross-sell list (Overview)" (id `cmwa1c2aa0n6aw9w5psk0xwzs`), started by Get clinics (`startFzOverviewTour`). No start rule.
+1. **Scope** (`ov-lead-filter`): all leads = the whole company, or one team lead. -> **Window** (`ov-period`).
+2. **Click the Foundation Zoomer card** (`ov-fam-foundation-zoomer`) -> [hidden wait: the cross-sell cell is `data-fz="ready"`] -> **click Cross-sell candidates** (`sc-cross-sell-candidates`) -> [hidden wait: `ov-cell-list`].
+3. The list (`ov-cell-list`) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open (`list-col-fzOpen`) -> At stake (`list-col-fzStake`).
+4. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown -> Done.
+Same waiting rule as the rep view's flow: the waits use "unclicked", which only needs the element in the page.
