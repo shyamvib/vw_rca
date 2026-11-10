@@ -21,8 +21,8 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 
 | `data-tour` | Where |
 | --- | --- |
-| `nav-overview`, `nav-teams`, `nav-root-cause`, `nav-rep-view`, `nav-feed` | Top bar view tabs |
-| `ov-lead-filter` | Top bar team lead filter |
+| `nav-overview`, `nav-teams`, `nav-root-cause`, `nav-rep-view`, `nav-feed` | Left sidebar view buttons (the sidebar is an icon strip until opened; the buttons keep their hooks either way) |
+| `ov-lead-filter` | Team lead filter in the left sidebar. While the sidebar is collapsed the hook is on the filter icon instead (only one of the two carries it at a time, so a tour always finds a visible target); put steps on the **right** of it. `rail`, `rail-toggle` are the sidebar and its collapse button. Overview tours open the sidebar when they start (`EXPAND_RAIL_EVENT`). |
 | `ov-headline` | Overview headline |
 | `ov-take-tour` | "Take a tour" link |
 | `ov-compare` | vs goal / vs baseline switch |
@@ -43,7 +43,7 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `rv-fam-<family>`, `rv-sc-<metric>`, `rv-sc-list` | Rep view scorecard: family cards, cells (e.g. `rv-sc-target-product-orders`), and the clinic list a cell opens |
 | `opp-grid`, `opp-<card>`, `opp-<card>-list`, `opp-<card>-scorecard`, `opp-crosssell-get`, `opp-crosssell-trio`, `opp-<card>-fold` (the Hide / Show clinics toggle) | Rep view Today's agenda, Opportunity agenda: the card grid, each card (`opp-crosssell`, `opp-whitespace`, `opp-atRisk`, `opp-lowAov`, `opp-prospects`), the number button that opens its clinic list, its "See in scorecard" button (the Cross-sell card has "Get clinics", `opp-crosssell-get`, instead, and no list or scorecard button). Cross-sell and Whitespace are Foundation Zoomer only; the Cross-sell card shows Low, High and Likely revenue (`opp-crosssell-trio`). |
 | `opp-grain`, `opp-grain-week`, `opp-grain-month`, `opp-grain-quarter`, `opp-grain-custom` | The agenda's window switch (This week / This month / This quarter / Custom window) and its four buttons |
-| `nav-news` | The top bar's "What's new" tab (Overview side; a blue dot shows until the newest announcement has been opened) |
+| `nav-news` | The sidebar's "What's new" button (Overview side; a blue dot shows until the newest announcement has been opened) |
 | `news-banner`, `news-banner-cta`, `news-banner-dismiss`, `news-page`, `news-<id>` | Rep view "What's new": the Foundation Zoomer banner at the top of Today's agenda and its Get clinics button (shown only when the rep has FZ results), the page, and each announcement on it. The rail entry is `rv-nav-news`. |
 | `rv-nav` | The rep view's left rail list (Today's agenda, My week plan, Business feed, the window tabs, Scorecard guide); the window tabs also have `rv-nav-<tab>` and carry `is-on` when open |
 | `fz-kpis`, `fz-zoomers`, `fz-top20`, `fz-list-say`, `fz-breakdown`, `list-col-<key>` (`list-col-fzOpen`, `list-col-fzStake`), `list-first-row` | Inside the FZ clinic list: the KPI strip, the Zoomer filter chips, the Top 20% button, the plain-words summary, a clinic's expanded breakdown, the FZ columns' headings, and the first row of any clinic list table. The Foundation Zoomer cross-sell cell also carries `data-fz="ready"` once its list can open |
@@ -96,7 +96,7 @@ The rep view's rail has a "What's new" page listing every feature update, newest
 
 ## What's new and the banner on the Overview
 The Overview side has the same two things as the rep view, built from the same components (`src/components/WhatsNew.tsx`) and the same list (`src/lib/announcements.ts`):
-- A **What's new** tab at the right of the top bar (a blue dot until the newest entry has been opened, remembered per browser). It lists every announcement for the Overview, newest first: all the rep view's entries plus the Overview's own. Buttons that point into the rep view appear only in the rep view; the Overview's own entry has **Get clinics**.
+- A **What's new** button in the left sidebar (a blue dot until the newest entry has been opened, remembered per browser). It lists every announcement for the Overview, newest first: all the rep view's entries plus the Overview's own. Buttons that point into the rep view appear only in the rep view; the Overview's own entry has **Get clinics**.
 - A **banner** at the top of the Overview announcing the Foundation Zoomer cross-sell: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead" (`fz-cross-sell-overview`, so dismissing it never hides the rep view's banner). It keeps showing; every viewer on the Overview is a team login, so only a banner admin (the emails in `BANNER_ADMINS`, convex/banners.ts, checked on the server and exposed as `banners:canManage`) sees **Dismiss for everyone** (hidden for everyone on the Overview, stored in Convex like the rep view's), and bring it back with **Show it again** on What's new. Its **Get clinics** button starts the Overview tour.
 
 ### The Overview's Foundation Zoomer cross-sell flow

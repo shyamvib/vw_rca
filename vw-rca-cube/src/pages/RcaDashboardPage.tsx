@@ -6,7 +6,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
-import { fzOverviewTourAvailable, gzTourAvailable, startFzOverviewTour, startGzTour, startUsertour } from "@/lib/usertour";
+import { CalendarRange, CircleHelp, Filter, GitBranch, LayoutDashboard, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, Sparkles, UserRound, Users } from "lucide-react";
+import { EXPAND_RAIL_EVENT, fzOverviewTourAvailable, gzTourAvailable, startFzOverviewTour, startGzTour, startUsertour } from "@/lib/usertour";
 import { ANNOUNCEMENTS, FZ_OVERVIEW_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
 import { NewsBanner, NewsPage } from "@/components/WhatsNew";
 import { QuietBoundary } from "@/components/QuietBoundary";
@@ -1297,6 +1298,13 @@ export function RcaDashboardPage() {
     setNewsSeen(id);
     try { localStorage.setItem("ov-news-seen", id); } catch { /* the dot just comes back next visit */ }
   }, [view]);
+  // The left sidebar always starts collapsed (an icon strip); a tour that points at its controls opens it.
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setRailOpen(true);
+    window.addEventListener(EXPAND_RAIL_EVENT, open);
+    return () => window.removeEventListener(EXPAND_RAIL_EVENT, open);
+  }, []);
   const isCam = repLogin?.cam === true; // rep-view only, limited to the reps paired with this account manager
   const isLead = repLogin?.all === true || isCam; // rep-view only: may switch between reps
   // Guided tours (Usertour): signed-in work email and role only; inert unless the token is configured.
@@ -1916,221 +1924,159 @@ export function RcaDashboardPage() {
           </aside>
         </>
       ) : null}
-      <header className="rca-topbar">
-        <div className="rca-wordmark"><Logo tone="white" height={22} /></div>
-        {isRep ? null : (
-        <div className="rca-view-tabs">
-          <button
-            type="button"
-            className={`rca-tab${view === "overview" ? " is-active" : ""}`}
-            data-tour="nav-overview"
-            onClick={() => setView("overview")}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            className={`rca-tab${view === "teams" ? " is-active" : ""}`}
-            data-tour="nav-teams"
-            onClick={() => setView("teams")}
-          >
-            Teams
-          </button>
-          <button
-            type="button"
-            className={`rca-tab${view === "dashboard" ? " is-active" : ""}`}
-            data-tour="nav-root-cause"
-            onClick={() => setView("dashboard")}
-          >
-            Root cause
-          </button>
-          <button
-            type="button"
-            className={`rca-tab${view === "rep" ? " is-active" : ""}`}
-            data-tour="nav-rep-view"
-            onClick={() => setView("rep")}
-          >
-            Rep view
-          </button>
-          {isRep ? null : (
-            <button
-              type="button"
-              className={`rca-tab${view === "feed" ? " is-active" : ""}`}
-            data-tour="nav-feed"
-              onClick={() => setView("feed")}
-            >
-              Business Feed
-            </button>
-          )}
-          <button
-            type="button"
-            className={`rca-tab${view === "news" ? " is-active" : ""}`}
-            data-tour="nav-news"
-            onClick={() => setView("news")}
-          >
-            What's new
-            {hasUnseenAnnouncement(newsSeen, announcementsFor("overview")) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
+      <aside className={`rca-rail${railOpen ? " is-open" : ""}`} aria-label="Main navigation" data-tour="rail" data-open={railOpen ? "1" : "0"}>
+        <div className="rca-rail-head">
+          <span className="rca-rail-logo"><Logo tone="white" height={22} /></span>
+          <button type="button" className="rca-rail-toggle" data-tour="rail-toggle" aria-expanded={railOpen} aria-label={railOpen ? "Collapse the sidebar" : "Expand the sidebar"} title={railOpen ? "Collapse" : "Expand"} onClick={() => setRailOpen(v => !v)}>
+            {railOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
           </button>
         </div>
+        {isRep ? null : (
+        <nav className="rca-rail-nav" aria-label="Views">
+          <div className="rca-rail-eyebrow">Navigate</div>
+          {([
+            ["overview", "Overview", "nav-overview", LayoutDashboard],
+            ["teams", "Teams", "nav-teams", Users],
+            ["dashboard", "Root cause", "nav-root-cause", GitBranch],
+            ["rep", "Rep view", "nav-rep-view", UserRound],
+            ["feed", "Business Feed", "nav-feed", Newspaper],
+            ["news", "What's new", "nav-news", Sparkles],
+          ] as const).map(([v, label, tour, Icon]) => (
+            <button
+              key={v}
+              type="button"
+              className={`rca-rail-item${view === v ? " is-active" : ""}`}
+              data-tour={tour}
+              title={label}
+              aria-current={view === v ? "page" : undefined}
+              onClick={() => setView(v)}
+            >
+              <Icon size={17} aria-hidden="true" />
+              <span className="rca-rail-label">{label}</span>
+              {v === "news" && hasUnseenAnnouncement(newsSeen, announcementsFor("overview")) ? <i className="rv-nav-dot" role="img" aria-label="New updates" /> : null}
+            </button>
+          ))}
+        </nav>
         )}
-          <span className="rca-eyebrow rca-dim rca-top-sub">
-            Revenue root cause · {selected === "all"
-              ? `${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`
-              : `${fmtDate(active.start)} – ${fmtDate(active.end)}`}
-          </span>
-        <div className="rca-topbar-right">
+        <div className="rca-rail-sub rca-rail-label">
+          Revenue root cause<br />
+          {selected === "all"
+            ? `${fmtDate(cfg.currentStart)} – ${fmtDate(cfg.currentEnd)}`
+            : `${fmtDate(active.start)} – ${fmtDate(active.end)}`}
+        </div>
+        {/* Collapsed: one icon per group of controls; pressing it opens the sidebar. Expanded: the controls themselves. */}
+        <div className="rca-rail-icons">
+          {isRep ? null : <button type="button" className="rca-rail-item" title="Window" onClick={() => setRailOpen(true)}><CalendarRange size={17} aria-hidden="true" /></button>}
+          {isRep ? null : <button type="button" className="rca-rail-item" title="Team lead and rep" data-tour={railOpen ? undefined : "ov-lead-filter"} onClick={() => setRailOpen(true)}><Filter size={17} aria-hidden="true" /></button>}
+          <button type="button" className="rca-rail-item" title="Search" onClick={() => setRailOpen(true)}><Search size={17} aria-hidden="true" /></button>
+        </div>
+        <div className="rca-rail-body">
           {isRep ? (
             <>
               <span className="rca-rep-badge">
                 {isLead ? (salesRep.startsWith("team:") ? <>Viewing <strong>{salesRep.slice(5)}</strong>'s whole team</> : salesRep ? <>Viewing <strong>{salesRep}</strong>'s book</> : "All reps") : <>Viewing <strong>{repLogin!.rep}</strong>'s book</>}
               </span>
-              <input
-                className="rca-search-input"
-                type="search"
-                placeholder="Search clinic…"
-                aria-label="Search clinic"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-              <input
-                className="rca-search-input"
-                type="search"
-                placeholder="Search provider…"
-                aria-label="Search provider"
-                value={provSearch}
-                onChange={e => setProvSearch(e.target.value)}
-              />
-              <button
-                type="button"
-                className={`rca-btn rca-btn-ghost rca-top-push${faqOpen ? " is-active" : ""}`}
-                onClick={() => setFaqOpen(v => !v)}
-              >
-                ? FAQ
-              </button>
-              <button
-                type="button"
-                className="rca-btn rca-btn-ghost"
-                onClick={signOut}
-              >
-                Sign out
-              </button>
+              <div className="rca-rail-sec">
+                <div className="rca-rail-eyebrow">Search</div>
+                <input className="rca-search-input" type="search" placeholder="Search clinic…" aria-label="Search clinic" value={search} onChange={e => setSearch(e.target.value)} />
+                <input className="rca-search-input" type="search" placeholder="Search provider…" aria-label="Search provider" value={provSearch} onChange={e => setProvSearch(e.target.value)} />
+              </div>
             </>
           ) : (
             <>
-          <input
-            className="rca-search-input"
-            type="search"
-            placeholder="Search clinic…"
-            aria-label="Search clinic"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <select
-            className="rca-lead-select"
-            aria-label="Filter by sales supervisor"
-            data-tour="ov-lead-filter"
-            value={teamLead}
-            onChange={e => {
-              setTeamLead(e.target.value);
-              setDrill(null);
-            }}
-          >
-            <option value="">All team leads</option>
-            {(leads ?? []).map(l => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-          <select
-            className="rca-lead-select"
-            aria-label="Filter by sales rep"
-            value={salesRep}
-            onChange={e => {
-              setSalesRep(e.target.value);
-              setDrill(null);
-            }}
-          >
-            <option value="">All reps</option>
-            {[...(salesLeaderboard ?? [])]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(r => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-          </select>
-          <input
-            className="rca-search-input"
-            type="search"
-            placeholder="Search provider…"
-            aria-label="Search provider"
-            value={provSearch}
-            onChange={e => setProvSearch(e.target.value)}
-          />
-          <div className="rca-topwin">
-            <input
-              type="date"
-              aria-label="Window starts"
-              value={startDraft ?? cfg.currentStart}
-              onChange={e => setStartDraft(e.target.value)}
-            />
-            <span className="rca-topwin-dash">→</span>
-            <input
-              type="date"
-              aria-label="Window ends"
-              value={endDraft ?? cfg.currentEnd}
-              onChange={e => setEndDraft(e.target.value)}
-            />
-            <button
-              type="button"
-              className="rca-btn rca-btn-ghost"
-              disabled={busy || !repDirty}
-              onClick={applyWindow}
-            >
-              {busy ? "Applying…" : "Apply"}
-            </button>
-            {repWin && repWin.status !== "none" ? (
-              <button
-                type="button"
-                className="rca-btn rca-btn-ghost"
-                title="Go back to the team's default dates"
-                onClick={() => {
-                  setStartDraft(null);
-                  setEndDraft(null);
-                  void clearRepWindowM({ password: pw() });
-                }}
-              >
-                Reset
-              </button>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className={`rca-btn rca-btn-ghost rca-top-push${faqOpen ? " is-active" : ""}`}
-            onClick={() => setFaqOpen(v => !v)}
-          >
-            ? FAQ
-          </button>
-          <button
-            type="button"
-            className={`rca-btn rca-btn-ghost${settingsOpen ? " is-active" : ""}`}
-            onClick={() => setSettingsOpen(v => !v)}
-          >
-            ⚙ Settings
-          </button>
-          <button
-            type="button"
-            className="rca-btn rca-btn-ghost"
-            onClick={doRefresh}
-            disabled={busy || refreshRunning}
-          >
-            {busy || refreshRunning ? "Refreshing…" : "Refresh data"}
-          </button>
-                    </>
+              <div className="rca-rail-sec">
+                <div className="rca-rail-eyebrow">Window</div>
+                <div className="rca-topwin">
+                  <input type="date" aria-label="Window starts" value={startDraft ?? cfg.currentStart} onChange={e => setStartDraft(e.target.value)} />
+                  <span className="rca-topwin-dash">→</span>
+                  <input type="date" aria-label="Window ends" value={endDraft ?? cfg.currentEnd} onChange={e => setEndDraft(e.target.value)} />
+                </div>
+                <div className="rca-rail-row">
+                  <button type="button" className="rca-btn rca-btn-ghost" disabled={busy || !repDirty} onClick={applyWindow}>{busy ? "Applying…" : "Apply"}</button>
+                  {repWin && repWin.status !== "none" ? (
+                    <button
+                      type="button"
+                      className="rca-btn rca-btn-ghost"
+                      title="Go back to the team's default dates"
+                      onClick={() => {
+                        setStartDraft(null);
+                        setEndDraft(null);
+                        void clearRepWindowM({ password: pw() });
+                      }}
+                    >
+                      Reset
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="rca-rail-sec">
+                <div className="rca-rail-eyebrow">Filters</div>
+                <select
+                  className="rca-lead-select"
+                  aria-label="Filter by sales supervisor"
+                  data-tour={railOpen ? "ov-lead-filter" : undefined}
+                  value={teamLead}
+                  onChange={e => {
+                    setTeamLead(e.target.value);
+                    setDrill(null);
+                  }}
+                >
+                  <option value="">All team leads</option>
+                  {(leads ?? []).map(l => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rca-lead-select"
+                  aria-label="Filter by sales rep"
+                  value={salesRep}
+                  onChange={e => {
+                    setSalesRep(e.target.value);
+                    setDrill(null);
+                  }}
+                >
+                  <option value="">All reps</option>
+                  {[...(salesLeaderboard ?? [])]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(r => (
+                      <option key={r.name} value={r.name}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="rca-rail-sec">
+                <div className="rca-rail-eyebrow">Search</div>
+                <input className="rca-search-input" type="search" placeholder="Search clinic…" aria-label="Search clinic" value={search} onChange={e => setSearch(e.target.value)} />
+                <input className="rca-search-input" type="search" placeholder="Search provider…" aria-label="Search provider" value={provSearch} onChange={e => setProvSearch(e.target.value)} />
+              </div>
+            </>
           )}
         </div>
-      </header>
+        <div className="rca-rail-foot">
+          <button type="button" className={`rca-rail-item${faqOpen ? " is-active" : ""}`} title="FAQ" onClick={() => setFaqOpen(v => !v)}>
+            <CircleHelp size={17} aria-hidden="true" /><span className="rca-rail-label">FAQ</span>
+          </button>
+          {isRep ? null : (
+            <>
+              <button type="button" className={`rca-rail-item${settingsOpen ? " is-active" : ""}`} title="Settings" onClick={() => setSettingsOpen(v => !v)}>
+                <Settings size={17} aria-hidden="true" /><span className="rca-rail-label">Settings</span>
+              </button>
+              <button type="button" className="rca-rail-item" title="Refresh data" onClick={doRefresh} disabled={busy || refreshRunning}>
+                <RefreshCw size={17} aria-hidden="true" /><span className="rca-rail-label">{busy || refreshRunning ? "Refreshing…" : "Refresh data"}</span>
+              </button>
+            </>
+          )}
+          {isRep ? (
+            <button type="button" className="rca-rail-item" title="Sign out" onClick={signOut}>
+              <LogOut size={17} aria-hidden="true" /><span className="rca-rail-label">Sign out</span>
+            </button>
+          ) : null}
+        </div>
+      </aside>
+      <div className="rca-main">
 
       {(repCalculating || repWin?.status === "error") ? (
         <div className={`rca-rep-calc${repWin?.status === "error" ? " is-error" : ""}`}>
@@ -3107,6 +3053,7 @@ export function RcaDashboardPage() {
         ) : null}
         </>
         )}
+      </div>
       </div>
     </div>
   );

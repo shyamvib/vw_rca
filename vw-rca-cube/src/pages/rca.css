@@ -2340,3 +2340,42 @@ select.rca-select,
   border-color: var(--vw-blue);
   color: var(--vw-white);
 }
+
+/* Left sidebar (replaces the top bar): a 56px icon strip that opens to 248px. Starts collapsed on every visit. */
+.rca-root { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; padding-bottom: 0; }
+.rca-main { min-width: 0; padding-bottom: 80px; }
+.rca-rail {
+  position: sticky; top: 0; align-self: start; height: 100vh; width: 56px; box-sizing: border-box; z-index: 30;
+  background: var(--vw-ink); color: var(--vw-white); display: flex; flex-direction: column; gap: 14px;
+  padding: 14px 8px; overflow: hidden auto; transition: width .18s ease;
+}
+.rca-rail.is-open { width: 248px; padding: 14px 14px; }
+.rca-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.rca-rail-logo { display: inline-flex; overflow: hidden; width: 30px; flex: none; }
+.rca-rail.is-open .rca-rail-logo { width: auto; }
+.rca-rail-toggle { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.18); background: transparent; color: var(--vw-gray-15); border-radius: 4px; cursor: pointer; }
+.rca-rail-toggle:hover { background: #2a2a2a; }
+.rca-rail:not(.is-open) .rca-rail-head { flex-direction: column; align-items: center; gap: 10px; }
+.rca-rail-nav, .rca-rail-foot, .rca-rail-icons { display: flex; flex-direction: column; gap: 2px; }
+.rca-rail-foot { margin-top: auto; border-top: 1px solid rgba(255,255,255,.12); padding-top: 10px; }
+.rca-rail-eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--vw-gray-40); margin: 4px 4px 6px; }
+.rca-rail-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 9px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--vw-gray-15); font: inherit; font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap; }
+.rca-rail-item svg { flex: none; }
+.rca-rail-item:hover:not(:disabled) { background: #2a2a2a; }
+.rca-rail-item:disabled { opacity: .5; cursor: default; }
+.rca-rail-item.is-active { background: var(--vw-blue); color: var(--vw-white); }
+.rca-rail-item .rv-nav-dot { position: absolute; top: 7px; left: 24px; }
+.rca-rail-sub { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; color: var(--vw-gray-40); line-height: 1.5; padding: 0 4px; }
+.rca-rail-body { display: flex; flex-direction: column; gap: 16px; }
+.rca-rail-sec { display: flex; flex-direction: column; gap: 8px; }
+.rca-rail-row { display: flex; gap: 8px; }
+.rca-rail .rca-search-input, .rca-rail .rca-lead-select { width: 100%; box-sizing: border-box; }
+.rca-rail .rca-topwin { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.rca-rail .rca-topwin-dash { display: none; }
+.rca-rail .rca-topwin input[type="date"] { width: 100%; box-sizing: border-box; }
+.rca-rail .rca-rep-badge { white-space: normal; }
+/* collapsed: only icons; expanded: the labels and the controls themselves */
+.rca-rail:not(.is-open) .rca-rail-label, .rca-rail:not(.is-open) .rca-rail-body, .rca-rail:not(.is-open) .rca-rail-eyebrow { display: none; }
+.rca-rail.is-open .rca-rail-icons { display: none; }
+.rca-rail:not(.is-open) .rca-rail-item { justify-content: center; padding: 9px 0; }
+@media (max-width: 760px) { .rca-rail.is-open { position: fixed; left: 0; top: 0; box-shadow: 0 0 0 100vmax rgba(0,0,0,.35); } .rca-page { padding-left: 16px; padding-right: 16px; } }

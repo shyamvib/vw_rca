@@ -40,11 +40,16 @@ export const overviewTourAvailable = !!(TOKEN && OVERVIEW_FLOW);
 /** Run the Overview tour from the start, even if the person has seen it before. */
 export function startOverviewTour() {
   if (!TOKEN || !OVERVIEW_FLOW || !ready) return;
+  expandRail();
   void usertour.start(OVERVIEW_FLOW).catch(() => undefined);
 }
 
 /** True once the Gut Zoomer tour is configured, so its link only shows when it can do something. */
 export const gzTourAvailable = !!(TOKEN && GZ_FLOW);
+
+/** The Overview's controls (team lead filter, window) live in the left sidebar, which starts collapsed; a tour that points at them asks it to open first. */
+export const EXPAND_RAIL_EVENT = "rca:expand-rail";
+const expandRail = () => window.dispatchEvent(new Event(EXPAND_RAIL_EVENT));
 
 /** Start `flow` once its first target is on the page, waiting up to `waitMs`; a flow whose target is missing ends silently. */
 function startWhenReady(flow: string, selector: string, waitMs: number) {
@@ -62,6 +67,7 @@ function startWhenReady(flow: string, selector: string, waitMs: number) {
  */
 export function startGzTour() {
   if (!TOKEN || !GZ_FLOW || !ready) return;
+  expandRail();
   startWhenReady(GZ_FLOW, '[data-tour="ov-fam-gut-zoomer"]', 10000);
 }
 
@@ -89,5 +95,6 @@ export const fzOverviewTourAvailable = !!(TOKEN && FZ_OVERVIEW_FLOW);
 /** Start the Overview's Foundation Zoomer cross-sell tour: waits for the Overview's headline, which is on the page whenever the Overview is. */
 export function startFzOverviewTour() {
   if (!TOKEN || !FZ_OVERVIEW_FLOW || !ready) return;
+  expandRail();
   startWhenReady(FZ_OVERVIEW_FLOW, '[data-tour="ov-headline"]', 10000);
 }
