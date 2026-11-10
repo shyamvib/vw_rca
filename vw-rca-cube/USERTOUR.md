@@ -22,6 +22,7 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `data-tour` | Where |
 | --- | --- |
 | `nav-overview`, `nav-teams`, `nav-root-cause`, `nav-rep-view`, `nav-feed` | Left sidebar view buttons (the sidebar is an icon strip until opened; the buttons keep their hooks either way) |
+| `ov-last-toggle` | The This · Last switch beside the Overview's window buttons (hidden on Full window) |
 | `ov-lead-filter` | Team lead filter in the left sidebar. While the sidebar is collapsed the hook is on the filter icon instead (only one of the two carries it at a time, so a tour always finds a visible target); put steps on the **right** of it. `rail`, `rail-toggle` are the sidebar and its collapse button. Overview tours open the sidebar when they start (`EXPAND_RAIL_EVENT`). |
 | `ov-headline` | Overview headline |
 | `ov-take-tour` | "Take a tour" link |
