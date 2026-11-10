@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LineChart as LineChartIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
@@ -307,13 +308,95 @@ const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch"
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour }: { tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
+function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour, onChart }: { onChart?: () => void; tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
   return (
     <div data-tour={tour} className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
-      <div className="top"><span>{name}{rule ? <em className="ev-rule">own rule</em> : null}</span><i className="dot" style={{ background: dot }} /></div>
+      <div className="top"><span>{name}{rule ? <em className="ev-rule">own rule</em> : null}</span><span className="ev-kpi-end">{onChart ? <button type="button" className="ev-chartbtn" title={`Trend of ${name} over the year`} aria-label={`Show the trend of ${name}`} data-tour="ov-trend-btn" onClick={e => { e.stopPropagation(); onChart(); }} onKeyDown={e => e.stopPropagation()}><LineChartIcon size={14} /></button> : null}<i className="dot" style={{ background: dot }} /></span></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
       <Delta t={trend} />
+    </div>
+  );
+}
+
+type TrendData = { start: string; end: string; weeks: Array<{ k: string; start: string; end: string; partial: boolean }>; months: Array<{ k: string; start: string; end: string; partial: boolean }>; series: Record<string, { wOrd: number[]; wRev: number[]; mOrd: number[]; mRev: number[] }> };
+
+/** Orders of one product family per week or per month since the first of the year. It does not follow the period tabs. */
+function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?: string; onClose: () => void }) {
+  const run = useRcaAction(api.familyTrend.familyTrend);
+  const [data, setData] = useState<TrendData | null>(null);
+  const [err, setErr] = useState("");
+  const [grain, setGrain] = useState<"week" | "month">("week");
+  const [metric, setMetric] = useState<"ord" | "rev">("ord");
+  useEffect(() => {
+    let live = true;
+    setData(null);
+    setErr("");
+    run({ password: pw(), ...(teamLead ? { teamLead } : {}) })
+      .then(d => live && setData(d as TrendData))
+      .catch(e => live && setErr(String(e).slice(0, 160)));
+    return () => { live = false; };
+  }, [run, teamLead]);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+
+  const s = data?.series[family];
+  const bk = data ? (grain === "week" ? data.weeks : data.months) : [];
+  const ys = s ? (grain === "week" ? (metric === "ord" ? s.wOrd : s.wRev) : metric === "ord" ? s.mOrd : s.mRev) : [];
+  const fmt = (n: number) => (metric === "ord" ? int(n) : money(n));
+  const W = 560, H = 220, L = 44, R = 12, T = 12, B = 28;
+  const max = Math.max(1, ...ys);
+  const x = (i: number) => L + (ys.length > 1 ? (i / (ys.length - 1)) * (W - L - R) : (W - L - R) / 2);
+  const y = (v: number) => T + (1 - v / max) * (H - T - B);
+  // Only complete buckets join the line; a partial one (the first or the current) is drawn as a hollow dot on the end of it.
+  const full = ys.map((v, i) => ({ v, i })).filter(({ i }) => !bk[i]?.partial);
+  const path = full.map(({ v, i }, n) => `${n ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const label = (b: { k: string }) => (grain === "week" ? shortDate(b.k) : new Date(`${b.k}T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" }));
+  const every = Math.max(1, Math.ceil(bk.length / 10));
+  return (
+    <div className="ev-modal" role="dialog" aria-modal="true" aria-label={`${family} trend`} onClick={onClose}>
+      <div className="ev-modal-card" onClick={e => e.stopPropagation()} data-tour="ov-trend">
+        <div className="ev-modal-head">
+          <div>
+            <div className="ev-sectitle">{family}: {metric === "ord" ? "orders" : "revenue"} per {grain}</div>
+            <div className="ev-secsub" style={{ marginTop: 2 }}>{data ? `${shortDate(data.start)} – ${shortDate(data.end)}, since the start of the year. The period tabs do not change this.` : "Loading"}</div>
+          </div>
+          <button type="button" className="ev-modal-x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="ev-modal-tools">
+          <div className="ev-seg">
+            <button type="button" className={grain === "week" ? "is-on" : ""} onClick={() => setGrain("week")}>Weekly</button>
+            <button type="button" className={grain === "month" ? "is-on" : ""} onClick={() => setGrain("month")}>Monthly</button>
+          </div>
+          <div className="ev-seg">
+            <button type="button" className={metric === "ord" ? "is-on" : ""} onClick={() => setMetric("ord")}>Orders</button>
+            <button type="button" className={metric === "rev" ? "is-on" : ""} onClick={() => setMetric("rev")}>Revenue</button>
+          </div>
+        </div>
+        {err ? <div className="ev-note" style={{ color: BAD }}>Could not load the trend: {err}</div> : !data ? <div className="ev-note">Loading the trend…</div> : !s ? <div className="ev-note">No orders for {family} this year.</div> : (
+          <svg viewBox={`0 0 ${W} ${H}`} className="ev-trend" role="img" aria-label={`${family} ${metric === "ord" ? "orders" : "revenue"} per ${grain}`}>
+            {[0, 0.5, 1].map(f => (
+              <g key={f}>
+                <line x1={L} x2={W - R} y1={y(max * f)} y2={y(max * f)} stroke="var(--vw-gray-10)" strokeWidth={1} />
+                <text x={L - 6} y={y(max * f) + 4} textAnchor="end" fontSize={10} fill="var(--text-tertiary)">{fmt(max * f)}</text>
+              </g>
+            ))}
+            {path ? <path d={path} fill="none" stroke="var(--vw-blue-hover)" strokeWidth={2} /> : null}
+            {ys.map((v, i) => (
+              <g key={bk[i].k}>
+                <circle cx={x(i)} cy={y(v)} r={bk[i].partial ? 4 : 3} fill={bk[i].partial ? "var(--vw-white)" : "var(--vw-blue-hover)"} stroke="var(--vw-blue-hover)" strokeWidth={bk[i].partial ? 1.5 : 0} strokeDasharray={bk[i].partial ? "2 2" : undefined}>
+                  <title>{`${grain === "week" ? "Week of " : ""}${shortDate(bk[i].start)}${bk[i].end !== bk[i].start ? ` – ${shortDate(bk[i].end)}` : ""}: ${fmt(v)}${bk[i].partial ? " (partial period)" : ""}`}</title>
+                </circle>
+                {i % every === 0 ? <text x={x(i)} y={H - 8} textAnchor="middle" fontSize={10} fill="var(--text-tertiary)">{label(bk[i])}</text> : null}
+              </g>
+            ))}
+          </svg>
+        )}
+        <div className="ev-note" style={{ marginTop: 6 }}>Hollow dots are partial periods (the first or the current one) and are not joined to the line. An order with several families counts under each; its revenue is split evenly.</div>
+      </div>
     </div>
   );
 }
@@ -338,6 +421,8 @@ export function ExecutiveView({
   const sp = useScopedPeriod(tab.p, teamLead);
   const p = sp.p!;
   const [cmp, setCmp] = useState<"goal" | "baseline">("goal");
+  // The family whose trend dialog is open (the trend ignores the period tabs).
+  const [trendFam, setTrendFam] = useState<string | null>(null);
   // How the pillar KPIs are drawn, and which goal they are measured against.
   const [design, setDesign] = useState<"dials" | "cards">("dials");
   const [basis, setBasis] = useState<"window" | "elapsed">("elapsed");
@@ -700,6 +785,7 @@ export function ExecutiveView({
                     onClick={() => setFam(f => (f === x.family ? "" : x.family))}
                     on={sc.scoped && sc.family === x.family}
                     name={x.family}
+                    onChart={() => setTrendFam(x.family)}
                     value={`${int(x.orders)} orders`}
                     sub={!toDate ? `no ${refName}` : el ? `${int(shown)} ${refName} · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs ${refName}` : `${int(shown)} ${refName} for the period · ${pct((x.orders / (shown || 1)) * 100)} reached`}
                     color={g !== null && g < -0.05 ? BAD : undefined}
@@ -709,6 +795,7 @@ export function ExecutiveView({
                 );
               })}
             </div>
+            {trendFam ? <TrendDialog family={trendFam} teamLead={teamLead} onClose={() => setTrendFam(null)} /> : null}
             {sc.families.some(x => x.isNew) ? (
               <>
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New releases: no fair baseline yet, so no goal or colour.</div>

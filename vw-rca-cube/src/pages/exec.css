@@ -126,3 +126,14 @@
 .ev-famkey { display: inline-block; width: 5px; height: 12px; background: var(--vw-blue); vertical-align: -2px; margin: 0 2px; }
 
 .ev-seg button:disabled { opacity: .4; cursor: default; }
+
+/* Trend icon on a KPI card, and the dialog it opens */
+.ev-kpi-end { display: inline-flex; align-items: center; gap: 8px; }
+.ev-chartbtn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.ev-chartbtn:hover, .ev-chartbtn:focus-visible { background: var(--vw-gray-05); color: var(--vw-blue-hover); border-color: var(--vw-gray-10); outline: none; }
+.ev-modal { position: fixed; inset: 0; z-index: 60; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ev-modal-card { width: min(620px, 100%); max-height: 100%; overflow: auto; background: var(--vw-white); border-radius: 12px; padding: 18px 20px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); }
+.ev-modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ev-modal-x { border: 0; background: transparent; font-size: 22px; line-height: 1; color: var(--text-tertiary); cursor: pointer; }
+.ev-modal-tools { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 6px; }
+.ev-trend { width: 100%; height: auto; display: block; }

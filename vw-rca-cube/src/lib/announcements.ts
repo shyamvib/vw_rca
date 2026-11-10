@@ -36,6 +36,18 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "overview-family-trend",
+    date: "2026-11-10",
+    pages: ["overview"],
+    title: "Trend chart on the product family cards",
+    summary: "Each product family card on the Overview has a small chart icon in its top right corner. It opens that family's weekly or monthly trend for the year so far.",
+    points: [
+      "Press the chart icon on a family card. Switch between Weekly and Monthly, and between Orders and Revenue.",
+      "The chart always runs from 1 January of this year to today. It does not change with the Week / Month / Quarter / Full window buttons.",
+      "It follows the team lead filter in the left rail. Partial periods (the first or the current week or month) are drawn as hollow dots and left out of the line.",
+    ],
+  },
+  {
     id: "overview-this-last",
     date: "2026-11-10",
     pages: ["overview"],
