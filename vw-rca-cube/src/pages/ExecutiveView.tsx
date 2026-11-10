@@ -193,15 +193,15 @@ function MeterCard({ m, hero, on, onPick }: { m: ViewMeter; hero?: boolean; on?:
 /** This week / month / quarter / full window, taken from the bridge periods. Each of the three has a This · Last switch, as in the rep view
  * (2026-11-10): Last is the finished period before this one, and is greyed out when the analysis window holds no earlier one. The choice is
  * remembered per viewer in this browser. */
-type LastKind = "week" | "month" | "quarter";
-function usePeriodTabs(periods: ExecPeriod[]) {
+export type LastKind = "week" | "month" | "quarter";
+export function usePeriodTabs(periods: ExecPeriod[], storeKey = "ov-last-window") {
   const [lastOn, setLastOn] = useState<Record<LastKind, boolean>>(() => {
-    try { return { week: false, month: false, quarter: false, ...JSON.parse(localStorage.getItem("ov-last-window") || "{}") }; } catch { return { week: false, month: false, quarter: false }; }
+    try { return { week: false, month: false, quarter: false, ...JSON.parse(localStorage.getItem(storeKey) || "{}") }; } catch { return { week: false, month: false, quarter: false }; }
   });
   const setLast = (k: LastKind, v: boolean) => {
     const n = { ...lastOn, [k]: v };
     setLastOn(n);
-    try { localStorage.setItem("ov-last-window", JSON.stringify(n)); } catch { /* a per-viewer convenience only */ }
+    try { localStorage.setItem(storeKey, JSON.stringify(n)); } catch { /* a per-viewer convenience only */ }
   };
   const tabs = useMemo(() => {
     const of = (k: LastKind) => {
@@ -222,7 +222,7 @@ function usePeriodTabs(periods: ExecPeriod[]) {
 }
 
 /** The This · Last switch beside the window buttons; not shown for the full window. */
-function LastSwitch({ tab, setLast }: { tab: { key: string; last: boolean; canLast: boolean }; setLast: (k: LastKind, v: boolean) => void }) {
+export function LastSwitch({ tab, setLast }: { tab: { key: string; last: boolean; canLast: boolean }; setLast: (k: LastKind, v: boolean) => void }) {
   if (tab.key === "all") return null;
   const k = tab.key as LastKind;
   return (

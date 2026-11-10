@@ -36,6 +36,17 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "overview-clinic-health",
+    date: "2026-11-11",
+    pages: ["overview"],
+    title: "Clinic health page",
+    summary: "A new Clinic health page in the left rail lists every clinic with all the columns of the scorecard clinic list, and opens the full clinic card with a click.",
+    points: [
+      "It has its own Week, Month, Quarter and Full window buttons with This / Last, separate from the Overview's. The window you pick is the one the list and every opened clinic card are measured in.",
+      "Filter by name, health or portfolio status, sort any column, and show the top 25 or 50. It follows the team lead filter in the left rail.",
+    ],
+  },
+  {
     id: "overview-family-trend",
     date: "2026-11-10",
     pages: ["overview"],
