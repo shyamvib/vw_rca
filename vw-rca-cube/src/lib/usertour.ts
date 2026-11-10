@@ -6,6 +6,7 @@
  *   VITE_USERTOUR_GZ_FLOW        the id of the Gut Zoomer clinic list tour (Overview family card, then the Target Product Orders cell)
  *   VITE_USERTOUR_GZ_REP_FLOW    the same tour for the rep view (Custom window tab: family card, then the Target Product Orders cell)
  *   VITE_USERTOUR_FZ_FLOW        the Foundation Zoomer cross-sell tour on the rep view's Today's agenda (agenda -> scorecard -> FZ clinic list)
+ *   VITE_USERTOUR_FZ_OVERVIEW_FLOW  the same on the Overview (scope and window -> Foundation Zoomer card -> Cross-sell cell -> FZ clinic list)
  *
  * Flows are built in Usertour's own builder. They point at elements by `data-tour` attributes, which are a contract with
  * the markup: do not rename or remove them without updating the flow.
@@ -17,6 +18,7 @@ const OVERVIEW_FLOW = import.meta.env.VITE_USERTOUR_OVERVIEW_FLOW as string | un
 const GZ_FLOW = import.meta.env.VITE_USERTOUR_GZ_FLOW as string | undefined;
 const GZ_REP_FLOW = import.meta.env.VITE_USERTOUR_GZ_REP_FLOW as string | undefined;
 const FZ_FLOW = import.meta.env.VITE_USERTOUR_FZ_FLOW as string | undefined;
+const FZ_OVERVIEW_FLOW = import.meta.env.VITE_USERTOUR_FZ_OVERVIEW_FLOW as string | undefined;
 
 let ready = false;
 
@@ -79,4 +81,13 @@ export const fzTourAvailable = !!(TOKEN && FZ_FLOW);
 export function startFzTour() {
   if (!TOKEN || !FZ_FLOW || !ready) return;
   startWhenReady(FZ_FLOW, '[data-tour="rv-nav"]', 10000);
+}
+
+/** True once the Overview's Foundation Zoomer cross-sell tour is configured. */
+export const fzOverviewTourAvailable = !!(TOKEN && FZ_OVERVIEW_FLOW);
+
+/** Start the Overview's Foundation Zoomer cross-sell tour: waits for the Overview's headline, which is on the page whenever the Overview is. */
+export function startFzOverviewTour() {
+  if (!TOKEN || !FZ_OVERVIEW_FLOW || !ready) return;
+  startWhenReady(FZ_OVERVIEW_FLOW, '[data-tour="ov-headline"]', 10000);
 }

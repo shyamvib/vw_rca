@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import { pw } from "./gatePw";
+import { isFzFamily } from "@/lib/fzAgenda";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
 import "./exec.css";
@@ -717,7 +718,7 @@ export function ExecutiveView({
             <div className="ev-sc-row" key={r.pillar}>
               <div className="ev-sc-pillar">{r.pillar}</div>
               {r.cells.map(c => (
-                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} data-tour={`sc-${slug(c.label)}`} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
+                <div className={`ev-sc-cell ev-t-${c.tone}${c.famScoped ? " is-fam" : ""}${c.ids?.length ? " ev-click" : ""}${open?.from === "cell" && open.sel.key === c.label ? " is-on" : ""}`} key={c.label} data-tour={`sc-${slug(c.label)}`} data-fz={sc.scoped && isFzFamily(sc.family) && c.label === "Cross-sell candidates" && c.ids?.length ? "ready" : undefined} onClick={c.ids?.length ? () => openList("cell", c.label) : undefined} title={c.ids?.length ? "Click for the clinics behind this number" : undefined}>
                   <div className="top"><span>{c.label}{sc.scoped && c.allProducts ? <em className="ev-rule">all products</em> : null}</span><i className="dot" style={{ background: TONE_DOT[c.tone] }} /></div>
                   <div className="val">{c.value}</div>
                   <div className="sub" style={{ color: c.tone === "bad" ? BAD : undefined }} title={c.sub}>{c.sub}</div>

@@ -936,3 +936,8 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 /* Opportunity agenda: hide / show a card's clinics */
 .rv-opp-fold { align-self: flex-start; margin: 6px 0 2px; padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--vw-blue); cursor: pointer; }
 .rv-opp-fold:hover { color: var(--vw-blue-hover); text-decoration: underline; }
+
+/* What's new: which page an update is on */
+.rv-news-pages { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.rv-news-page { font-size: 10px; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--vw-gray-30, #d1d5db); color: var(--vw-gray-60); background: transparent; }
+.rv-news-page[data-page="overview"] { border-color: var(--brand, #1f4fd8); color: var(--brand, #1f4fd8); }
