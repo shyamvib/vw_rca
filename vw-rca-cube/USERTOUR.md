@@ -87,7 +87,7 @@ Flow "Foundation Zoomer cross-sell list (rep view)" (id `cmw8uvl8e0h3mw9w5vsz6ia
 2. [hidden wait: the Foundation Zoomer card exists] -> **click the Foundation Zoomer card** (`rv-fam-foundation-zoomer`).
 3. [hidden wait: the cross-sell cell is `data-fz="ready"`] -> **click Cross-sell candidates** (`rv-sc-cross-sell-candidates`).
 4. [hidden wait: the list exists] -> the list (`rv-sc-list`) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open column (`list-col-fzOpen`) -> At stake column (`list-col-fzStake`).
-5. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown -> Done.
+5. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown (also a floating card, for the same reason) -> Done.
 
 The hidden wait steps use the element condition "unclicked", which only needs the element in the page: the "present" condition also needs it inside the viewport, and several targets are below the fold until the tooltip scrolls to them. The waits also carry the tour across tab changes and the list opening, because a tooltip step whose target is missing ends the whole flow. A rep with no open FZ results never gets the `data-fz="ready"` cell, so the tour waits invisibly at step 3: the Cross-sell card shows "no open FZ results in this window" and no Get clinics button in that case.
 
@@ -97,12 +97,12 @@ The rep view's rail has a "What's new" page listing every feature update, newest
 ## What's new and the banner on the Overview
 The Overview side has the same two things as the rep view, built from the same components (`src/components/WhatsNew.tsx`) and the same list (`src/lib/announcements.ts`):
 - A **What's new** tab at the right of the top bar (a blue dot until the newest entry has been opened, remembered per browser). It lists every announcement for the Overview, newest first: all the rep view's entries plus the Overview's own. Buttons that point into the rep view appear only in the rep view; the Overview's own entry has **Get clinics**.
-- A **banner** at the top of the Overview announcing the Foundation Zoomer cross-sell: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead" (`fz-cross-sell-overview`, so dismissing it never hides the rep view's banner). It keeps showing; every viewer on the Overview is a team login, so every viewer can **Dismiss for everyone** (hidden for everyone on the Overview, stored in Convex like the rep view's), and bring it back with **Show it again** on What's new. Its **Get clinics** button starts the Overview tour.
+- A **banner** at the top of the Overview announcing the Foundation Zoomer cross-sell: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead" (`fz-cross-sell-overview`, so dismissing it never hides the rep view's banner). It keeps showing; every viewer on the Overview is a team login, so only a banner admin (the emails in `BANNER_ADMINS`, convex/banners.ts, checked on the server and exposed as `banners:canManage`) sees **Dismiss for everyone** (hidden for everyone on the Overview, stored in Convex like the rep view's), and bring it back with **Show it again** on What's new. Its **Get clinics** button starts the Overview tour.
 
 ### The Overview's Foundation Zoomer cross-sell flow
 Flow "Foundation Zoomer cross-sell list (Overview)" (id `cmwa1c2aa0n6aw9w5psk0xwzs`), started by Get clinics (`startFzOverviewTour`). No start rule.
 1. **Scope** (`ov-lead-filter`): all leads = the whole company, or one team lead. -> **Window** (`ov-period`).
 2. **Click the Foundation Zoomer card** (`ov-fam-foundation-zoomer`) -> [hidden wait: the cross-sell cell is `data-fz="ready"`] -> **click Cross-sell candidates** (`sc-cross-sell-candidates`) -> [hidden wait: `ov-cell-list`].
-3. The list (`ov-cell-list`) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open (`list-col-fzOpen`) -> At stake (`list-col-fzStake`).
-4. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown -> Done.
+3. The list (a floating card, because the list is taller than the screen and a card anchored to it was cut off) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open (`list-col-fzOpen`) -> At stake (`list-col-fzStake`).
+4. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown (also a floating card, for the same reason) -> Done.
 Same waiting rule as the rep view's flow: the waits use "unclicked", which only needs the element in the page.

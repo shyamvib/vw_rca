@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/lib/api";
-import { announcementsFor, formatAnnouncementDate, offersAction, type Announcement, type Audience } from "@/lib/announcements";
+import { announcementsFor, formatAnnouncementDate, offersAction, PAGE_LABEL, type Announcement, type Audience } from "@/lib/announcements";
 import { pw } from "@/pages/gatePw";
 import { QuietBoundary } from "./QuietBoundary";
 
@@ -8,15 +8,14 @@ import { QuietBoundary } from "./QuietBoundary";
  * The announcement banner and the What's new page, shared by the rep view (reps, managers, account managers) and the Overview (team logins).
  * Styles are in src/pages/repview.css.
  *
- * A banner keeps showing for everyone until an admin (a team login) dismisses it, and the dismissal is shared (convex/banners.ts), not saved
- * per browser. On the Overview every viewer is a team login, so every viewer there can dismiss it, for everyone on the Overview.
+ * A banner keeps showing for everyone until a banner admin (an email listed in convex/banners.ts) dismisses it, and the dismissal is shared, not
+ * saved per browser. Whether the buttons show comes from the server (api.banners.canManage), so the list lives in one place.
  */
 
-export function NewsBanner({ announcement: a, audienceLabel, isAdmin, showCta, onCta, onOpenNews }: {
+export function NewsBanner({ announcement: a, audienceLabel, showCta, onCta, onOpenNews }: {
   announcement: Announcement;
   /** Who it is hidden for when dismissed: "every rep", "everyone on the Overview". */
   audienceLabel: string;
-  isAdmin: boolean;
   /** Show the button that starts the tour (off when there is nothing to tour, or no tour set up). */
   showCta: boolean;
   onCta: () => void;
@@ -24,6 +23,7 @@ export function NewsBanner({ announcement: a, audienceLabel, isAdmin, showCta, o
 }) {
   const dismissed = useQuery(api.banners.dismissed, { password: pw() });
   const dismiss = useMutation(api.banners.dismiss);
+  const isAdmin = useQuery(api.banners.canManage, { password: pw() }) === true;
   // Until the list of dismissed banners has loaded, show nothing, so a dismissed banner does not flash up.
   if (dismissed === undefined || dismissed.includes(a.id)) return null;
   const hideForAll = () => {
@@ -39,7 +39,7 @@ export function NewsBanner({ announcement: a, audienceLabel, isAdmin, showCta, o
       <div className="rv-banner-btns">
         {showCta && a.action ? <button type="button" className="rv-banner-go" data-tour="news-banner-cta" onClick={onCta}>{a.action.label}</button> : null}
         <button type="button" className="rv-opp-link" onClick={onOpenNews}>See what's new</button>
-        {isAdmin ? <button type="button" className="rv-opp-link" data-tour="news-banner-dismiss" title={`Admins only: hides the banner for ${audienceLabel}`} onClick={hideForAll}>Dismiss for everyone</button> : null}
+        {isAdmin ? <button type="button" className="rv-opp-link" data-tour="news-banner-dismiss" title={`Banner admins only: hides the banner for ${audienceLabel}`} onClick={hideForAll}>Dismiss for everyone</button> : null}
       </div>
     </div>
   );
@@ -47,9 +47,10 @@ export function NewsBanner({ announcement: a, audienceLabel, isAdmin, showCta, o
 
 /** Admins only: says the banner is hidden for everyone and lets them show it again. */
 function BannerRestore({ bannerId, where }: { bannerId: string; where: string }) {
+  const isAdmin = useQuery(api.banners.canManage, { password: pw() }) === true;
   const dismissed = useQuery(api.banners.dismissed, { password: pw() });
   const restore = useMutation(api.banners.restore);
-  if (!dismissed?.includes(bannerId)) return null;
+  if (!isAdmin || !dismissed?.includes(bannerId)) return null;
   return (
     <p className="rv-dim rv-small">
       The banner {where} is hidden for everyone.{" "}
@@ -59,9 +60,8 @@ function BannerRestore({ bannerId, where }: { bannerId: string; where: string })
 }
 
 /** The What's new page: every feature update for this place, newest first, each with the day it shipped. */
-export function NewsPage({ audience, isAdmin, bannerId, where, intro, onTab, onTour }: {
+export function NewsPage({ audience, bannerId, where, intro, onTab, onTour }: {
   audience: Audience;
-  isAdmin: boolean;
   /** The banner an admin can bring back from this page. */
   bannerId: string;
   where: string;
@@ -76,10 +76,13 @@ export function NewsPage({ audience, isAdmin, bannerId, where, intro, onTab, onT
       <div className="rv-eyebrow">What's new</div>
       <h1 className="rv-h1">Feature updates</h1>
       <p className="rv-dim rv-small">{intro}</p>
-      {isAdmin ? <QuietBoundary><BannerRestore bannerId={bannerId} where={where} /></QuietBoundary> : null}
+      <QuietBoundary><BannerRestore bannerId={bannerId} where={where} /></QuietBoundary>
       {announcementsFor(audience).map(a => (
         <article className="rv-news-item" key={a.id} data-tour={`news-${a.id}`}>
-          <div className="rv-news-date">{formatAnnouncementDate(a.date)}</div>
+          <div className="rv-news-date">
+            {formatAnnouncementDate(a.date)}
+            <span className="rv-news-pages">{a.pages.map(p => <span key={p} className="rv-news-page" data-page={p}>{PAGE_LABEL[p]}</span>)}</span>
+          </div>
           <div className="rv-news-body">
             <h2>{a.title}</h2>
             <p>{a.summary}</p>

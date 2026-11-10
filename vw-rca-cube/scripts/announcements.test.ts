@@ -60,3 +60,17 @@ test("the unread dot is per place", () => {
   // someone who has read everything in the rep view has not read the Overview's newer entry
   assert.equal(hasUnseenAnnouncement(latestAnnouncementId(rep), ov), true);
 });
+
+test("every entry names its page, reps never get Overview-only updates, and the Overview lists everything", () => {
+  for (const a of ANNOUNCEMENTS) assert.ok(a.pages.length > 0 && a.pages.every(p => p === "overview" || p === "rep"), `${a.id} names its page`);
+  const rep = announcementsFor("rep"), ov = announcementsFor("overview");
+  assert.ok(rep.every(a => a.pages.includes("rep")), "the rep view lists only rep view updates");
+  assert.ok(!rep.some(a => a.pages.length === 1 && a.pages[0] === "overview"), "no Overview-only update reaches reps");
+  assert.equal(ov.length, ANNOUNCEMENTS.length, "the Overview lists all of them");
+});
+
+test("a tour button is offered only on the page its entry belongs to", () => {
+  const repEntry = ANNOUNCEMENTS.find(a => a.id === FZ_ANNOUNCEMENT_ID)!;
+  assert.equal(offersAction(repEntry, "rep"), true);
+  assert.equal(offersAction(repEntry, "overview"), false); // the Overview's tour would not walk through the rep view's agenda
+});

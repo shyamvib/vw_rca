@@ -1,13 +1,18 @@
 /**
  * Announcement banners an admin has dismissed for everyone (2026-11). A banner on the rep view (see src/lib/announcements.ts) keeps showing for
- * every rep until an admin dismisses it here; the dismissal is shared, not saved per browser. Admin = a team login (the shared dashboard
- * password): rep, manager and account manager logins can read the list, so they know what to hide, but cannot change it.
+ * every rep until an admin dismisses it here; the dismissal is shared, not saved per browser. Admin = an email in BANNER_ADMINS signed in
+ * on the team login; everyone else can read the list, so they know what to hide, but cannot change it.
  *
  * Stored as rows of `appMeta` (key "banner-dismissed:<id>"), the table that already holds small shared settings, so no schema change.
  */
 import { v } from "convex/values";
 import type { DatabaseReader, DatabaseWriter } from "./_generated/server";
 import { gatedMutation, scopedQuery } from "./gated";
+
+/** Who may dismiss or restore a banner for everyone (lower case). Add an email here to give someone the button. */
+export const BANNER_ADMINS = ["shyam.n@vibrant-wellness.com"];
+export const isBannerAdmin = (email?: string | null): boolean => !!email && BANNER_ADMINS.includes(email.trim().toLowerCase());
+const NOT_ADMIN = "Only a banner admin can do this.";
 
 const PREFIX = "banner-dismissed:";
 
@@ -38,13 +43,25 @@ export const dismissed = scopedQuery({
   handler: async ctx => await listDismissed(ctx.db),
 });
 
-/** Team logins only (rep tokens are refused by the access wrapper). */
+/** Does the person asking get the Dismiss / Show it again buttons? The pages ask this, so the list lives only here. */
+export const canManage = scopedQuery({
+  args: {},
+  handler: async ctx => ctx.viewer.kind === "team" && isBannerAdmin(ctx.viewer.email),
+});
+
+/** Banner admins only (rep tokens are refused by the access wrapper, other team logins here). */
 export const dismiss = gatedMutation({
   args: { bannerId: v.string() },
-  handler: async (ctx, { bannerId }) => await dismissBanner(ctx.db, bannerId, ctx.viewer.email),
+  handler: async (ctx, { bannerId }) => {
+    if (ctx.viewer.kind !== "team" || !isBannerAdmin(ctx.viewer.email)) throw new Error(NOT_ADMIN);
+    await dismissBanner(ctx.db, bannerId, ctx.viewer.email);
+  },
 });
 
 export const restore = gatedMutation({
   args: { bannerId: v.string() },
-  handler: async (ctx, { bannerId }) => await restoreBanner(ctx.db, bannerId),
+  handler: async (ctx, { bannerId }) => {
+    if (ctx.viewer.kind !== "team" || !isBannerAdmin(ctx.viewer.email)) throw new Error(NOT_ADMIN);
+    await restoreBanner(ctx.db, bannerId);
+  },
 });

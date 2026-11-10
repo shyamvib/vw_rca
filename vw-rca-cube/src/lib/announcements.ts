@@ -5,10 +5,13 @@
  * this order, and the unread dot shows while the newest id is not the one the person last opened. Dates are written by hand, so set the date to
  * the day the change reached production.
  *
- * Two places show announcements: the rep view and the Overview (team logins). An entry with no `audience` shows in both; its button (which
- * points into the rep view) is only offered in the rep view. An entry with `audience` set shows only there, with its button.
+ * Every entry says which page(s) the update is on (`pages`). The rep view lists only entries that include "rep", so reps never read about
+ * pages they cannot open; the Overview's What's new lists everything, each tagged with its page(s). A button is offered only where it works:
+ * tab buttons in the rep view, tour buttons on the page the tour belongs to.
  */
 export type Audience = "rep" | "overview";
+export type Page = Audience;
+export const PAGE_LABEL: Record<Page, string> = { overview: "Overview", rep: "Rep view" };
 
 export type AnnouncementAction =
   | { kind: "tab"; label: string; tab: "today" | "feed" | "week" | "month" | "quarter" }
@@ -21,8 +24,8 @@ export type Announcement = {
   title: string;
   summary: string;
   points: string[];
-  /** Who sees it; leave out for both. */
-  audience?: Audience;
+  /** The page(s) the update is on. */
+  pages: Page[];
   action?: AnnouncementAction;
 };
 
@@ -35,7 +38,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
   {
     id: FZ_OVERVIEW_ANNOUNCEMENT_ID,
     date: "2026-11-09",
-    audience: "overview",
+    pages: ["overview"],
     title: "Gut Baseline and Gut Zoomer: clinics to pitch, company-wide and by team lead",
     summary:
       "Gut Baseline is new and leads into Gut Zoomer. The Overview's Foundation Zoomer cross-sell now opens the full clinic list: the clinics whose gut results point to Gut Baseline or Gut Zoomer, for the whole company or for one team lead's team, with the low, high and likely revenue. The same list also covers the other Zoomers.",
@@ -51,6 +54,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
   {
     id: FZ_ANNOUNCEMENT_ID,
     date: "2026-11-09",
+    pages: ["rep"],
     title: "Gut Baseline and Gut Zoomer: find the clinics to pitch",
     summary:
       "Gut Baseline is new and leads into Gut Zoomer. Today's agenda has a Cross-sell card built from Foundation Zoomer results: the clinics whose gut results point to Gut Baseline or Gut Zoomer, with the low, high and likely revenue. The same list also covers the other Zoomers.",
@@ -65,6 +69,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
   {
     id: "this-last-toggle",
     date: "2026-11-08",
+    pages: ["rep"],
     title: "This / Last toggle on the Week, Month and Quarter tabs",
     summary: "Each window tab now has a This / Last switch, so you can look back at last week, last month or last quarter with the same scorecard.",
     points: [
@@ -77,6 +82,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
   {
     id: "gz-find-clinics",
     date: "2026-11-03",
+    pages: ["overview", "rep"],
     title: "Find Gut Zoomer clinics: a guided tour from the Business Feed",
     summary: "The Gut Zoomer question in the Business Feed has a Find Gut Zoomer clinics button that walks you, step by step, to the clinics losing Gut Zoomer orders.",
     points: [
@@ -104,9 +110,10 @@ export const latestAnnouncementId = (list: Announcement[] = ANNOUNCEMENTS): stri
 export const hasUnseenAnnouncement = (seenId: string | null, list: Announcement[] = ANNOUNCEMENTS): boolean =>
   list.length > 0 && seenId !== list[0].id;
 
-/** The announcements one place shows, newest first. */
+/** The announcements one place shows, newest first: the rep view only what is on the rep view, the Overview everything. */
 export const announcementsFor = (audience: Audience, list: Announcement[] = ANNOUNCEMENTS): Announcement[] =>
-  list.filter(a => !a.audience || a.audience === audience);
+  audience === "overview" ? list : list.filter(a => a.pages.includes("rep"));
 
-/** Does this announcement offer its button here? Buttons into the rep view are for the rep view only; an entry made for a place offers its own. */
-export const offersAction = (a: Announcement, audience: Audience): boolean => !!a.action && (a.audience ? a.audience === audience : audience === "rep");
+/** Does this announcement offer its button here? Tab buttons are for the rep view; a tour button only where the entry's page has that tour. */
+export const offersAction = (a: Announcement, audience: Audience): boolean =>
+  !!a.action && (a.action.kind === "tab" ? audience === "rep" : a.pages.includes(audience) && a.pages.length === 1);

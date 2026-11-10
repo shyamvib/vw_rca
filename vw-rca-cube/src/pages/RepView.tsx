@@ -512,7 +512,7 @@ export function RepView(props: {
             <div className="rv-loading">Loading {who} day…</div>
           ) : (
             <>
-            <QuietBoundary><RepNewsBanner sales={sales} isAdmin={!isRep} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
+            <QuietBoundary><RepNewsBanner sales={sales} onOpenNews={() => setTab("news")} onGetClinics={startFzFromNews} /></QuietBoundary>
             {wb ? <NextBestAction rows={planRows} onPlan={() => setTab("plan")} /> : null}
             <TodayTab
               agenda={wb ? (
@@ -646,7 +646,7 @@ export function RepView(props: {
             />
           )
         ) : tab === "news" ? (
-          <NewsPage audience="rep" isAdmin={!isRep} bannerId={FZ_ANNOUNCEMENT_ID} where="on Today's agenda" intro="Everything new in the rep view, newest first, with the day it reached you." onTab={t => setTab(t)} onTour={startFzFromNews} />
+          <NewsPage audience="rep" bannerId={FZ_ANNOUNCEMENT_ID} where="on Today's agenda" intro="Everything new in the rep view, newest first, with the day it reached you." onTab={t => setTab(t)} onTour={startFzFromNews} />
         ) : (
           <ScorecardGuide onOpen={t => { setScFocus(null); setScFam(null); setTab(t); }} />
         )}
@@ -4086,11 +4086,11 @@ function OppAgendaWindows({ wb, sales, periods, customId, planned, onToggle, onO
 }
 
 /** The rep view's banner: the Foundation Zoomer announcement, with its Get clinics button only for a rep who has FZ results (otherwise there is no list to tour). */
-function RepNewsBanner({ sales, isAdmin, onOpenNews, onGetClinics }: { sales: string; isAdmin: boolean; onOpenNews: () => void; onGetClinics: () => void }) {
+function RepNewsBanner({ sales, onOpenNews, onGetClinics }: { sales: string; onOpenNews: () => void; onGetClinics: () => void }) {
   const fz = useFz(sales, "all");
   const a = ANNOUNCEMENTS.find(x => x.id === FZ_ANNOUNCEMENT_ID);
   if (!a) return null;
-  return <NewsBanner announcement={a} audienceLabel="every rep" isAdmin={isAdmin} showCta={!!(fz?.ready && fz.totals.clinics)} onCta={onGetClinics} onOpenNews={onOpenNews} />;
+  return <NewsBanner announcement={a} audienceLabel="every rep" showCta={!!(fz?.ready && fz.totals.clinics)} onCta={onGetClinics} onOpenNews={onOpenNews} />;
 }
 
 function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; periodId: string; b: Book; fams: Wins; plan: PlanState; onPlan: (p: PlanState) => void }) {

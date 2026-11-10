@@ -2168,10 +2168,9 @@ export function RcaDashboardPage() {
         ) : view === "news" ? (
           <NewsPage
             audience="overview"
-            isAdmin
             bannerId={FZ_OVERVIEW_ANNOUNCEMENT_ID}
             where="on the Overview"
-            intro="Everything new on the Overview and in the rep view, newest first, with the day it shipped."
+            intro="Every update, newest first, with the day it shipped and the page it is on. Reps only see the updates marked Rep view."
             onTour={() => { setView("overview"); startFzOverviewTour(); }}
           />
         ) : view === "overview" ? (
@@ -2180,7 +2179,7 @@ export function RcaDashboardPage() {
             {(() => {
               const entry = ANNOUNCEMENTS.find(x => x.id === FZ_OVERVIEW_ANNOUNCEMENT_ID);
               return entry ? (
-                <NewsBanner announcement={entry} audienceLabel="everyone on the Overview" isAdmin showCta={fzOverviewTourAvailable} onCta={startFzOverviewTour} onOpenNews={() => setView("news")} />
+                <NewsBanner announcement={entry} audienceLabel="everyone on the Overview" showCta={fzOverviewTourAvailable} onCta={startFzOverviewTour} onOpenNews={() => setView("news")} />
               ) : null;
             })()}
           </QuietBoundary>

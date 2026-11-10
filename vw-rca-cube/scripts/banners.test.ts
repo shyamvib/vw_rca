@@ -1,7 +1,7 @@
 // Run with: npx tsx --test scripts/banners.test.ts   (or: bun test scripts/banners.test.ts)
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dismissBanner, listDismissed, restoreBanner } from "../convex/banners";
+import { dismissBanner, isBannerAdmin, listDismissed, restoreBanner } from "../convex/banners";
 
 type Row = Record<string, any>;
 /** An in-memory appMeta: the same calls the module makes (collect, by_key lookup, insert, patch, delete). */
@@ -49,4 +49,12 @@ test("restoring shows the banner again, and restoring one that was never dismiss
   assert.deepEqual(await listDismissed(f.db), []);
   await restoreBanner(f.db, "never-dismissed");
   assert.deepEqual(await listDismissed(f.db), []);
+});
+
+test("only listed emails are banner admins, whatever the case, and no email means no", () => {
+  assert.equal(isBannerAdmin("shyam.n@vibrant-wellness.com"), true);
+  assert.equal(isBannerAdmin("  Shyam.N@Vibrant-Wellness.com "), true);
+  assert.equal(isBannerAdmin("someone.else@vibrant-wellness.com"), false);
+  assert.equal(isBannerAdmin(""), false);
+  assert.equal(isBannerAdmin(undefined), false);
 });
