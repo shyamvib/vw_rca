@@ -53,7 +53,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
     title: "Trend chart on the product family cards",
     summary: "Each product family card on the Overview has a small chart icon in its top right corner. It opens that family's weekly or monthly trend for the year so far.",
     points: [
-      "Press the chart icon on a family card. Switch between Weekly and Monthly, and between Orders and Revenue.",
+      "Press the chart icon on a family card. Switch between Weekly and Monthly to see its orders over the year.",
       "The chart always runs from 1 January of this year to today. It does not change with the Week / Month / Quarter / Full window buttons.",
       "It follows the team lead filter in the left rail. Partial periods (the first or the current week or month) are drawn as hollow dots and left out of the line.",
     ],

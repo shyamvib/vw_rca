@@ -327,7 +327,6 @@ function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?:
   const [data, setData] = useState<TrendData | null>(null);
   const [err, setErr] = useState("");
   const [grain, setGrain] = useState<"week" | "month">("week");
-  const [metric, setMetric] = useState<"ord" | "rev">("ord");
   useEffect(() => {
     let live = true;
     setData(null);
@@ -345,8 +344,8 @@ function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?:
 
   const s = data?.series[family];
   const bk = data ? (grain === "week" ? data.weeks : data.months) : [];
-  const ys = s ? (grain === "week" ? (metric === "ord" ? s.wOrd : s.wRev) : metric === "ord" ? s.mOrd : s.mRev) : [];
-  const fmt = (n: number) => (metric === "ord" ? int(n) : money(n));
+  const ys = s ? (grain === "week" ? s.wOrd : s.mOrd) : [];
+  const fmt = (n: number) => int(n);
   const W = 560, H = 220, L = 44, R = 12, T = 12, B = 28;
   const max = Math.max(1, ...ys);
   const x = (i: number) => L + (ys.length > 1 ? (i / (ys.length - 1)) * (W - L - R) : (W - L - R) / 2);
@@ -361,7 +360,7 @@ function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?:
       <div className="ev-modal-card" onClick={e => e.stopPropagation()} data-tour="ov-trend">
         <div className="ev-modal-head">
           <div>
-            <div className="ev-sectitle">{family}: {metric === "ord" ? "orders" : "revenue"} per {grain}</div>
+            <div className="ev-sectitle">{family}: orders per {grain}</div>
             <div className="ev-secsub" style={{ marginTop: 2 }}>{data ? `${shortDate(data.start)} – ${shortDate(data.end)}, since the start of the year. The period tabs do not change this.` : "Loading"}</div>
           </div>
           <button type="button" className="ev-modal-x" onClick={onClose} aria-label="Close">×</button>
@@ -371,13 +370,9 @@ function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?:
             <button type="button" className={grain === "week" ? "is-on" : ""} onClick={() => setGrain("week")}>Weekly</button>
             <button type="button" className={grain === "month" ? "is-on" : ""} onClick={() => setGrain("month")}>Monthly</button>
           </div>
-          <div className="ev-seg">
-            <button type="button" className={metric === "ord" ? "is-on" : ""} onClick={() => setMetric("ord")}>Orders</button>
-            <button type="button" className={metric === "rev" ? "is-on" : ""} onClick={() => setMetric("rev")}>Revenue</button>
-          </div>
         </div>
         {err ? <div className="ev-note" style={{ color: BAD }}>Could not load the trend: {err}</div> : !data ? <div className="ev-note">Loading the trend…</div> : !s ? <div className="ev-note">No orders for {family} this year.</div> : (
-          <svg viewBox={`0 0 ${W} ${H}`} className="ev-trend" role="img" aria-label={`${family} ${metric === "ord" ? "orders" : "revenue"} per ${grain}`}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="ev-trend" role="img" aria-label={`${family} orders per ${grain}`}>
             {[0, 0.5, 1].map(f => (
               <g key={f}>
                 <line x1={L} x2={W - R} y1={y(max * f)} y2={y(max * f)} stroke="var(--vw-gray-10)" strokeWidth={1} />
@@ -395,7 +390,7 @@ function TrendDialog({ family, teamLead, onClose }: { family: string; teamLead?:
             ))}
           </svg>
         )}
-        <div className="ev-note" style={{ marginTop: 6 }}>Hollow dots are partial periods (the first or the current one) and are not joined to the line. An order with several families counts under each; its revenue is split evenly.</div>
+        <div className="ev-note" style={{ marginTop: 6 }}>Hollow dots are partial periods (the first or the current one) and are not joined to the line. An order with several families counts under each.</div>
       </div>
     </div>
   );
