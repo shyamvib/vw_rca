@@ -3178,8 +3178,11 @@ function RepFootprintNote({ clinic }: { clinic: string }) {
  * filter bar and search the main dashboard's clinic lists have, and clicking
  * a row expands/collapses the full clinic card (portfolio, providers,
  * digital footprint) in place instead of opening a separate modal. */
-function FocusTable({
+export function FocusTable({
   label,
+  eyebrow,
+  winLabel,
+  hideClose,
   rows,
   onClose,
   periodId,
@@ -3193,6 +3196,12 @@ function FocusTable({
   expandTop,
 }: {
   label: string;
+  /** Replaces "Clinics behind this number". */
+  eyebrow?: string;
+  /** Named in the expanded clinic card's empty message. */
+  winLabel?: string;
+  /** No close button: the table is a page, not a panel. */
+  hideClose?: boolean;
   /** Replaces the default line under the title. */
   sub?: string;
   /** Shown between the title and the filters (e.g. the FZ list's Zoomer buttons and KPIs). */
@@ -3299,17 +3308,19 @@ function FocusTable({
     <section className="rca-card rca-drill rv-focus-table">
       <div className="rca-drill-head">
         <div>
-          <div className="rca-eyebrow">Clinics behind this number</div>
+          <div className="rca-eyebrow">{eyebrow ?? "Clinics behind this number"}</div>
           <div className="rca-drill-title">{label}</div>
           <div className="rca-sub">
             {rows ? (sub ?? `${rows.length} clinics · same rows the number above is built from`) : "Loading clinic detail…"}
           </div>
         </div>
+        {hideClose ? null : (
         <div className="rca-drill-actions">
           <button type="button" className="rca-tab" onClick={onClose}>
             close
           </button>
         </div>
+        )}
       </div>
       {lead}
       {rows ? (
@@ -3419,7 +3430,7 @@ function FocusTable({
                         <tr className="rca-subrow">
                           <td colSpan={(gap ? 16 : 15) + (extraCols?.length ?? 0)}>
                             {expandTop?.(r.clinic)}
-                            <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} />
+                            <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} winLabel={winLabel} />
                           </td>
                         </tr>
                       ) : null}

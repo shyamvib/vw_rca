@@ -6,7 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { pw, email as gateEmail, repSession, signOut } from "./gatePw";
-import { CalendarRange, CircleHelp, Filter, GitBranch, LayoutDashboard, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, Sparkles, UserRound, Users } from "lucide-react";
+import { CalendarRange, CircleHelp, Filter, GitBranch, HeartPulse, LayoutDashboard, LogOut, Newspaper, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, Sparkles, UserRound, Users } from "lucide-react";
 import { EXPAND_RAIL_EVENT, fzOverviewTourAvailable, gzTourAvailable, startFzOverviewTour, startGzTour, startUsertour } from "@/lib/usertour";
 import { ANNOUNCEMENTS, FZ_OVERVIEW_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
 import { NewsBanner, NewsPage } from "@/components/WhatsNew";
@@ -15,6 +15,7 @@ import { CLINIC_FOOTPRINTS } from "./clinicFootprints";
 import "./rca.css";
 import { RepView } from "./RepView";
 import { ExecutiveView, TeamsView } from "./ExecutiveView";
+import { ClinicHealthView } from "./ClinicHealthView";
 import { insightHeadline } from "@/lib/insightHeadline";
 import { FaqDrawer } from "./Faq";
 import { FeedTable, ViewToggle, useFeedView, type FeedRow } from "./FeedViews";
@@ -1288,7 +1289,7 @@ export function RcaDashboardPage() {
   const repLogin = useMemo(() => repSession(), []);
   const isRep = repLogin !== null;
   // Reps only get their own view: no company dashboard, no Business Feed.
-  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "feed" | "rep" | "news">(isRep ? "rep" : "overview");
+  const [view, setView] = useState<"overview" | "teams" | "dashboard" | "clinics" | "feed" | "rep" | "news">(isRep ? "rep" : "overview");
   // "What's new" on the Overview side: the newest announcement the person has opened (kept in this browser).
   const [newsSeen, setNewsSeen] = useState<string | null>(() => { try { return localStorage.getItem("ov-news-seen"); } catch { return null; } });
   useEffect(() => {
@@ -1938,6 +1939,7 @@ export function RcaDashboardPage() {
             ["overview", "Overview", "nav-overview", LayoutDashboard],
             ["teams", "Teams", "nav-teams", Users],
             ["dashboard", "Root cause", "nav-root-cause", GitBranch],
+            ["clinics", "Clinic health", "nav-clinic-health", HeartPulse],
             ["rep", "Rep view", "nav-rep-view", UserRound],
             ["feed", "Business Feed", "nav-feed", Newspaper],
             ["news", "What's new", "nav-news", Sparkles],
@@ -2137,6 +2139,8 @@ export function RcaDashboardPage() {
             onOpenTree={id => { setSelected(id); setView("dashboard"); }}
           />
           </>
+        ) : view === "clinics" ? (
+          <ClinicHealthView periods={periods as never} teamLead={teamLead || undefined} />
         ) : view === "teams" ? (
           <TeamsView
             periods={periods as never}
