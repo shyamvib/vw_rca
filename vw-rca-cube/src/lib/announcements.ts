@@ -36,6 +36,19 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "gz-lapsed",
+    date: "2026-11-11",
+    pages: ["overview", "rep"],
+    title: "Business Feed: clinics that ordered Gut Zoomer last year but not this year",
+    summary: "A new question on the Business Feed lists every clinic that ordered Gut Zoomer last year and has not ordered it so far this year.",
+    points: [
+      "Open the list for the clinics, with their Gut Zoomer orders last year and the date of the last one.",
+      "Each clinic shows its total revenue last year and so far this year (all products), so you can sort to the significant ones first. It also shows how many orders of other tests it has placed this year, so you can tell a clinic that dropped Gut Zoomer (still ordering other tests) from one that has gone entirely (0).",
+      "On the rep view it covers your own clinics; on the Overview it covers the company or the team lead you picked.",
+    ],
+    action: { kind: "tab", label: "Open the Business feed", tab: "feed" },
+  },
+  {
     id: "overview-clinic-health",
     date: "2026-11-11",
     pages: ["overview"],

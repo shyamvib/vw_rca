@@ -22,6 +22,7 @@ import type * as familyTrend from "../familyTrend.js";
 import type * as feed from "../feed.js";
 import type * as flags from "../flags.js";
 import type * as gated from "../gated.js";
+import type * as gzLapsed from "../gzLapsed.js";
 import type * as geo from "../geo.js";
 import type * as geoKey from "../geoKey.js";
 import type * as ingest from "../ingest.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   feed: typeof feed;
   flags: typeof flags;
   gated: typeof gated;
+  gzLapsed: typeof gzLapsed;
   geo: typeof geo;
   geoKey: typeof geoKey;
   ingest: typeof ingest;

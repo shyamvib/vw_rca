@@ -111,6 +111,59 @@ export const replaceAll = internalMutation({
   },
 });
 
+export type Identity = { name: string; state: string; sales: string; teamLead?: string };
+
+/**
+ * Name, state, owner and team lead for each clinic: the dashboard's own clinicMeta first (same owner attribution as every other
+ * list), then, for clinics outside the current roster, from their orders between `start` and `end`.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: action ctx
+export async function resolveIdentities(ctx: any, ids: string[], start: string, end: string): Promise<Record<string, Identity>> {
+  // Identity: the dashboard's own clinicMeta first (same owner attribution
+  // as every other list); clinics outside the current roster via DAX.
+  const ident: Record<string, { name: string; state: string; sales: string; teamLead?: string }> = {};
+  for (let i = 0; i < ids.length; i += 200) {
+    const { out } = await ctx.runQuery(internal.familyStops.identityFor, { clinics: ids.slice(i, i + 200) });
+    Object.assign(ident, out);
+  }
+  const missing = ids.filter(c => !ident[c]);
+  if (missing.length) {
+    const users = new Map<string, string>();
+    for (const r of await cubeRows({ dimensions: ["internal_user.internal_user_id", "internal_user.name"] }, {
+      "internal_user.internal_user_id": "internal_user[internal_user_id]",
+      "internal_user.name": "internal_user[internal_user_name]",
+    })) {
+      const id = String(r["internal_user[internal_user_id]"] ?? "");
+      const nm = String(r["internal_user[internal_user_name]"] ?? "");
+      if (id && nm && nm !== "null") users.set(id, nm);
+    }
+    for (let i = 0; i < missing.length; i += 150) {
+      const rows = await ordersRows({
+        by: ["clinic_id", "customer_practice_name", "state", "team_lead", "sales_id"],
+        start: start, end: end, m: { ord: "orders" },
+        filters: [eq(`${O}.clinic_id`, ...missing.slice(i, i + 150))],
+      });
+      const best = new Map<string, { ord: number; r: Record<string, unknown> }>();
+      for (const r of rows) {
+        const c = String(r[`${TABLE}[clinic_id]`] ?? "");
+        const o = Number(r["[ord]"] ?? 0);
+        if (!best.has(c) || best.get(c)!.ord < o) best.set(c, { ord: o, r });
+      }
+      for (const [c, { r }] of best) {
+        const sid = String(r[`${TABLE}[sales_id]`] ?? "").trim();
+        const tl = String(r[`${TABLE}[team_lead]`] ?? "").trim();
+        ident[c] = {
+          name: String(r[`${TABLE}[customer_practice_name]`] ?? `Clinic ${c}`),
+          state: String(r[`${TABLE}[state]`] ?? "(blank)"),
+          sales: !sid || sid === "null" ? "—" : (users.get(sid) ?? `Sales ${sid}`),
+          teamLead: tl && tl !== "null" ? tl : undefined,
+        };
+      }
+    }
+  }
+  return ident;
+}
+
 export const rebuild = internalAction({
   args: { dataEnd: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -167,49 +220,8 @@ export const rebuild = internalAction({
       }
     }
 
-    // Identity: the dashboard's own clinicMeta first (same owner attribution
-    // as every other list); clinics outside the current roster via DAX.
     const ids = [...new Set(hits.map(h => h.clinic))];
-    const ident: Record<string, { name: string; state: string; sales: string; teamLead?: string }> = {};
-    for (let i = 0; i < ids.length; i += 200) {
-      const { out } = await ctx.runQuery(internal.familyStops.identityFor, { clinics: ids.slice(i, i + 200) });
-      Object.assign(ident, out);
-    }
-    const missing = ids.filter(c => !ident[c]);
-    if (missing.length) {
-      const users = new Map<string, string>();
-      for (const r of await cubeRows({ dimensions: ["internal_user.internal_user_id", "internal_user.name"] }, {
-        "internal_user.internal_user_id": "internal_user[internal_user_id]",
-        "internal_user.name": "internal_user[internal_user_name]",
-      })) {
-        const id = String(r["internal_user[internal_user_id]"] ?? "");
-        const nm = String(r["internal_user[internal_user_name]"] ?? "");
-        if (id && nm && nm !== "null") users.set(id, nm);
-      }
-      for (let i = 0; i < missing.length; i += 150) {
-        const rows = await ordersRows({
-          by: ["clinic_id", "customer_practice_name", "state", "team_lead", "sales_id"],
-          start: pullStart, end: dataEnd, m: { ord: "orders" },
-          filters: [eq(`${O}.clinic_id`, ...missing.slice(i, i + 150))],
-        });
-        const best = new Map<string, { ord: number; r: Record<string, unknown> }>();
-        for (const r of rows) {
-          const c = String(r[`${TABLE}[clinic_id]`] ?? "");
-          const o = Number(r["[ord]"] ?? 0);
-          if (!best.has(c) || best.get(c)!.ord < o) best.set(c, { ord: o, r });
-        }
-        for (const [c, { r }] of best) {
-          const sid = String(r[`${TABLE}[sales_id]`] ?? "").trim();
-          const tl = String(r[`${TABLE}[team_lead]`] ?? "").trim();
-          ident[c] = {
-            name: String(r[`${TABLE}[customer_practice_name]`] ?? `Clinic ${c}`),
-            state: String(r[`${TABLE}[state]`] ?? "(blank)"),
-            sales: !sid || sid === "null" ? "—" : (users.get(sid) ?? `Sales ${sid}`),
-            teamLead: tl && tl !== "null" ? tl : undefined,
-          };
-        }
-      }
-    }
+    const ident = await resolveIdentities(ctx, ids, pullStart, dataEnd);
 
     const rows = hits.map(h => {
       const id = ident[h.clinic];

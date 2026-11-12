@@ -6,7 +6,8 @@ import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedQuery, scopedAction, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
-import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
+import { loadLapsed } from "./gzLapsed";
+import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, gzLapsedItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
 import { COMPANY_SCOPE, TEAM_PREFIX, isCompanyLead, isTeamScope, repsInScope, teamOf } from "./scope";
@@ -685,6 +686,10 @@ export async function build(
       `${dLabel(cfg.currentStart)} – ${dLabel(cfg.currentEnd)}, ${cfg.currentEnd.slice(0, 4)}`,
     );
     if (gl) items.push({ ...gl, q: "Where are we losing Gut Zoomer orders?" });
+    // Clinics that ordered Gut Zoomer last year and not this year; the list is rebuilt by the data refresh.
+    const lapsed = await loadLapsed(ctx, { teamLead });
+    const gzl = gzLapsedItem(lapsed, lapsed[0]?.year ?? Number(cfg.currentEnd.slice(0, 4)));
+    if (gzl) items.push(gzl);
   }
 
   // Product families — worst and best. Company-wide only: famBase/famPeriod
@@ -1112,6 +1117,18 @@ export const repQuestions = scopedQuery({
     if (gl) shape(gl, true);
     else
       shape({ id: "gz-loss", tag: "Portfolio", tone: "good", q: "Where am I losing Gut Zoomer orders?", a: "Gut Zoomer has no orders and no stopped clinics in your book in this window." }, false);
+    // Clinics that ordered Gut Zoomer last year and not this year, in this book.
+    const lapsedAll = await ctx.db.query("gzLapsed").first();
+    const lapsed = await loadLapsed(ctx, { sales });
+    const gzl = gzLapsedItem(lapsed, lapsed[0]?.year ?? Number(cfg.currentEnd.slice(0, 4)));
+    if (gzl) shape(gzl, true);
+    else {
+      const yr = Number(cfg.currentEnd.slice(0, 4));
+      shape({
+        id: "gz-lapsed", tag: "Portfolio", tone: "good", q: `Which clinics ordered Gut Zoomer in ${yr - 1} but not in ${yr}?`,
+        a: lapsedAll ? `None: every clinic in your book that ordered Gut Zoomer in ${yr - 1} has ordered it again in ${yr}.` : "This list is built by the data refresh and is not available yet.",
+      }, false);
+    }
     return { ready: true as const, cards };
   },
 });

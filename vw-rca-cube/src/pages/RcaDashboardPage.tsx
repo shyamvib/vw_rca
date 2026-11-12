@@ -4096,7 +4096,9 @@ function ClinicPanel({
     teamLead,
     sales,
   });
-  const isStops = !!focus?.startsWith("famstops");
+  // Gut Zoomer ordered last year, none this year: the same list with its own columns.
+  const isLapsed = focus === "gzlapsed";
+  const isStops = !!focus?.startsWith("famstops") || isLapsed;
   const [stopFam, setStopFam] = useState("");
   const [stopMonth, setStopMonth] = useState("");
   const stopRows = useMemo(() => {
@@ -4156,7 +4158,7 @@ function ClinicPanel({
       "baseline_aov",
       "bundle_delta",
       "attributed_metric",
-      ...(isStops ? ["stopped_families", "stopped_in", "last_order", "days_since", "prior_90d_orders"] : []),
+      ...(isStops ? (isLapsed ? ["other_orders_this_year", "last_gz_month", "last_gz_order", "days_since", "gz_orders_last_year", "revenue_last_year", "revenue_this_year"] : ["stopped_families", "stopped_in", "last_order", "days_since", "prior_90d_orders"]) : []),
     ];
     const lines = [head.join(",")];
     (isStops ? (filters.rows as unknown as typeof data.rows) : data.rows).forEach((r, i) => {
@@ -4186,7 +4188,7 @@ function ClinicPanel({
           ...(isStops
             ? (() => {
                 const x = r as unknown as StopFields;
-                return [x.stopFamilies ?? "", x.stopMonth ?? "", x.stopLastOrder ?? "", x.stopDays ?? "", x.stopPrior ?? ""];
+                return [isLapsed ? (x.lapsedOther ?? 0) : (x.stopFamilies ?? ""), x.stopMonth ?? "", x.stopLastOrder ?? "", x.stopDays ?? "", x.stopPrior ?? "", ...(isLapsed ? [Math.round(x.lapsedRevenue ?? 0), Math.round(x.lapsedRevenueThis ?? 0)] : [])];
               })()
             : []),
         ].join(","),
@@ -4196,7 +4198,9 @@ function ClinicPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = isStops
+    a.download = isLapsed
+      ? `clinics_gz_lapsed.csv`
+      : isStops
       ? `clinics_gz_tt_stopped.csv`
       : `clinics_${lens}_${periodId.replace(":", "-")}.csv`;
     a.click();
@@ -4213,7 +4217,9 @@ function ClinicPanel({
           </div>
           <div className="rca-sub">
             {data?.ready
-              ? isStops
+              ? isLapsed
+                ? `${INT(filters.rows.length)} clinics ordered Gut Zoomer last year and have not ordered it this year so far. "Other orders this year" is what each has ordered of other products (0 means nothing at all). The RCA columns are for ${periodLabel}.`
+                : isStops
                 ? `${INT(filters.rows.length)} clinics stopped ${stopFam || "Gut Zoomer or Total Tox"}${stopMonth ? ` in ${monLabel(stopMonth)}` : " since May"} and still haven't reordered: ≥3 orders of the family in the 90 days before, none in the last 30 days as of month end, and none since. Each clinic is listed under the month it first stopped; the RCA columns are for ${periodLabel}.`
                 : dropOffOrder
                 ? `${INT(data.count)} new clinics reached order ${Number(dropOffOrder) - 1} but did not reach order ${dropOffOrder} within the analysis window.`
@@ -4261,7 +4267,7 @@ function ClinicPanel({
         </div>
       </div>
 
-      {data?.ready && isStops ? (
+      {data?.ready && isStops && !isLapsed ? (
         <div className="rca-filters rca-stop-chips">
           <span className="rca-filter-label">Family</span>
           {["", "Gut Zoomer", "Total Tox"].map(f => (
@@ -4302,11 +4308,13 @@ function ClinicPanel({
                 {filters.th("Cohort", "cohort", true)}
                 {isStops ? (
                   <>
-                    {filters.th("Stopped", "stopFamilies", true)}
-                    {filters.th("Stopped in", "stopMonthNum")}
-                    {filters.th("Last order", "stopLastNum")}
+                    {isLapsed ? filters.th("Other orders this year", "lapsedOther") : filters.th("Stopped", "stopFamilies", true)}
+                    {filters.th(isLapsed ? "Last GZ month" : "Stopped in", "stopMonthNum")}
+                    {filters.th(isLapsed ? "Last GZ order" : "Last order", "stopLastNum")}
                     {filters.th("Days since", "stopDays")}
-                    {filters.th("Prior 90d orders", "stopPrior")}
+                    {filters.th(isLapsed ? "GZ orders last year" : "Prior 90d orders", "stopPrior")}
+                    {isLapsed ? filters.th("Revenue last year", "lapsedRevenue") : null}
+                    {isLapsed ? filters.th("Revenue this year", "lapsedRevenueThis") : null}
                   </>
                 ) : null}
                 {filters.th("Goal", "expected")}
@@ -4331,7 +4339,7 @@ function ClinicPanel({
                       groupBy={filters.groupBy as "state" | "owner"}
                       count={g.count}
                       total={g.total}
-                      colSpan={isStops ? 21 : 16}
+                      colSpan={isStops ? (isLapsed ? 23 : 21) : 16}
                       isPatients={lens === "traffic"}
                     />,
                     ...g.rows.map(r => (
@@ -4933,6 +4941,10 @@ type StopFields = {
   stopLastNum?: number;
   stopDays?: number;
   stopPrior?: number;
+  /** Gut Zoomer lapsed list: orders of other products this year. */
+  lapsedOther?: number;
+  lapsedRevenue?: number;
+  lapsedRevenueThis?: number;
 };
 
 const monLabel = (ym: string) =>
@@ -4940,17 +4952,20 @@ const monLabel = (ym: string) =>
 
 /** GZ / Total Tox stop columns; one line per stopped family. */
 function StopCells({ row }: { row: DrillClinic & StopFields }) {
+  const lapsed = row.lapsedOther !== undefined;
   const ss = row.stops ?? [];
   const short = (f: string) => (f === "Gut Zoomer" ? "Gut Zoomer" : "Total Tox");
   const lines = (pick: (s: (typeof ss)[number]) => string | number) =>
     ss.map((s, i) => <div key={i}>{pick(s)}</div>);
   return (
     <>
-      <td className="rca-stop-cell">{lines(s => short(s.family))}</td>
+      {lapsed ? <td className="rca-num">{INT(row.lapsedOther ?? 0)}</td> : <td className="rca-stop-cell">{lines(s => short(s.family))}</td>}
       <td className="rca-num rca-stop-cell">{lines(s => monLabel(s.month))}</td>
       <td className="rca-num rca-stop-cell">{lines(s => s.lastOrder)}</td>
       <td className="rca-num">{INT(row.stopDays ?? 0)}</td>
       <td className="rca-num rca-stop-cell">{lines(s => INT(s.priorOrders))}</td>
+      {lapsed ? <td className="rca-num">{MONEY(row.lapsedRevenue ?? 0)}</td> : null}
+      {lapsed ? <td className="rca-num">{MONEY(row.lapsedRevenueThis ?? 0)}</td> : null}
     </>
   );
 }
@@ -5086,7 +5101,7 @@ function ClinicPanelRow({
       </tr>
       {open ? (
         <tr className="rca-subrow">
-          <td colSpan={showStops ? 22 : 17}>
+          <td colSpan={showStops ? ((row as DrillClinic & StopFields).lapsedOther !== undefined ? 24 : 22) : 17}>
             <ClinicPortfolio
               clinic={row.clinic}
               periodId={periodId}
