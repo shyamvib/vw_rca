@@ -82,6 +82,10 @@ const ITEM_TEXT: Record<string, { inference: string; action: string }> = {
     inference: "Gut Zoomer leaves two ways: clinics that stop entirely, and clinics that keep ordering but less. Stopped clinics are the sharpest, most recoverable loss; declining ones are the slower leak that becomes the next stopped list.",
     action: "Call the stopped clinics first, biggest earlier volume first, and ask what changed (price, turnaround, a competing panel) before offering a restart. Then the declining clinics, largest shortfall first: they still order, so a call that finds the cause is the cheapest recovery.",
   },
+  "gz-lapsed": {
+    inference: "A clinic that ordered Gut Zoomer last year and has not once this year has either dropped the panel or left altogether. The two need different calls: one is about the product, the other about the relationship.",
+    action: "Start with the clinics that still order other tests: they are active, so ask why Gut Zoomer fell away (price, turnaround, a competing panel) and offer it again. Then the clinics that have gone entirely, largest earlier Gut Zoomer volume first, as win-back calls.",
+  },
   "va-target": {
     inference: "These clinics already pay premium prices on VA panels and order often, so they are the likeliest to take the $400 Foundation Zoomer.",
     action: "Lead the outreach with the top ten by VA revenue and share the $400 panel offer.",
@@ -265,5 +269,28 @@ export function gzLossItem(
     focus: ids.length ? `ids:${ids.slice(0, 300).join(",")}` : undefined,
     focusLabel: "Clinics that stopped or are declining on Gut Zoomer",
     detail: [...Array.from({ length: Math.max(topStop.length, topDec.length) }, (_, i) => [topStop[i], topDec[i]]).flat().filter((x): x is string => !!x), ...rsm, states.length ? `Stopped, by state: ${states.join(", ")}` : "", dStates.length ? `Declining, by state: ${dStates.join(", ")}` : ""].filter(Boolean).join(" | "),
+  };
+}
+
+
+// ---- "Which clinics ordered Gut Zoomer last year but not this year?" (main and rep Business feeds) -----------------------
+export type GzLapsed = { clinic: string; name: string; state: string; sales: string; orders: number; lastOrder: string; otherOrders: number };
+/** Null when the list is empty. `year` is the current year; the comparison is with the year before. */
+export function gzLapsedItem(rows: GzLapsed[], year: number, scopeLabel = ""): FeedItem | null {
+  if (!rows.length) return null;
+  const prev = year - 1;
+  const orders = rows.reduce((t, r) => t + r.orders, 0);
+  const active = rows.filter(r => r.otherOrders > 0).length;
+  const gone = rows.length - active;
+  const top = [...rows].sort((a, b) => b.orders - a.orders).slice(0, 5);
+  return {
+    id: "gz-lapsed",
+    tag: "Portfolio",
+    tone: "watch",
+    focus: "gzlapsed",
+    focusLabel: `Gut Zoomer: ordered in ${prev}, none in ${year}`,
+    q: `Which clinics ordered Gut Zoomer in ${prev} but not in ${year}?`,
+    a: `${INT(rows.length)} ${scopeLabel}clinics ordered Gut Zoomer in ${prev} (${INT(orders)} orders between them) and have not ordered it in ${year} so far. ${INT(active)} of them still order other tests this year; ${INT(gone)} have not ordered anything. Open the list to see each clinic's ${prev} Gut Zoomer orders, its last Gut Zoomer order, and what it has ordered this year.`,
+    detail: top.map(r => `${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${INT(r.orders)} Gut Zoomer orders in ${prev}, last ${r.lastOrder}, ${r.otherOrders > 0 ? `${INT(r.otherOrders)} other orders in ${year}` : `nothing ordered in ${year}`}`).join(" | "),
   };
 }

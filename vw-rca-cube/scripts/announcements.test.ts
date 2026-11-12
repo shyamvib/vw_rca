@@ -57,8 +57,10 @@ test("buttons into the rep view are offered only in the rep view; an entry made 
 test("the unread dot is per place", () => {
   const rep = announcementsFor("rep"), ov = announcementsFor("overview");
   assert.equal(hasUnseenAnnouncement(latestAnnouncementId(rep), rep), false);
-  // someone who has read everything in the rep view has not read the Overview's newer entry
-  assert.equal(hasUnseenAnnouncement(latestAnnouncementId(rep), ov), true);
+  // someone who has read everything in the rep view has read the Overview's newest too only when that entry is shared with the rep view
+  assert.equal(hasUnseenAnnouncement(latestAnnouncementId(rep), ov), latestAnnouncementId(rep) !== latestAnnouncementId(ov));
+  // an older entry id is always unread
+  assert.equal(hasUnseenAnnouncement(ov[ov.length - 1].id, ov), ov.length > 1);
 });
 
 test("every entry names its page, reps never get Overview-only updates, and the Overview lists everything", () => {

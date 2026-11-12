@@ -670,6 +670,24 @@ const schema = defineSchema({
     builtAt: v.number(),
   }).index("by_family", ["family"]),
 
+  // Clinics that ordered Gut Zoomer last calendar year and have not this year (analytics/gzLapsed.ts), rebuilt after each refresh.
+  gzLapsed: defineTable({
+    clinic: v.string(),
+    name: v.string(),
+    state: v.string(),
+    sales: v.string(),
+    teamLead: v.optional(v.string()),
+    /** The year compared with (this year) and the one before it. */
+    year: v.number(),
+    /** Gut Zoomer orders last year. */
+    orders: v.number(),
+    /** Date of the last Gut Zoomer order last year. */
+    lastOrder: v.string(),
+    /** Orders of any other product so far this year (0 = gone entirely). */
+    otherOrders: v.number(),
+    builtAt: v.number(),
+  }).index("by_clinic", ["clinic"]),
+
   familyStops: defineTable({
     month: v.string(),
     family: v.string(),

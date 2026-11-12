@@ -948,11 +948,15 @@ export const rowsByFocus = scopedQuery({
       unlimited: true,
       sales: args.sales,
       keepBaselined: true,
+      // The Gut Zoomer lapsed list also carries clinics with no row in this window, which drill() adds; it is cut there.
+      ...(args.focus === "gzlapsed" ? { focus: "gzlapsed" } : {}),
     });
     if (!cfg || !res.ready) return { ready: false as const, rows: [] };
     const focus = args.focus;
     let rows = res.rows;
-    if (focus.startsWith("cohort:")) {
+    if (focus === "gzlapsed") {
+      /* already narrowed to the lapsed clinics by drill() */
+    } else if (focus.startsWith("cohort:")) {
       const k = focus.slice(7);
       rows = rows.filter(r => (k === "active" ? (ACTIVE_COHORTS as readonly string[]).includes(r.cohort) : r.cohort === k));
     } else if (focus.startsWith("state:")) {
@@ -1006,6 +1010,9 @@ export const rowsByFocus = scopedQuery({
         lastTouchDate: r.lastTouchDate ?? null,
         daysSinceLast: since(cutoff, r.lastOrderAllTime),
         daysSinceTouch: since(cutoff, r.lastTouchDate),
+        ...(focus === "gzlapsed"
+          ? { lapsedOrders: (r as any).stopPrior ?? 0, lapsedLast: (r as any).stopLastOrder ?? "", lapsedOther: (r as any).lapsedOther ?? 0 }
+          : {}),
       })),
     };
   },

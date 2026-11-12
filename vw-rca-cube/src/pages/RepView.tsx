@@ -4272,6 +4272,17 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   );
 }
 
+/** Columns for the "ordered Gut Zoomer last year, none this year" list: what each clinic ordered, from the fields the server adds to each row. */
+function lapsedCols(rows: unknown) {
+  const by = new Map((rows as Array<{ clinic: string; lapsedOrders?: number; lapsedLast?: string; lapsedOther?: number }>).map(r => [r.clinic, r]));
+  const date = (n: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6)}` : "—");
+  return [
+    { key: "lapOrd", label: "GZ orders last year", title: "Gut Zoomer orders last year", value: (c: string) => by.get(c)?.lapsedOrders ?? 0, fmt: (n: number) => String(n) },
+    { key: "lapLast", label: "Last GZ order", title: "Date of the last Gut Zoomer order last year", value: (c: string) => Number((by.get(c)?.lapsedLast ?? "").replace(/-/g, "")), fmt: date },
+    { key: "lapOther", label: "Other orders this year", title: "Orders of other products so far this year (0 means nothing at all)", value: (c: string) => by.get(c)?.lapsedOther ?? 0, fmt: (n: number) => String(n) },
+  ];
+}
+
 /** Business feed tab (2026-10-20): the main Business Feed's own questions, cut to the rep's book. The cards are built on the
  * server by the same functions as the company feed (`feed:repQuestions`), so the wording matches; only the scope changes.
  * Shortlisted so far: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
@@ -4342,7 +4353,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics, onFindGz }: { sales:
       {focus && focus.focus.startsWith("pair:") ? (
         <SwitchPanel periodId="all" periodLabel="analysis window" pair={focus.focus.slice(5)} limit={limit} onLimit={setLimit} onClose={() => setFocus(null)} sales={sales} />
       ) : focus ? (
-        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} />
+        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} extraCols={focus.focus === "gzlapsed" && rowsQ?.ready ? lapsedCols(rowsQ.rows) : undefined} />
       ) : null}
       <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions from the main Business Feed will be added here over time.</p>
     </div>
