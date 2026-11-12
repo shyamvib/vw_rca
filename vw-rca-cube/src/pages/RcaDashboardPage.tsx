@@ -4158,7 +4158,7 @@ function ClinicPanel({
       "baseline_aov",
       "bundle_delta",
       "attributed_metric",
-      ...(isStops ? (isLapsed ? ["other_orders_this_year", "last_gz_month", "last_gz_order", "days_since", "gz_orders_last_year"] : ["stopped_families", "stopped_in", "last_order", "days_since", "prior_90d_orders"]) : []),
+      ...(isStops ? (isLapsed ? ["other_orders_this_year", "last_gz_month", "last_gz_order", "days_since", "gz_orders_last_year", "revenue_last_year", "revenue_this_year"] : ["stopped_families", "stopped_in", "last_order", "days_since", "prior_90d_orders"]) : []),
     ];
     const lines = [head.join(",")];
     (isStops ? (filters.rows as unknown as typeof data.rows) : data.rows).forEach((r, i) => {
@@ -4188,7 +4188,7 @@ function ClinicPanel({
           ...(isStops
             ? (() => {
                 const x = r as unknown as StopFields;
-                return [isLapsed ? (x.lapsedOther ?? 0) : (x.stopFamilies ?? ""), x.stopMonth ?? "", x.stopLastOrder ?? "", x.stopDays ?? "", x.stopPrior ?? ""];
+                return [isLapsed ? (x.lapsedOther ?? 0) : (x.stopFamilies ?? ""), x.stopMonth ?? "", x.stopLastOrder ?? "", x.stopDays ?? "", x.stopPrior ?? "", ...(isLapsed ? [Math.round(x.lapsedRevenue ?? 0), Math.round(x.lapsedRevenueThis ?? 0)] : [])];
               })()
             : []),
         ].join(","),
@@ -4313,6 +4313,8 @@ function ClinicPanel({
                     {filters.th(isLapsed ? "Last GZ order" : "Last order", "stopLastNum")}
                     {filters.th("Days since", "stopDays")}
                     {filters.th(isLapsed ? "GZ orders last year" : "Prior 90d orders", "stopPrior")}
+                    {isLapsed ? filters.th("Revenue last year", "lapsedRevenue") : null}
+                    {isLapsed ? filters.th("Revenue this year", "lapsedRevenueThis") : null}
                   </>
                 ) : null}
                 {filters.th("Goal", "expected")}
@@ -4337,7 +4339,7 @@ function ClinicPanel({
                       groupBy={filters.groupBy as "state" | "owner"}
                       count={g.count}
                       total={g.total}
-                      colSpan={isStops ? 21 : 16}
+                      colSpan={isStops ? (isLapsed ? 23 : 21) : 16}
                       isPatients={lens === "traffic"}
                     />,
                     ...g.rows.map(r => (
@@ -4941,6 +4943,8 @@ type StopFields = {
   stopPrior?: number;
   /** Gut Zoomer lapsed list: orders of other products this year. */
   lapsedOther?: number;
+  lapsedRevenue?: number;
+  lapsedRevenueThis?: number;
 };
 
 const monLabel = (ym: string) =>
@@ -4960,6 +4964,8 @@ function StopCells({ row }: { row: DrillClinic & StopFields }) {
       <td className="rca-num rca-stop-cell">{lines(s => s.lastOrder)}</td>
       <td className="rca-num">{INT(row.stopDays ?? 0)}</td>
       <td className="rca-num rca-stop-cell">{lines(s => INT(s.priorOrders))}</td>
+      {lapsed ? <td className="rca-num">{MONEY(row.lapsedRevenue ?? 0)}</td> : null}
+      {lapsed ? <td className="rca-num">{MONEY(row.lapsedRevenueThis ?? 0)}</td> : null}
     </>
   );
 }
@@ -5095,7 +5101,7 @@ function ClinicPanelRow({
       </tr>
       {open ? (
         <tr className="rca-subrow">
-          <td colSpan={showStops ? 22 : 17}>
+          <td colSpan={showStops ? ((row as DrillClinic & StopFields).lapsedOther !== undefined ? 24 : 22) : 17}>
             <ClinicPortfolio
               clinic={row.clinic}
               periodId={periodId}

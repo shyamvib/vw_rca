@@ -760,6 +760,8 @@ export async function drill(
   // Gut Zoomer ordered last year, none this year (gzlapsed): the same list and columns, from the lapsed table. Each clinic is one
   // Gut Zoomer "stop" dated by its last order; `lapsedOther` is what it has ordered of other products this year.
   const lapsedOther = new Map<string, number>();
+  const lapsedRevenue = new Map<string, number>();
+  const lapsedRevenueThis = new Map<string, number>();
   if (focus.startsWith("famstops") || focus === "gzlapsed") {
     famstops = true;
     type StopLike = { family: string; month: string; clinic: string; name: string; state: string; sales: string; teamLead?: string; priorOrders: number; lastOrder: string };
@@ -767,6 +769,8 @@ export async function drill(
       focus === "gzlapsed"
         ? (await loadLapsed(ctx, { sales: args.sales, teamLead: args.teamLead })).map(r => {
             lapsedOther.set(r.clinic, r.otherOrders);
+            lapsedRevenue.set(r.clinic, r.revenue ?? 0);
+            lapsedRevenueThis.set(r.clinic, r.revenueThis ?? 0);
             return { family: "Gut Zoomer", month: r.lastOrder.slice(0, 7), clinic: r.clinic, name: r.name, state: r.state, sales: r.sales, teamLead: r.teamLead, priorOrders: r.orders, lastOrder: r.lastOrder };
           })
         : await loadStops(ctx, args.teamLead);
@@ -811,7 +815,7 @@ export async function drill(
           stopLastNum: last ? Number(last.replace(/-/g, "")) : 0,
           stopDays: last && end ? Math.round(dayNum(end) - dayNum(last)) : 0,
           stopPrior: ss.reduce((a, s) => a + s.priorOrders, 0),
-          ...(focus === "gzlapsed" ? { lapsedOther: lapsedOther.get(r.clinic) ?? 0 } : {}),
+          ...(focus === "gzlapsed" ? { lapsedOther: lapsedOther.get(r.clinic) ?? 0, lapsedRevenue: lapsedRevenue.get(r.clinic) ?? 0, lapsedRevenueThis: lapsedRevenueThis.get(r.clinic) ?? 0 } : {}),
         });
       });
     rows.length = 0;
@@ -825,7 +829,9 @@ export async function drill(
   const total = rows.reduce((s, r) => s + r.metric, 0);
   const count = rows.length;
   const descending = total > 0;
-  rows.sort((x, y) => (descending ? y.metric - x.metric : x.metric - y.metric));
+  // The lapsed Gut Zoomer list leads with the biggest total revenue last year.
+  if (focus === "gzlapsed") rows.sort((x, y) => ((y as unknown as { lapsedRevenue?: number }).lapsedRevenue ?? 0) - ((x as unknown as { lapsedRevenue?: number }).lapsedRevenue ?? 0));
+  else rows.sort((x, y) => (descending ? y.metric - x.metric : x.metric - y.metric));
   const limit = args.unlimited || famstops ? rows.length : Math.min(args.limit ?? 50, 500);
 
   // Positive vs negative driver split — every node nets a single number, but

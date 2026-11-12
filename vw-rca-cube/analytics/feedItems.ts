@@ -11,6 +11,8 @@ export const MONEY = (n: number) => {
   if (a >= 1_000) return `${s}$${Math.round(a / 1_000)}K`;
   return `${s}$${Math.round(a)}`;
 };
+/** A plain dollar amount, no sign: totals rather than gains or losses. */
+export const DOLLARS = (n: number) => MONEY(Math.abs(n)).replace(/^\+/, "");
 export const INT = (n: number) => Math.round(n).toLocaleString("en-US");
 
 // ---- structured fields (moved from insights.ts) ------------------------------------------------------------------
@@ -274,7 +276,7 @@ export function gzLossItem(
 
 
 // ---- "Which clinics ordered Gut Zoomer last year but not this year?" (main and rep Business feeds) -----------------------
-export type GzLapsed = { clinic: string; name: string; state: string; sales: string; orders: number; lastOrder: string; otherOrders: number };
+export type GzLapsed = { clinic: string; name: string; state: string; sales: string; orders: number; lastOrder: string; otherOrders: number; revenue?: number; revenueThis?: number };
 /** Null when the list is empty. `year` is the current year; the comparison is with the year before. */
 export function gzLapsedItem(rows: GzLapsed[], year: number, scopeLabel = ""): FeedItem | null {
   if (!rows.length) return null;
@@ -282,7 +284,10 @@ export function gzLapsedItem(rows: GzLapsed[], year: number, scopeLabel = ""): F
   const orders = rows.reduce((t, r) => t + r.orders, 0);
   const active = rows.filter(r => r.otherOrders > 0).length;
   const gone = rows.length - active;
-  const top = [...rows].sort((a, b) => b.orders - a.orders).slice(0, 5);
+  const sig = (r: GzLapsed) => r.revenue ?? r.orders;
+  const top = [...rows].sort((a, b) => sig(b) - sig(a)).slice(0, 5);
+  const revenue = rows.reduce((t, r) => t + (r.revenue ?? 0), 0);
+  const revenueThis = rows.reduce((t, r) => t + (r.revenueThis ?? 0), 0);
   return {
     id: "gz-lapsed",
     tag: "Portfolio",
@@ -290,7 +295,7 @@ export function gzLapsedItem(rows: GzLapsed[], year: number, scopeLabel = ""): F
     focus: "gzlapsed",
     focusLabel: `Gut Zoomer: ordered in ${prev}, none in ${year}`,
     q: `Which clinics ordered Gut Zoomer in ${prev} but not in ${year}?`,
-    a: `${INT(rows.length)} ${scopeLabel}clinics ordered Gut Zoomer in ${prev} (${INT(orders)} orders between them) and have not ordered it in ${year} so far. ${INT(active)} of them still order other tests this year; ${INT(gone)} have not ordered anything. Open the list to see each clinic's ${prev} Gut Zoomer orders, its last Gut Zoomer order, and what it has ordered this year.`,
-    detail: top.map(r => `${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${INT(r.orders)} Gut Zoomer orders in ${prev}, last ${r.lastOrder}, ${r.otherOrders > 0 ? `${INT(r.otherOrders)} other orders in ${year}` : `nothing ordered in ${year}`}`).join(" | "),
+    a: `${INT(rows.length)} ${scopeLabel}clinics ordered Gut Zoomer in ${prev} (${INT(orders)} Gut Zoomer orders between them) and have not ordered it in ${year} so far. Together they brought in ${DOLLARS(revenue)} of revenue (all products) in ${prev} and ${DOLLARS(revenueThis)} so far in ${year}. ${INT(active)} of them still order other tests this year; ${INT(gone)} have not ordered anything. Open the list to see each clinic's ${prev} Gut Zoomer orders, its total revenue in ${prev} and ${year}, its last Gut Zoomer order, and what it has ordered this year.`,
+    detail: top.map(r => `${r.name} (${r.sales}${r.state ? `, ${r.state}` : ""}) — ${INT(r.orders)} Gut Zoomer orders in ${prev}, ${DOLLARS(r.revenue ?? 0)} total revenue in ${prev} and ${DOLLARS(r.revenueThis ?? 0)} in ${year}, last ${r.lastOrder}, ${r.otherOrders > 0 ? `${INT(r.otherOrders)} other orders in ${year}` : `nothing ordered in ${year}`}`).join(" | "),
   };
 }

@@ -971,7 +971,7 @@ export const rowsByFocus = scopedQuery({
     else if (focus === "nonbundlepos") rows = rows.filter(r => r.nonBundleDelta > 0);
     else if (focus === "nonbundleneg") rows = rows.filter(r => r.nonBundleDelta < 0);
     else if (focus) rows = rows.filter(r => matchesFocus(r, focus));
-    const sorted = [...rows].sort((a, b) => a.delta - b.delta);
+    const sorted = [...rows].sort(focus === "gzlapsed" ? (a, b) => ((b as any).lapsedRevenue ?? 0) - ((a as any).lapsedRevenue ?? 0) : (a, b) => a.delta - b.delta);
     const cutoff = cfg.currentEnd;
     return {
       ready: true as const,
@@ -1011,7 +1011,7 @@ export const rowsByFocus = scopedQuery({
         daysSinceLast: since(cutoff, r.lastOrderAllTime),
         daysSinceTouch: since(cutoff, r.lastTouchDate),
         ...(focus === "gzlapsed"
-          ? { lapsedOrders: (r as any).stopPrior ?? 0, lapsedLast: (r as any).stopLastOrder ?? "", lapsedOther: (r as any).lapsedOther ?? 0 }
+          ? { lapsedOrders: (r as any).stopPrior ?? 0, lapsedLast: (r as any).stopLastOrder ?? "", lapsedOther: (r as any).lapsedOther ?? 0, lapsedRevenue: (r as any).lapsedRevenue ?? 0, lapsedRevenueThis: (r as any).lapsedRevenueThis ?? 0 }
           : {}),
       })),
     };

@@ -29,6 +29,8 @@ const rowSpec = {
   orders: v.number(),
   lastOrder: v.string(),
   otherOrders: v.number(),
+  revenue: v.optional(v.number()),
+  revenueThis: v.optional(v.number()),
 };
 
 export const replaceAll = internalMutation({
@@ -82,11 +84,16 @@ export const rebuild = internalAction({
 
     const lapsed = lapsedOf(lastYear, thisYear);
     const ids = lapsed.map(l => l.clinic);
-    // Orders of any product this year, for the lapsed clinics only.
-    const other = new Map<string, number>();
-    for (let i = 0; i < ids.length; i += 150)
-      for (const r of await ordersRows({ by: ["clinic_id"], start: yearStart, end: dataEnd, m: { n: "orders" }, filters: [eq(`${O}.clinic_id`, ...ids.slice(i, i + 150))] }))
-        other.set(String(r[`${TABLE}[clinic_id]`] ?? ""), Number(r["[n]"] ?? 0));
+    // For the lapsed clinics only: orders and total revenue (all products) this year so far, and total revenue last year.
+    const other = new Map<string, { orders: number; revenue: number }>();
+    const lastRev = new Map<string, number>();
+    for (let i = 0; i < ids.length; i += 150) {
+      const inIds = [eq(`${O}.clinic_id`, ...ids.slice(i, i + 150))];
+      for (const r of await ordersRows({ by: ["clinic_id"], start: yearStart, end: dataEnd, m: { n: "orders", rev: "revenue" }, filters: inIds }))
+        other.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { orders: Number(r["[n]"] ?? 0), revenue: Number(r["[rev]"] ?? 0) });
+      for (const r of await ordersRows({ by: ["clinic_id"], start: prevStart, end: prevEnd, m: { rev: "revenue" }, filters: inIds }))
+        lastRev.set(String(r[`${TABLE}[clinic_id]`] ?? ""), Number(r["[rev]"] ?? 0));
+    }
 
     const ident = await resolveIdentities(ctx, ids, prevStart, dataEnd);
     const rows = lapsed.map(l => {
@@ -100,7 +107,9 @@ export const rebuild = internalAction({
         year,
         orders: l.orders,
         lastOrder: l.lastOrder,
-        otherOrders: other.get(l.clinic) ?? 0,
+        otherOrders: other.get(l.clinic)?.orders ?? 0,
+        revenue: Math.round(lastRev.get(l.clinic) ?? 0),
+        revenueThis: Math.round(other.get(l.clinic)?.revenue ?? 0),
       };
     });
     for (let i = 0; i < Math.max(rows.length, 1); i += 1000) await ctx.runMutation(internal.gzLapsed.replaceAll, { rows: rows.slice(i, i + 1000), clear: i === 0 });

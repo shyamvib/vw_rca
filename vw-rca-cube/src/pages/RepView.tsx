@@ -4274,9 +4274,11 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
 
 /** Columns for the "ordered Gut Zoomer last year, none this year" list: what each clinic ordered, from the fields the server adds to each row. */
 function lapsedCols(rows: unknown) {
-  const by = new Map((rows as Array<{ clinic: string; lapsedOrders?: number; lapsedLast?: string; lapsedOther?: number }>).map(r => [r.clinic, r]));
+  const by = new Map((rows as Array<{ clinic: string; lapsedOrders?: number; lapsedLast?: string; lapsedOther?: number; lapsedRevenue?: number; lapsedRevenueThis?: number }>).map(r => [r.clinic, r]));
   const date = (n: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6)}` : "—");
   return [
+    { key: "lapRev", label: "Revenue last year", title: "The clinic's total revenue last year, all products. Click to sort", value: (c: string) => by.get(c)?.lapsedRevenue ?? 0, fmt: (n: number) => K(n) },
+    { key: "lapRevNow", label: "Revenue this year", title: "The clinic's total revenue so far this year, all products. Click to sort", value: (c: string) => by.get(c)?.lapsedRevenueThis ?? 0, fmt: (n: number) => K(n) },
     { key: "lapOrd", label: "GZ orders last year", title: "Gut Zoomer orders last year", value: (c: string) => by.get(c)?.lapsedOrders ?? 0, fmt: (n: number) => String(n) },
     { key: "lapLast", label: "Last GZ order", title: "Date of the last Gut Zoomer order last year", value: (c: string) => Number((by.get(c)?.lapsedLast ?? "").replace(/-/g, "")), fmt: date },
     { key: "lapOther", label: "Other orders this year", title: "Orders of other products so far this year (0 means nothing at all)", value: (c: string) => by.get(c)?.lapsedOther ?? 0, fmt: (n: number) => String(n) },

@@ -685,6 +685,10 @@ const schema = defineSchema({
     lastOrder: v.string(),
     /** Orders of any other product so far this year (0 = gone entirely). */
     otherOrders: v.number(),
+    /** The clinic's total revenue last year, all products. */
+    revenue: v.optional(v.number()),
+    /** The clinic's total revenue so far this year, all products. */
+    revenueThis: v.optional(v.number()),
     builtAt: v.number(),
   }).index("by_clinic", ["clinic"]),
 
