@@ -268,3 +268,16 @@ export function regionSplit(o: Opp, rows: ClinicLite[]): Map<string, number> {
   }
   return out;
 }
+
+/** Total incremental revenue with clinics counted once: a clinic in two opportunities counts for the larger of its two shares. */
+export function overlapAdjusted(opps: Opp[]): number {
+  const best = new Map<string, number>();
+  for (const o of opps) {
+    if (!o.n) continue;
+    const each = o.incr / o.n;
+    for (const id of o.clinicIds) if (each > (best.get(id) ?? 0)) best.set(id, each);
+  }
+  let t = 0;
+  for (const v of best.values()) t += v;
+  return t;
+}

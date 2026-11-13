@@ -36,6 +36,19 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "overview-growth",
+    date: "2026-11-12",
+    pages: ["overview"],
+    title: "Growth page: where to invest the next dollar",
+    summary: "A new Growth page in the left rail lists revenue growth opportunities by scorecard pillar, sizes each one a year, and ranks them with a weighted priority score.",
+    points: [
+      "Each opportunity is clinics × (target rate − current rate) × annual value per clinic. Clinics and value come from the data; the target rate is an assumption you can change.",
+      "Some opportunities come from a scorecard indicator (Low-AOV customers, At-risk customers, reactivated clinics). Others come from data the scorecard does not carry and sit under a pillar as a supporting KPI.",
+      "A map shows the opportunity by state or country; click one to see its breakdown and filter the table to it.",
+      "Growth admins can edit the target rate, owner, status, investment and the score weights; everyone else sees them read-only.",
+    ],
+  },
+  {
     id: "gz-lapsed",
     date: "2026-11-11",
     pages: ["overview", "rep"],

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cleanSaved } from "../convex/growth.ts";
-import { annualFactor, DEFAULT_WEIGHTS, discover, priority, recommendation, regionOf, regionSplit, resolve, revenueScore, topQuartile, type ClinicLite, type Inputs } from "../src/lib/growthOpps.ts";
+import { annualFactor, overlapAdjusted, DEFAULT_WEIGHTS, discover, priority, recommendation, regionOf, regionSplit, resolve, revenueScore, topQuartile, type ClinicLite, type Inputs } from "../src/lib/growthOpps.ts";
 
 const row = (clinic: string, o: Partial<ClinicLite> = {}): ClinicLite => ({ clinic, name: `C${clinic}`, state: "CA", sales: "R", actual: 100, expected: 100, baseline: 1000, orders: 5, aov: 300, daysSinceTouch: null, ...o });
 const inputs = (): Inputs => ({
@@ -85,4 +85,12 @@ test("regions: US states and countries, and an opportunity split across them", (
 test("saved edits keep only known fields in range", () => {
   assert.deepEqual(cleanSaved({ tgt: 150, investment: -5, fit: 9, status: "Nope", owner: "  Sales ", junk: 1 }), { tgt: 100, investment: 0, fit: 5, owner: "Sales" });
   assert.deepEqual(cleanSaved({ status: "Validated", note: "x" }), { status: "Validated", note: "x" });
+});
+
+test("overlap: a clinic in two opportunities counts once, at the larger share", () => {
+  const d = discover(inputs());
+  const a = resolve({ ...d.find(x => x.id === "low-aov")!, clinicIds: ["1", "2"], n: 2, value: 1000, cur: 0, tgt: 100 }); // 1000 each
+  const b = resolve({ ...d.find(x => x.id === "at-risk")!, clinicIds: ["2", "3"], n: 2, value: 3000, cur: 0, tgt: 100 }); // 3000 each
+  assert.equal(overlapAdjusted([a, b]), 1000 + 3000 + 3000);
+  assert.equal(a.incr + b.incr, 8000);
 });

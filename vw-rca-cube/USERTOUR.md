@@ -28,6 +28,8 @@ Flows point at `data-tour` attributes. They are a contract with the markup: do n
 | `nav-clinic-health` | The Clinic health item in the left rail |
 | `ch-page` | The Clinic health page |
 | `ch-period` | Its own Week / Month / Quarter / Full window buttons |
+| `nav-growth` | The Growth item in the left rail |
+| `growth-page` | The Growth opportunities page |
 | `ov-lead-filter` | Team lead filter in the left sidebar. While the sidebar is collapsed the hook is on the filter icon instead (only one of the two carries it at a time, so a tour always finds a visible target); put steps on the **right** of it. `rail`, `rail-toggle` are the sidebar and its collapse button. Overview tours open the sidebar when they start (`EXPAND_RAIL_EVENT`). |
 | `ov-headline` | Overview headline |
 | `ov-take-tour` | "Take a tour" link |
