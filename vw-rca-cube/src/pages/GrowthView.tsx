@@ -17,7 +17,7 @@ const PAGE = 8;
 const money = (n: number) => (n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${Math.round(n)}`);
 const int = (n: number) => Math.round(n).toLocaleString("en-US");
 
-type Row = { opp: Opp; score: number; rec: ReturnType<typeof recommendation> | "Rejected" };
+type Row = { opp: Opp; score: number; rec: ReturnType<typeof recommendation> | "Dropped" };
 
 /** The clinics behind one opportunity, in the scorecard's clinic list (same columns, same expandable clinic card). */
 function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose: () => void }) {
@@ -51,19 +51,19 @@ function Num({ value, onSave, disabled, min, max, step = 1, label }: { value: nu
 const DECISIONS: Partial<Record<Status, { text: string; options: Array<{ label: string; to: Status; hint: string }> }>> = {
   Hypothesis: { text: "Not ready for a decision. Size it and gather evidence first.", options: [] },
   Quantified: { text: "Sized, but the target rate is still an assumption. Validate it with history, a pilot or a cohort, then set the status to Validated.", options: [{ label: "Mark validated", to: "Validated", hint: "the assumptions are backed by evidence" }] },
-  Validated: { text: "The assumptions are backed by evidence. When the investment and owner are filled in, ask leadership to decide.", options: [{ label: "Ask for an investment decision", to: "Investment decision", hint: "puts it in front of leadership" }] },
-  "Investment decision": {
-    text: "Leadership decides what happens to this opportunity. Choose one outcome and write the reason.",
+  Validated: { text: "The assumptions are backed by evidence. When the effort and owner are filled in, ask leadership to decide what the team commits to.", options: [{ label: "Ask for a commit decision", to: "Commit decision", hint: "puts it in front of leadership" }] },
+  "Commit decision": {
+    text: "Leadership decides whether the team spends its time on this opportunity. Choose one outcome and write the reason.",
     options: [
-      { label: "Fund", to: "Approved", hint: "commit the investment; the owner starts delivery" },
+      { label: "Commit", to: "Committed", hint: "the team takes it on; the owner starts delivery" },
       { label: "Test further", to: "Validated", hint: "send it back for a pilot or more evidence; the note says what to test" },
-      { label: "Reject", to: "Rejected", hint: "stop here; it stays in the list but leaves the totals" },
+      { label: "Drop", to: "Dropped", hint: "stop here; it stays in the list but leaves the totals" },
     ],
   },
-  Approved: { text: "Funded. The owner starts delivery.", options: [{ label: "Start executing", to: "Executing", hint: "delivery is under way" }, { label: "Reject", to: "Rejected", hint: "withdraw the funding" }] },
-  Executing: { text: "Under way. When results back the assumption, scale it up.", options: [{ label: "Scale", to: "Scaling", hint: "roll it out beyond the first group" }, { label: "Reject", to: "Rejected", hint: "stop; it did not work" }] },
+  Committed: { text: "Committed. The owner starts delivery.", options: [{ label: "Start executing", to: "Executing", hint: "delivery is under way" }, { label: "Drop", to: "Dropped", hint: "stop work on it" }] },
+  Executing: { text: "Under way. When results back the assumption, scale it up.", options: [{ label: "Scale", to: "Scaling", hint: "roll it out beyond the first group" }, { label: "Drop", to: "Dropped", hint: "stop; it did not work" }] },
   Scaling: { text: "Rolled out beyond the first group.", options: [] },
-  Rejected: { text: "Rejected. It stays in the list, outside the totals.", options: [{ label: "Reopen", to: "Quantified", hint: "bring it back for another look" }] },
+  Dropped: { text: "Dropped. It stays in the list, outside the totals.", options: [{ label: "Reopen", to: "Quantified", hint: "bring it back for another look" }] },
 };
 
 function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; canEdit: boolean; save: (patch: Saved) => void; scope: string; weights: Weights; score: number }) {
@@ -121,7 +121,7 @@ function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; ca
           </div>
           <div className="gr-fields">
             <label>Target rate (%)<Num value={opp.tgtEff} onSave={n => save({ tgt: n })} disabled={!canEdit} min={0} max={100} label="Target rate" /></label>
-            <label>Investment ($)<Num value={opp.investment} onSave={n => save({ investment: n })} disabled={!canEdit} min={0} step={1000} label="Investment" /></label>
+            <label>Effort (person-days)<Num value={opp.effort} onSave={n => save({ effort: n })} disabled={!canEdit} min={0} step={5} label="Effort in person-days" /></label>
             <label>Status
               <select className="gr-in" aria-label="Status" disabled={!canEdit} value={opp.status} onChange={e => save({ status: e.target.value as Status })}>
                 {STATUSES.map(s => <option key={s}>{s}</option>)}
@@ -132,7 +132,7 @@ function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; ca
             </label>
           </div>
           <div className="gr-decision">
-            <div className="gr-eye">Investment decision · {opp.status}</div>
+            <div className="gr-eye">Commit decision · {opp.status}</div>
             <p>{dec?.text}</p>
             {opp.saved.note ? <div className="gr-note">Last note: {opp.saved.note}</div> : null}
             {canEdit && dec?.options.length ? (
@@ -140,7 +140,7 @@ function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; ca
                 <input className="gr-in" aria-label="Reason or next step" placeholder="Reason or next step (saved with the decision)" value={reason} onChange={e => setReason(e.target.value)} />
                 <div className="gr-btns">
                   {dec.options.map(o => (
-                    <button type="button" key={o.label} className={`gr-btn${o.to === "Rejected" ? " ghost" : ""}`} title={o.hint} onClick={() => { save({ status: o.to, ...(reason.trim() ? { note: reason } : {}) }); setReason(""); }}>{o.label}</button>
+                    <button type="button" key={o.label} className={`gr-btn${o.to === "Dropped" ? " ghost" : ""}`} title={o.hint} onClick={() => { save({ status: o.to, ...(reason.trim() ? { note: reason } : {}) }); setReason(""); }}>{o.label}</button>
                   ))}
                 </div>
                 <div className="gr-note">{dec.options.map(o => `${o.label}: ${o.hint}`).join(" · ")}</div>
@@ -326,10 +326,10 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
   const [regionSel, setRegionSel] = useState("");
   const [regionFilter, setRegionFilter] = useState(false);
 
-  const scored = useMemo<Row[]>(() => opps.map(opp => { const score = priority(opp, weights); return { opp, score, rec: opp.status === "Rejected" ? ("Rejected" as const) : recommendation(score) }; })
-    .sort((a, b) => Number(a.opp.status === "Rejected") - Number(b.opp.status === "Rejected") || b.score - a.score), [opps, weights]);
-  // Rejected opportunities stay in the table, but are left out of the totals, the pipeline, the map and the balance.
-  const live = useMemo(() => scored.filter(r => r.opp.status !== "Rejected"), [scored]);
+  const scored = useMemo<Row[]>(() => opps.map(opp => { const score = priority(opp, weights); return { opp, score, rec: opp.status === "Dropped" ? ("Dropped" as const) : recommendation(score) }; })
+    .sort((a, b) => Number(a.opp.status === "Dropped") - Number(b.opp.status === "Dropped") || b.score - a.score), [opps, weights]);
+  // Dropped opportunities stay in the table, but are left out of the totals, the pipeline, the map and the balance.
+  const live = useMemo(() => scored.filter(r => r.opp.status !== "Dropped"), [scored]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return scored.filter(r =>
@@ -350,9 +350,9 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
     ["Hypothesis", "Spotted in the data, not yet sized", ["Hypothesis"]],
     ["Quantified", "Population, value and rate estimated", ["Quantified"]],
     ["Validated", "Backed by history, a pilot or a cohort", ["Validated"]],
-    ["Investment decision", "Leadership decides: fund, test further or reject. Funded ones are executed and scaled.", ["Investment decision", "Approved", "Executing", "Scaling"]],
+    ["Commit decision", "Leadership decides whether the team commits its time: commit, test further or drop. Committed ones are executed and scaled.", ["Commit decision", "Committed", "Executing", "Scaling"]],
   ];
-  const invTotal = live.reduce((t, r) => t + (r.opp.investment ?? 0), 0);
+  const invTotal = live.reduce((t, r) => t + (r.opp.effort ?? 0), 0);
   const bucketRows = [["Core growth", 60, "High-confidence opportunities"], ["Growth experiment", 30, "Promising but unvalidated"], ["Strategic bet", 10, "Longer-term, higher-risk"]] as const;
   const loading = !book || !rowsQ;
   const save = (id: string) => (patch: Saved) => { void saveOpp({ password: pw(), id, patch }); };
@@ -365,13 +365,13 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
     const inRegion = regionFilter && regionSel && rows ? regionSplit(o, rows).get(regionSel) ?? 0 : null;
     return (
       <div key={o.id} className="gr-rowwrap">
-        <button type="button" className={`gr-row${isOpen ? " open" : ""}${o.status === "Rejected" ? " rej" : ""}`} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? "" : o.id)}>
+        <button type="button" className={`gr-row${isOpen ? " open" : ""}${o.status === "Dropped" ? " rej" : ""}`} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? "" : o.id)}>
           <div><b>{o.name}</b><div className="gr-tags"><span className="gr-tag">{o.pillar}</span><span className={`gr-tag ${o.ready === "ready" ? "ready" : o.ready === "partial" ? "sup" : ""}`}>{o.ready === "ready" ? "Data ready" : o.ready === "partial" ? "Partial data" : "Needs data"}</span><small>{o.segment}</small></div></div>
           <div><b className="gr-ind">{o.indicator}</b><div className="mono">{o.indicatorValue}</div><span className={`gr-tag ${o.source === "supporting" ? "sup" : "sc"}`}>{o.source === "supporting" ? "Supporting KPI" : "Scorecard indicator"}</span></div>
           <div><div>{o.metric}</div><div className="mono">{o.cur}% → {o.tgtEff}%</div></div>
           <div className="r"><div className="mono b">{money(inRegion !== null ? inRegion : o.incr)}</div><small>{inRegion !== null ? `in ${regionSel.slice(regionSel.indexOf(":") + 1)}, of ${money(o.incr)}` : ""}</small></div>
-          <div className="r mono">{o.investment ? money(o.investment) : "—"}</div>
-          <div className="r mono">{o.ret !== null ? `${o.ret.toFixed(1)}x` : "—"}</div>
+          <div className="r mono">{o.effort ? `${int(o.effort)} days` : "—"}</div>
+          <div className="r mono">{o.ret !== null ? `${money(o.ret)}/day` : "—"}</div>
           <div>{o.status}<div><span className={`gr-pill ${r.rec === "Prioritize" ? "go" : r.rec === "Validate" ? "mid" : "low"}`}>{r.rec}</span></div></div>
           <div className="r mono big">{r.score.toFixed(1)}</div>
         </button>
@@ -398,7 +398,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
         <div>
           <div className="gr-eye">Growth · Decision Intelligence &amp; RevOps</div>
           <h1 className="gr-title">Growth opportunities</h1>
-          <div className="gr-sub">Of all the ways we could grow revenue, where should we invest our next dollar, and why? Opportunities are grouped by the scorecard's growth pillars. Some are sized from a scorecard opportunity indicator; others come from data the scorecard does not carry and sit under a pillar as a supporting KPI. Every figure is incremental revenue a year, not the total revenue of the group. {teamLead ? `Showing ${teamLead}'s team.` : ""}</div>
+          <div className="gr-sub">Of all the ways we could grow revenue, where should the team spend its time next, and why? Opportunities are grouped by the scorecard's growth pillars. Some are sized from a scorecard opportunity indicator; others come from data the scorecard does not carry and sit under a pillar as a supporting KPI. Every figure is incremental revenue a year, not the total revenue of the group. {teamLead ? `Showing ${teamLead}'s team.` : ""}</div>
         </div>
         <a className="gr-btn ghost" href="#weights" onClick={e => { e.preventDefault(); document.getElementById("weights")?.scrollIntoView({ behavior: "smooth" }); }}>Scoring weights</a>
       </div>
@@ -438,7 +438,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
             </div>
           </div>
 
-          {rows ? <GeoMap items={filtered.filter(r => r.opp.status !== "Rejected")} rows={rows} regionSel={regionSel} setRegionSel={setRegionSel} filterOn={regionFilter} setFilterOn={b => { setRegionFilter(b); setLimit(PAGE); }} /> : null}
+          {rows ? <GeoMap items={filtered.filter(r => r.opp.status !== "Dropped")} rows={rows} regionSel={regionSel} setRegionSel={setRegionSel} filterOn={regionFilter} setFilterOn={b => { setRegionFilter(b); setLimit(PAGE); }} /> : null}
 
           <div>
             <div className="gr-filters">
@@ -464,7 +464,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
             </div>
             <div className="gr-card flush gr-scroll">
               <div className="gr-table">
-                <div className="gr-head"><div>Opportunity · pillar</div><div>Opportunity indicator</div><div>Outcome metric</div><div className="r">Incremental</div><div className="r">Investment</div><div className="r">Return</div><div>Status</div><div className="r">Priority</div></div>
+                <div className="gr-head"><div>Opportunity · pillar</div><div>Opportunity indicator</div><div>Outcome metric</div><div className="r">Incremental</div><div className="r">Effort</div><div className="r">Per day</div><div>Status</div><div className="r">Priority</div></div>
                 {body.length ? body : <div className="gr-note" style={{ padding: 18 }}>No opportunities match these filters.</div>}
               </div>
             </div>
@@ -482,15 +482,15 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
           <div className="gr-two">
             <div className="gr-card">
               <div className="gr-h">Portfolio balance</div>
-              <div className="gr-note" style={{ marginBottom: 10 }}>Share of planned investment by bucket, against the 60 / 30 / 10 starting point. It fills in as investments are entered.</div>
+              <div className="gr-note" style={{ marginBottom: 10 }}>Share of planned effort by bucket, against the 60 / 30 / 10 starting point. It fills in as effort is entered.</div>
               {bucketRows.map(([name, target, note]) => {
-                const inv = live.filter(r => r.opp.bucket === name).reduce((t, r) => t + (r.opp.investment ?? 0), 0);
+                const inv = live.filter(r => r.opp.bucket === name).reduce((t, r) => t + (r.opp.effort ?? 0), 0);
                 const share = invTotal ? Math.round((inv / invTotal) * 100) : 0;
                 return (
                   <div key={name} style={{ marginBottom: 12 }}>
                     <div className="gr-between"><b>{name}</b><span className="mono">{invTotal ? `${share}%` : "—"} <span className="gr-note">of {target}% target</span></span></div>
                     <div className="gr-bar"><div style={{ width: `${share}%` }} /></div>
-                    <div className="gr-note">{note} · {money(inv)} planned</div>
+                    <div className="gr-note">{note} · {int(inv)} days planned</div>
                   </div>
                 );
               })}
@@ -512,7 +512,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
                 </div>
               ))}
               <div className="gr-between gr-sumrow"><span>Weights add up to <b className="mono">{wSum}%</b></span><span className="gr-note">{wSum === 100 ? "Ready: weights add up to 100%." : "Scores use each weight as a share of the total, so they still work."}</span></div>
-              <div className="gr-note" style={{ marginTop: 8 }}>A weighted score never overrides the money. The Return column puts incremental revenue next to the investment, so a $2M idea needing $1.8M reads worse than a $500K idea needing $50K, whatever its score.</div>
+              <div className="gr-note" style={{ marginTop: 8 }}>A weighted score never overrides the numbers. The Per day column puts incremental revenue next to the effort, so an idea worth $2M that needs 400 days reads worse than one worth $500K that needs 20, whatever its score.</div>
             </div>
           </div>
         </>

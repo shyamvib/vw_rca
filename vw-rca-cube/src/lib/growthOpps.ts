@@ -14,7 +14,7 @@
 export const PILLARS = ["New Business", "Bundle growth", "Product Growth", "Retention", "Expansion"] as const;
 export type Pillar = (typeof PILLARS)[number];
 
-export const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing", "Scaling", "Rejected"] as const;
+export const STATUSES = ["Hypothesis", "Quantified", "Validated", "Commit decision", "Committed", "Executing", "Scaling", "Dropped"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export type Ready = "ready" | "partial" | "need";
@@ -102,7 +102,7 @@ export type OppDef = {
 };
 
 /** What the team has saved for an opportunity (all optional). */
-export type Saved = { tgt?: number; owner?: string; status?: Status; investment?: number; fit?: number; time?: number; feas?: number; note?: string };
+export type Saved = { tgt?: number; owner?: string; status?: Status; effort?: number; fit?: number; time?: number; feas?: number; note?: string };
 
 export const WEIGHT_KEYS = ["rev", "prob", "fit", "time", "feas"] as const;
 export type WeightKey = (typeof WEIGHT_KEYS)[number];
@@ -310,27 +310,28 @@ export type Opp = OppDef & {
   tgtEff: number;
   status: Status;
   owner: string;
-  investment: number | null;
+  /** Person-days the team would spend; blank until entered. */
+  effort: number | null;
   /** Incremental revenue a year at the target rate. */
   incr: number;
-  /** Incremental revenue per dollar invested, when an investment is entered. */
+  /** Incremental revenue a year per person-day of effort, when effort is entered. */
   ret: number | null;
   scores: Weights;
   bucket: "Core growth" | "Growth experiment" | "Strategic bet";
 };
 
 export const revenueScore = (incr: number): number => (incr >= 400_000 ? 5 : incr >= 250_000 ? 4 : incr >= 120_000 ? 3 : incr >= 50_000 ? 2 : 1);
-export const probScore = (s: Status): number => (s === "Hypothesis" ? 2 : s === "Quantified" ? 3 : s === "Validated" ? 4 : s === "Rejected" ? 1 : 5);
+export const probScore = (s: Status): number => (s === "Hypothesis" ? 2 : s === "Quantified" ? 3 : s === "Validated" ? 4 : s === "Dropped" ? 1 : 5);
 const clamp = (n: number | undefined, d: number) => Math.min(5, Math.max(1, Math.round(n ?? d)));
 
 export function resolve(def: OppDef, saved: Saved = {}): Opp {
   const tgtEff = saved.tgt ?? def.tgt;
   const incr = Math.max(0, def.n * ((tgtEff - def.cur) / 100) * def.value);
   const status = saved.status ?? "Quantified";
-  const investment = saved.investment && saved.investment > 0 ? saved.investment : null;
+  const effort = saved.effort && saved.effort > 0 ? saved.effort : null;
   const scores: Weights = { rev: revenueScore(incr), prob: probScore(status), fit: clamp(saved.fit, 3), time: clamp(saved.time, 3), feas: clamp(saved.feas, 3) };
   return {
-    ...def, saved, tgtEff, status, owner: saved.owner || def.defaultOwner, investment, incr, ret: investment ? incr / investment : null, scores,
+    ...def, saved, tgtEff, status, owner: saved.owner || def.defaultOwner, effort, incr, ret: effort ? incr / effort : null, scores,
     bucket: scores.prob >= 4 ? "Core growth" : scores.prob === 3 ? "Growth experiment" : "Strategic bet",
   };
 }

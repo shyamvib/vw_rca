@@ -39,13 +39,13 @@ export const ANNOUNCEMENTS: Announcement[] = [
     id: "overview-growth",
     date: "2026-11-12",
     pages: ["overview"],
-    title: "Growth page: where to invest the next dollar",
+    title: "Growth page: where to spend the team's time",
     summary: "A new Growth page in the left rail lists revenue growth opportunities by scorecard pillar, sizes each one a year, and ranks them with a weighted priority score.",
     points: [
       "Each opportunity is clinics × (target rate − current rate) × annual value per clinic. Clinics and value come from the data; the target rate is an assumption you can change.",
       "Some opportunities come from a scorecard indicator (Low-AOV customers, At-risk customers, reactivated clinics). Others come from data the scorecard does not carry and sit under a pillar as a supporting KPI.",
       "A map shows the opportunity by state or country; click one to see its breakdown and filter the table to it.",
-      "Growth admins can edit the target rate, owner, status, investment and the score weights; everyone else sees them read-only.",
+      "Growth admins can edit the target rate, owner, status, effort in person-days and the score weights, and record a commit decision; everyone else sees them read-only.",
     ],
   },
   {

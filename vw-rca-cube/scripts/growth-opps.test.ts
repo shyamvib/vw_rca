@@ -59,7 +59,7 @@ test("state attainment takes the states furthest below goal", () => {
 });
 
 test("scores, priority and the recommendation follow the weights as shares of their total", () => {
-  const o = resolve(discover(inputs()).find(x => x.id === "gz-lapsed")!, { status: "Validated", fit: 5, time: 5, feas: 5, investment: 1000 });
+  const o = resolve(discover(inputs()).find(x => x.id === "gz-lapsed")!, { status: "Validated", fit: 5, time: 5, feas: 5, effort: 10 });
   assert.equal(o.scores.prob, 4);
   assert.equal(o.bucket, "Core growth");
   assert.ok(o.ret !== null && o.ret > 0);
@@ -84,7 +84,7 @@ test("regions: US states and countries, and an opportunity split across them", (
 });
 
 test("saved edits keep only known fields in range", () => {
-  assert.deepEqual(cleanSaved({ tgt: 150, investment: -5, fit: 9, status: "Nope", owner: "  Sales ", junk: 1 }), { tgt: 100, investment: 0, fit: 5, owner: "Sales" });
+  assert.deepEqual(cleanSaved({ tgt: 150, effort: -5, fit: 9, status: "Nope", owner: "  Sales ", junk: 1 }), { tgt: 100, effort: 0, fit: 5, owner: "Sales" });
   assert.deepEqual(cleanSaved({ status: "Validated", note: "x" }), { status: "Validated", note: "x" });
 });
 
@@ -137,9 +137,9 @@ test("whitespace comes from the scorecard's own indicator", () => {
   assert.equal(ws.ready, "partial");
 });
 
-test("a rejected opportunity gets the lowest probability score", () => {
+test("a dropped opportunity gets the lowest probability score", () => {
   const d = discover(inputs()).find(x => x.id === "at-risk")!;
-  assert.equal(resolve(d, { status: "Rejected" }).scores.prob, 1);
+  assert.equal(resolve(d, { status: "Dropped" }).scores.prob, 1);
   assert.equal(resolve(d, { status: "Scaling" }).scores.prob, 5);
 });
 

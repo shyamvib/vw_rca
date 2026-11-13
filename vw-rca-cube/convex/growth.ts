@@ -1,5 +1,5 @@
 /**
- * What the team has saved on the Growth page (2026-11): per opportunity the target rate, owner, status, investment and the team-entered
+ * What the team has saved on the Growth page (2026-11): per opportunity the target rate, owner, status, effort (person-days) and the team-entered
  * scores, and the priority weights. Opportunities themselves are computed from the data (src/lib/growthOpps.ts); only these edits are stored.
  * Stored as `appMeta` rows ("growth-opp:<id>", "growth-weights"), like the banner dismissals, so there is no schema change.
  * Everyone on a team login can read; editing is for banner admins (see banners.ts).
@@ -11,9 +11,9 @@ import { gatedMutation, gatedQuery } from "./gated";
 const OPP = "growth-opp:";
 const WEIGHTS = "growth-weights";
 const NOT_ADMIN = "Only a growth admin can do this.";
-const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing", "Scaling", "Rejected"];
+const STATUSES = ["Hypothesis", "Quantified", "Validated", "Commit decision", "Committed", "Executing", "Scaling", "Dropped"];
 
-type Saved = { tgt?: number; owner?: string; status?: string; investment?: number; fit?: number; time?: number; feas?: number; note?: string };
+type Saved = { tgt?: number; owner?: string; status?: string; effort?: number; fit?: number; time?: number; feas?: number; note?: string };
 
 const num = (n: unknown, lo: number, hi: number): number | undefined => (typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : undefined);
 
@@ -22,8 +22,8 @@ export function cleanSaved(p: Record<string, unknown>): Saved {
   const out: Saved = {};
   const tgt = num(p.tgt, 0, 100);
   if (tgt !== undefined) out.tgt = tgt;
-  const inv = num(p.investment, 0, 1e9);
-  if (inv !== undefined) out.investment = inv;
+  const effort = num(p.effort, 0, 100000);
+  if (effort !== undefined) out.effort = effort;
   for (const k of ["fit", "time", "feas"] as const) {
     const s = num(p[k], 1, 5);
     if (s !== undefined) out[k] = Math.round(s);
