@@ -1,15 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/lib/api";
-import { useRcaQuery } from "@/lib/rca";
+import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import {
-  DEFAULT_WEIGHTS, DIMENSIONS, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
-  type ClinicLite, type LapsedLite, type Opp, type Pillar, type Saved, type Status, type Weights,
+  DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
+  type ClinicLite, type CrossSellLite, type LapsedLite, type ProviderLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
 } from "@/lib/growthOpps";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { pw } from "./gatePw";
 import { type ExecPeriod, TILES } from "./ExecutiveView";
-import { FocusTable } from "./RepView";
+import { FocusTable, pgStats, usePG } from "./RepView";
 import "./growth.css";
 
 const COMPANY = "team:*";
@@ -25,7 +25,7 @@ function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose:
   return (
     <FocusTable
       key={opp.id}
-      label={`${opp.indicator} · ${opp.n.toLocaleString("en-US")} clinics`}
+      label={`${opp.indicator} · ${opp.clinicIds.length.toLocaleString("en-US")} clinics`}
       eyebrow="Clinics behind this opportunity"
       sub={`${opp.indicatorValue}. The same list the scorecard opens, with the expandable clinic card.`}
       rows={q?.ready ? q.rows : null}
@@ -58,7 +58,8 @@ function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; ca
     { col: "Diagnostic", q: "why", label: m.diag[0], note: m.diag[1], cls: /needs|no data/.test(m.diag[1]) ? "na" : "" },
     ...(sup ? [{ col: "Supporting KPI", q: "beyond the scorecard", label: opp.indicator, note: `${opp.indicatorValue} · ${opp.from}`, cls: "sup hot" }] : []),
   ];
-  const formula = `${int(opp.n)} clinics × (${opp.tgtEff}% − ${opp.cur}%) × ${money(opp.value)} a year = ${money(opp.incr)}`;
+  const unit = opp.unit === "pairs" ? "clinic × family pairs" : "clinics";
+  const formula = `${int(opp.n)} ${unit} × (${opp.tgtEff}% − ${opp.cur}%) × ${money(opp.value)} a year = ${money(opp.incr)}`;
   return (
     <div className="gr-ws">
       <div>
@@ -86,7 +87,7 @@ function Worksheet({ opp, canEdit, save, scope, weights, score }: { opp: Opp; ca
             </div>
           ) : null}
           <div className="gr-btns">
-            <button type="button" className="gr-btn" aria-expanded={list} onClick={() => setList(v => !v)}>{list ? "Hide the clinics" : `Open the ${int(opp.n)} clinics`}</button>
+            <button type="button" className="gr-btn" aria-expanded={list} onClick={() => setList(v => !v)}>{list ? "Hide the clinics" : `Open the ${int(opp.clinicIds.length)} clinics`}</button>
           </div>
         </div>
         <div className="gr-col">
@@ -216,6 +217,18 @@ function GeoMap({ items, rows, regionSel, setRegionSel, filterOn, setFilterOn }:
   );
 }
 
+/** Clinics where providers have gone quiet (the engine's growth:providers). Null until it answers, and if it cannot, the page simply goes without that row. */
+function useProviders(): ProviderLite[] | null {
+  const run = useRcaAction(api.growth.providers);
+  const [rows, setRows] = useState<ProviderLite[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    run({ password: pw() }).then(r => live && setRows(r.rows as ProviderLite[])).catch(() => undefined);
+    return () => { live = false; };
+  }, [run]);
+  return rows;
+}
+
 export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamLead?: string }) {
   const scope = teamLead ? `team:${teamLead}` : COMPANY;
   const all = periods.find(p => p.id === "all");
@@ -224,6 +237,9 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId: "all", sales: scope, focus: "" });
   const lapsedQ = useRcaQuery(api.growth.lapsed, { password: pw() });
   const st = useQuery(api.growth.state, { password: pw() });
+  const eligQ = useQuery(api.growth.eligibleAll, { password: pw() });
+  const pgd = usePG(scope, "all");
+  const prov = useProviders();
   const saveOpp = useMutation(api.growth.saveOpp);
   const saveWeights = useMutation(api.growth.saveWeights);
 
@@ -233,11 +249,34 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
   const lapsedRows: LapsedLite[] | null = lapsedQ?.ready ? (lapsedQ.rows as LapsedLite[]) : null;
   const clinicIds = useMemo(() => (rows ? new Set(rows.map(r => r.clinic)) : null), [rows]);
 
+  // Cross-sell candidates and Product whitespace, from the same product-mix data and the same pgStats as the scorecard.
+  const pgx = useMemo<{ crossSell: CrossSellLite; whitespace: WhitespaceLite | null } | null>(() => {
+    if (!book?.ready || !pgd.data) return null;
+    const clinics = pgd.data.clinics;
+    const s = pgStats(book as never, clinics, [], "Hormone Zoomer");
+    const A = annualFactor(windowDays);
+    const present = new Set(clinics.map(c => c.clinic));
+    const pairs = (eligQ ?? []).filter(e => present.has(e.clinic));
+    const perFamily = new Map<string, number>();
+    for (const f of new Set(pairs.map(p => p.family))) {
+      const buyers = clinics.filter(c => (c.win[f] ?? 0) > 0);
+      const rev = buyers.reduce((t, c) => t + (c.rev?.[f] ?? 0), 0);
+      if (buyers.length) perFamily.set(f, (rev / buyers.length) * A);
+    }
+    const never = pairs.filter(p => !((clinics.find(c => c.clinic === p.clinic)?.life[p.family] ?? 0) > 0) && perFamily.has(p.family));
+    const value = never.length ? never.reduce((t, p) => t + (perFamily.get(p.family) ?? 0), 0) / never.length : 0;
+    return {
+      crossSell: { n: s.xs.length, up: s.xsUp, ids: s.xs.map(x => x.clinic) },
+      whitespace: never.length ? { pairs: never.length, ids: [...new Set(never.map(p => p.clinic))], valuePerPair: value } : null,
+    };
+  }, [book, pgd.data, eligQ, windowDays]);
+
   const opps = useMemo<Opp[]>(() => {
     if (!book?.ready || !rows) return [];
     const lapsed = lapsedRows && clinicIds ? lapsedRows.filter(l => clinicIds.has(l.clinic) || scope === COMPANY) : lapsedRows;
-    return discover({ windowDays, book: book as never, rows, lapsed }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
-  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps]);
+    const providers = prov && clinicIds ? prov.filter(p => clinicIds.has(p.clinic)) : null;
+    return discover({ windowDays, book: book as never, rows, lapsed, crossSell: pgx?.crossSell ?? null, whitespace: pgx?.whitespace ?? null, providers }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
+  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov]);
 
   const [pillar, setPillar] = useState<"All" | Pillar>("All");
   const [source, setSource] = useState<"all" | "scorecard" | "supporting">("all");
@@ -285,7 +324,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
     return (
       <div key={o.id} className="gr-rowwrap">
         <button type="button" className={`gr-row${isOpen ? " open" : ""}`} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? "" : o.id)}>
-          <div><b>{o.name}</b><div className="gr-tags"><span className="gr-tag">{o.pillar}</span><span className="gr-tag ready">Data ready</span><small>{o.segment}</small></div></div>
+          <div><b>{o.name}</b><div className="gr-tags"><span className="gr-tag">{o.pillar}</span><span className={`gr-tag ${o.ready === "ready" ? "ready" : o.ready === "partial" ? "sup" : ""}`}>{o.ready === "ready" ? "Data ready" : o.ready === "partial" ? "Partial data" : "Needs data"}</span><small>{o.segment}</small></div></div>
           <div><b className="gr-ind">{o.indicator}</b><div className="mono">{o.indicatorValue}</div><span className={`gr-tag ${o.source === "supporting" ? "sup" : "sc"}`}>{o.source === "supporting" ? "Supporting KPI" : "Scorecard indicator"}</span></div>
           <div><div>{o.metric}</div><div className="mono">{o.cur}% → {o.tgtEff}%</div></div>
           <div className="r"><div className="mono b">{money(inRegion !== null ? inRegion : o.incr)}</div><small>{inRegion !== null ? `in ${regionSel.slice(regionSel.indexOf(":") + 1)}, of ${money(o.incr)}` : ""}</small></div>

@@ -47,11 +47,26 @@ export type ClinicLite = {
 export type LapsedLite = { clinic: string; orders: number; revenue?: number; gzRevenue?: number; revenueThis?: number; otherOrders: number; lastOrder: string };
 
 export type BookLite = {
-  opp: { atRisk: { n: number; up: number; ids: string[] }; lowAov: { n: number; up: number; ids: string[] } };
-  kpi: { churned: number; churnedIds: string[]; reactivatedCount?: number; aovOpp?: number; opportunity?: number };
+  opp: { atRisk: { n: number; up: number; ids: string[] }; lowAov: { n: number; up: number; ids: string[] }; nurture?: { n: number; up: number; ids: string[] } };
+  kpi: { churned: number; churnedIds: string[]; reactivatedCount?: number; aovOpp?: number; opportunity?: number; ordersPerCustomer?: number | null };
 };
 
-export type Inputs = { windowDays: number; book: BookLite | null; rows: ClinicLite[] | null; lapsed: LapsedLite[] | null };
+/** Cross-sell candidates as the scorecard counts them: active clinics on 1–2 families, with the window revenue one more family would add. */
+export type CrossSellLite = { n: number; up: number; ids: string[] };
+/** Product whitespace: clinic × family pairs the reps marked eligible that have never ordered the family, and what a buyer of that family brings in a year. */
+export type WhitespaceLite = { pairs: number; ids: string[]; valuePerPair: number };
+/** Clinics with several providers where some have stopped ordering (the engine's growth:providers). */
+export type ProviderLite = { clinic: string; providers: number; active: number; dormant: number; dormantRevenue: number };
+
+export type Inputs = {
+  windowDays: number;
+  book: BookLite | null;
+  rows: ClinicLite[] | null;
+  lapsed: LapsedLite[] | null;
+  crossSell?: CrossSellLite | null;
+  whitespace?: WhitespaceLite | null;
+  providers?: ProviderLite[] | null;
+};
 
 /** What an opportunity is, before anything the team has saved. */
 export type OppDef = {
@@ -68,6 +83,8 @@ export type OppDef = {
   from: string;
   clinicIds: string[];
   n: number;
+  /** What `n` counts. Product whitespace counts clinic × family pairs; the clinics behind it are `clinicIds`. */
+  unit?: "clinics" | "pairs";
   /** Current and default target rate, in percent, and what the rate measures. */
   cur: number;
   tgt: number;
@@ -173,6 +190,56 @@ export function discover(inp: Inputs): OppDef[] {
         evidence: "The Business Feed lapsed list: Gut Zoomer orders and revenue last year against this year.", ready: "ready", defaultOwner: "Sales", annual: gz,
       });
     }
+  }
+  const nu = b?.opp.nurture;
+  if (b && nu && nu.n > 0) {
+    // One order's value per stuck clinic, carried to a year at the book's orders per clinic (annualized): what a clinic that keeps ordering brings in.
+    const oneOrder = nu.up / nu.n;
+    const perYear = oneOrder * Math.max(1, b.kpi.ordersPerCustomer ?? 1) * A;
+    out.push({
+      id: "second-order", name: "Keep new clinics ordering past their first orders", pillar: "New Business", source: "supporting", segment: "New clinics 14–21 days since their last order, before order 4",
+      indicator: "Stuck new clinics", indicatorValue: `${nu.n.toLocaleString("en-US")} clinics · ${money(oneOrder)} an order`, metric: "New Revenue",
+      from: "The new-clinic funnel: clinics that stopped between orders", clinicIds: nu.ids, n: nu.n, cur: 0, tgt: 20, rateLabel: "share of stuck new clinics that keep ordering", value: perYear,
+      observation: `${nu.n.toLocaleString("en-US")} new clinics are 14–21 days past their last order and have not reached a fourth order. A clinic that keeps ordering is worth about ${money(perYear)} a year at the book's order rate.`,
+      intervention: "A guided follow-up at day 7 and day 21 after each result, owned by the rep.",
+      evidence: "New-clinic funnel: where new clinics stop between orders 1 and 4. The share that keep ordering is an assumption to validate.", ready: "ready", defaultOwner: "Sales", annual: nu.n * perYear,
+    });
+  }
+  const xs = inp.crossSell;
+  if (xs && xs.n > 0) {
+    const up = xs.up * A;
+    out.push({
+      id: "cross-sell", name: "Cross-sell a second or third product family", pillar: "Expansion", source: "scorecard", segment: "Active clinics on 1–2 families",
+      indicator: "Cross-sell candidates", indicatorValue: `${xs.n.toLocaleString("en-US")} clinics · ${money(up)} a year upside`, metric: "Expansion Revenue", from: "",
+      clinicIds: xs.ids, n: xs.n, cur: 0, tgt: 10, rateLabel: "share adding the suggested family", value: up / xs.n,
+      observation: `${xs.n.toLocaleString("en-US")} active clinics order only one or two product families. Adding one more at today's per-family spend is worth ${money(up)} a year.`,
+      intervention: "Introduce the family most often bought by similar clinics, led by the largest candidates.",
+      evidence: "The scorecard's Cross-sell candidates indicator, annualized from the analysis window.", ready: "ready", defaultOwner: "Sales + Marketing", annual: up,
+    });
+  }
+  const ws = inp.whitespace;
+  if (ws && ws.pairs > 0 && ws.valuePerPair > 0) {
+    out.push({
+      id: "whitespace", name: "Open whitespace families in marked clinics", pillar: "Product Growth", source: "scorecard", segment: "Clinics reps marked eligible that never ordered the family", unit: "pairs",
+      indicator: "Product whitespace", indicatorValue: `${ws.pairs.toLocaleString("en-US")} clinic × family pairs · ${ws.ids.length.toLocaleString("en-US")} clinics`, metric: "Product adoption", from: "",
+      clinicIds: ws.ids, n: ws.pairs, cur: 0, tgt: 12, rateLabel: "share of pairs that start ordering the family", value: ws.valuePerPair,
+      observation: `Reps marked ${ws.pairs.toLocaleString("en-US")} clinic × family pairs as eligible where the clinic has never ordered the family. A clinic that orders it brings in about ${money(ws.valuePerPair)} a year.`,
+      intervention: "Rep-led introductions with a sample panel, the largest clinics first.",
+      evidence: "The scorecard's Product whitespace indicator across every rep's eligibility marks. Only as complete as the marking: unmarked clinics are not counted.", ready: "partial", defaultOwner: "Sales + Marketing", annual: ws.pairs * ws.valuePerPair,
+    });
+  }
+  const pv = inp.providers;
+  if (pv && pv.length > 0) {
+    const rev = sum(pv, p => p.dormantRevenue);
+    const dormant = sum(pv, p => p.dormant);
+    out.push({
+      id: "providers", name: "Bring dormant providers back in multi-provider clinics", pillar: "Expansion", source: "supporting", segment: "3+ providers ordered in two years, 2+ not in the last 90 days",
+      indicator: "Ordering providers per clinic", indicatorValue: `${pv.length.toLocaleString("en-US")} clinics · ${dormant.toLocaleString("en-US")} dormant providers`, metric: "Expansion Revenue",
+      from: "Provider (customer) order history within each clinic", clinicIds: pv.map(p => p.clinic), n: pv.length, cur: 0, tgt: 10, rateLabel: "share of dormant providers ordering again", value: rev / pv.length,
+      observation: `${pv.length.toLocaleString("en-US")} clinics still order but ${dormant.toLocaleString("en-US")} of their providers, who ordered earlier in the last two years, have not in 90 days. Those providers brought in ${money(rev)} a year.`,
+      intervention: "Ask the rep to re-introduce the program to the dormant providers on the next clinic visit.",
+      evidence: "Providers ordering per clinic over 24 months against the last 90 days. The share that return is an assumption to validate.", ready: "ready", defaultOwner: "Sales", annual: rev,
+    });
   }
   if (inp.rows) {
     const rows = inp.rows;

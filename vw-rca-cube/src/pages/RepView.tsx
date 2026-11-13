@@ -4602,7 +4602,7 @@ function pstat(b: Book): string | null {
   const c: Array<[string, number]> = b.pstatusCounts ?? [];
   return c.length ? c.map(([k2, n]) => `${n} ${k2.toLowerCase()}`).join(" · ") : null;
 }
-function usePG(sales?: string, periodId?: string) {
+export function usePG(sales?: string, periodId?: string) {
   const run = useRcaAction(api.productGrowth.productGrowth);
   const eligQ = useQuery(api.productGrowth.eligible, sales ? { password: pw(), sales } : "skip");
   const [data, setData] = useState<{ clinics: PGClinic[] } | null>(null);
@@ -4616,7 +4616,7 @@ function usePG(sales?: string, periodId?: string) {
   return { data, elig: (eligQ ?? []) as Array<{ clinic: string; family: string }> };
 }
 const NON_ZOOMER = "Non Zoomer";
-function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
+export function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
   const newSet = new Set<string>(b.newIds ?? []);
   const fams = (r: Record<string, number>) => Object.keys(r).filter(f => f !== "Unmapped" && r[f] > 0);
   const prod = (r: Record<string, number>) => fams(r).filter(f => f !== NON_ZOOMER);

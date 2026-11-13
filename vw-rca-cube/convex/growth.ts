@@ -78,3 +78,15 @@ export const saveWeights = gatedMutation({
     else await ctx.db.insert("appMeta", { key: WEIGHTS, value, updatedAt: Date.now() });
   },
 });
+
+/**
+ * Every rep's "eligible for this family" marks (the Product whitespace indicator is built from them), for the Growth page.
+ * Marks are saved per rep in `productEligible`; this reads all of them.
+ */
+export const eligibleAll = gatedQuery({
+  args: {},
+  handler: async ctx => {
+    const rows = await ctx.db.query("productEligible").collect();
+    return rows.map(r => ({ clinic: r.clinic, family: r.family }));
+  },
+});

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cleanSaved } from "../convex/growth.ts";
+import { providerCandidates } from "../analytics/growth.ts";
 import { annualFactor, overlapAdjusted, DEFAULT_WEIGHTS, discover, priority, recommendation, regionOf, regionSplit, resolve, revenueScore, topQuartile, type ClinicLite, type Inputs } from "../src/lib/growthOpps.ts";
 
 const row = (clinic: string, o: Partial<ClinicLite> = {}): ClinicLite => ({ clinic, name: `C${clinic}`, state: "CA", sales: "R", actual: 100, expected: 100, baseline: 1000, orders: 5, aov: 300, daysSinceTouch: null, ...o });
@@ -93,4 +94,43 @@ test("overlap: a clinic in two opportunities counts once, at the larger share", 
   const b = resolve({ ...d.find(x => x.id === "at-risk")!, clinicIds: ["2", "3"], n: 2, value: 3000, cur: 0, tgt: 100 }); // 3000 each
   assert.equal(overlapAdjusted([a, b]), 1000 + 3000 + 3000);
   assert.equal(a.incr + b.incr, 8000);
+});
+
+test("second order: stuck new clinics, valued at one order carried to a year", () => {
+  const i = inputs();
+  i.book!.opp.nurture = { n: 4, up: 1600, ids: ["1", "2", "3", "7"] };
+  i.book!.kpi.ordersPerCustomer = 6;
+  const d = discover(i).find(x => x.id === "second-order")!;
+  assert.equal(d.n, 4);
+  assert.ok(Math.abs(d.value - 400 * 6 * annualFactor(182)) < 1e-6);
+  assert.equal(d.source, "supporting");
+});
+
+test("cross-sell and whitespace come from the scorecard's own indicators", () => {
+  const i = inputs();
+  i.crossSell = { n: 10, up: 5000, ids: ["1"] };
+  i.whitespace = { pairs: 6, ids: ["1", "2"], valuePerPair: 3000 };
+  const ds = discover(i);
+  const xs = ds.find(x => x.id === "cross-sell")!;
+  assert.equal(xs.source, "scorecard");
+  assert.ok(Math.abs(xs.n * xs.value - 5000 * annualFactor(182)) < 1e-6);
+  const ws = ds.find(x => x.id === "whitespace")!;
+  assert.equal(ws.unit, "pairs");
+  assert.equal(ws.clinicIds.length, 2);
+  assert.equal(resolve(ws).incr, 6 * 0.12 * 3000);
+  assert.equal(ws.ready, "partial");
+});
+
+test("providers: clinics with 3+ providers in two years where 2+ stopped and the clinic still orders", () => {
+  const all = [
+    ...["a", "b", "c", "d"].map(p => ({ clinic: "1", provider: p, orders: 2, revenue: 1000 })),
+    ...["a", "b"].map(p => ({ clinic: "2", provider: p, orders: 2, revenue: 500 })),
+    ...["a", "b", "c"].map(p => ({ clinic: "3", provider: p, orders: 2, revenue: 500 })),
+  ];
+  const recent = [{ clinic: "1", provider: "a", orders: 1 }, { clinic: "3", provider: "a", orders: 1 }, { clinic: "3", provider: "b", orders: 1 }];
+  const out = providerCandidates(all, recent);
+  assert.deepEqual(out, [{ clinic: "1", providers: 4, active: 1, dormant: 3, dormantRevenue: 1500 }]);
+  const d = discover({ ...inputs(), providers: out }).find(x => x.id === "providers")!;
+  assert.equal(d.n, 1);
+  assert.equal(d.value, 1500);
 });
