@@ -107,3 +107,6 @@
 .gr-step span { min-width: 48px; text-align: center; font-size: 15px; }
 .gr-sumrow { border-top: 1px solid var(--gr-line); padding-top: 10px; margin-top: 4px; font-size: 13px; }
 .gr > * + * { margin-top: 24px; }
+.gr-decision { border: 1px solid #d9e2f5; background: #fff; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.gr-decision p { margin: 0; font-size: 13px; }
+.gr-row.rej { opacity: 0.6; }

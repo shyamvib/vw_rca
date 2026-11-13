@@ -11,7 +11,7 @@ import { gatedMutation, gatedQuery } from "./gated";
 const OPP = "growth-opp:";
 const WEIGHTS = "growth-weights";
 const NOT_ADMIN = "Only a growth admin can do this.";
-const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing"];
+const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing", "Scaling", "Rejected"];
 
 type Saved = { tgt?: number; owner?: string; status?: string; investment?: number; fit?: number; time?: number; feas?: number; note?: string };
 

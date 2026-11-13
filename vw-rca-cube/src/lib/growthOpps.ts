@@ -14,7 +14,7 @@
 export const PILLARS = ["New Business", "Bundle growth", "Product Growth", "Retention", "Expansion"] as const;
 export type Pillar = (typeof PILLARS)[number];
 
-export const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing"] as const;
+export const STATUSES = ["Hypothesis", "Quantified", "Validated", "Investment decision", "Approved", "Executing", "Scaling", "Rejected"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export type Ready = "ready" | "partial" | "need";
@@ -51,8 +51,9 @@ export type BookLite = {
   kpi: { churned: number; churnedIds: string[]; reactivatedCount?: number; aovOpp?: number; opportunity?: number; ordersPerCustomer?: number | null };
 };
 
-/** Cross-sell candidates as the scorecard counts them: active clinics on 1–2 families, with the window revenue one more family would add. */
-export type CrossSellLite = { n: number; up: number; ids: string[] };
+/** One clinic's Foundation Zoomer results, per Zoomer area (the engine's fzScores:clinics). */
+export type FzClinicLite = { clinic: string; products: Array<{ area: string; open: number; low: number; high: number; likely: number }> };
+export type FzLite = { clinics: FzClinicLite[] };
 /** Product whitespace: clinic × family pairs the reps marked eligible that have never ordered the family, and what a buyer of that family brings in a year. */
 export type WhitespaceLite = { pairs: number; ids: string[]; valuePerPair: number };
 /** Clinics with several providers where some have stopped ordering (the engine's growth:providers). */
@@ -63,7 +64,7 @@ export type Inputs = {
   book: BookLite | null;
   rows: ClinicLite[] | null;
   lapsed: LapsedLite[] | null;
-  crossSell?: CrossSellLite | null;
+  fz?: FzLite | null;
   whitespace?: WhitespaceLite | null;
   providers?: ProviderLite[] | null;
 };
@@ -205,17 +206,39 @@ export function discover(inp: Inputs): OppDef[] {
       evidence: "New-clinic funnel: where new clinics stop between orders 1 and 4. The share that keep ordering is an assumption to validate.", ready: "ready", defaultOwner: "Sales", annual: nu.n * perYear,
     });
   }
-  const xs = inp.crossSell;
-  if (xs && xs.n > 0) {
-    const up = xs.up * A;
-    out.push({
-      id: "cross-sell", name: "Cross-sell a second or third product family", pillar: "Expansion", source: "scorecard", segment: "Active clinics on 1–2 families",
-      indicator: "Cross-sell candidates", indicatorValue: `${xs.n.toLocaleString("en-US")} clinics · ${money(up)} a year upside`, metric: "Expansion Revenue", from: "",
-      clinicIds: xs.ids, n: xs.n, cur: 0, tgt: 10, rateLabel: "share adding the suggested family", value: up / xs.n,
-      observation: `${xs.n.toLocaleString("en-US")} active clinics order only one or two product families. Adding one more at today's per-family spend is worth ${money(up)} a year.`,
-      intervention: "Introduce the family most often bought by similar clinics, led by the largest candidates.",
-      evidence: "The scorecard's Cross-sell candidates indicator, annualized from the analysis window.", ready: "ready", defaultOwner: "Sales + Marketing", annual: up,
-    });
+  // Foundation Zoomer results that point to a Zoomer the clinic has not ordered: Gut (Gut Baseline or Gut Zoomer) on its own row, and the
+  // other Zoomers together on another, so a clinic's Gut and non-Gut results are not counted twice.
+  const fz = inp.fz;
+  if (fz && fz.clinics.length) {
+    const area = (r: FzClinicLite, gut: boolean) => r.products.filter(p => (p.area === "Gut") === gut && p.open > 0);
+    const build = (gut: boolean) => {
+      const rows = fz.clinics.map(c => ({ c, ps: area(c, gut) })).filter(x => x.ps.length);
+      const low = sum(rows, x => sum(x.ps, p => p.low));
+      const high = sum(rows, x => sum(x.ps, p => p.high));
+      const likely = sum(rows, x => sum(x.ps, p => p.likely));
+      const open = sum(rows, x => sum(x.ps, p => p.open));
+      return { rows, low, high, likely, open };
+    };
+    const g = build(true);
+    const o = build(false);
+    if (o.rows.length && o.low > 0)
+      out.push({
+        id: "fz-targets", name: "Pitch the Zoomers that Foundation Zoomer results point to", pillar: "Expansion", source: "scorecard", segment: "Clinics with open FZ results for Neural, Hormone, Nutrient, Immune or Cardio",
+        indicator: "Cross-sell candidates · FZ results", indicatorValue: `${o.rows.length.toLocaleString("en-US")} clinics · ${money(o.low)}–${money(o.high)} at stake`, metric: "Expansion Revenue", from: "",
+        clinicIds: o.rows.map(x => x.c.clinic), n: o.rows.length, cur: 0, tgt: Math.round((o.likely / o.low) * 1000) / 10, rateLabel: "share of open FZ results that become an order", value: o.low / o.rows.length,
+        observation: `${o.rows.length.toLocaleString("en-US")} clinics have ${o.open.toLocaleString("en-US")} Foundation Zoomer results pointing to a Zoomer they have not ordered. If every one ordered, that is ${money(o.low)} at the lower price and ${money(o.high)} at the higher. At the share that usually converts it is ${money(o.likely)}.`,
+        intervention: "Rep follow-up on the results, led by the clinics with several open areas, with the Zoomer the scores point to.",
+        evidence: "Foundation Zoomer system scores (cube fz_scores): the scorecard's cross-sell candidates while Foundation Zoomer is selected. The default target rate is the share of similar results that already turned into an order. This is the revenue of results open today, not a yearly run rate, and it refreshes as new FZ orders come in.", ready: "ready", defaultOwner: "Sales + Marketing", annual: o.likely,
+      });
+    if (g.rows.length && g.low > 0)
+      out.push({
+        id: "gut-fz", name: "Pitch Gut Baseline and Gut Zoomer from FZ gut results", pillar: "Product Growth", source: "supporting", segment: "Clinics whose FZ gut results point to Gut Baseline or Gut Zoomer",
+        indicator: "FZ gut results", indicatorValue: `${g.rows.length.toLocaleString("en-US")} clinics · ${money(g.low)} Gut Baseline to ${money(g.high)} Gut Zoomer`, metric: "Target Product Orders",
+        from: "Foundation Zoomer system scores, Gut area (cube fz_scores)", clinicIds: g.rows.map(x => x.c.clinic), n: g.rows.length, cur: 0, tgt: Math.round((g.likely / g.low) * 1000) / 10, rateLabel: "share of open gut results that become an order", value: g.low / g.rows.length,
+        observation: `${g.rows.length.toLocaleString("en-US")} clinics have ${g.open.toLocaleString("en-US")} gut results pointing to Gut Baseline or Gut Zoomer that no one has ordered yet. Low is ${money(g.low)} if every one orders Gut Baseline (the lower price), high is ${money(g.high)} if every one orders Gut Zoomer, and about ${money(g.likely)} is what usually converts.`,
+        intervention: "Lead with Gut Baseline as the entry offer and move the clinics that respond into Gut Zoomer.",
+        evidence: "Foundation Zoomer gut scores, with the conversion share taken from similar results. Gut Baseline is new, so its own conversion is not measured yet. This is the revenue of results open today, not a yearly run rate.", ready: "ready", defaultOwner: "Sales", annual: g.likely,
+      });
   }
   const ws = inp.whitespace;
   if (ws && ws.pairs > 0 && ws.valuePerPair > 0) {
@@ -297,7 +320,7 @@ export type Opp = OppDef & {
 };
 
 export const revenueScore = (incr: number): number => (incr >= 400_000 ? 5 : incr >= 250_000 ? 4 : incr >= 120_000 ? 3 : incr >= 50_000 ? 2 : 1);
-export const probScore = (s: Status): number => (s === "Hypothesis" ? 2 : s === "Quantified" ? 3 : s === "Validated" ? 4 : 5);
+export const probScore = (s: Status): number => (s === "Hypothesis" ? 2 : s === "Quantified" ? 3 : s === "Validated" ? 4 : s === "Rejected" ? 1 : 5);
 const clamp = (n: number | undefined, d: number) => Math.min(5, Math.max(1, Math.round(n ?? d)));
 
 export function resolve(def: OppDef, saved: Saved = {}): Opp {

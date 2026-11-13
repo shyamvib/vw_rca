@@ -106,19 +106,41 @@ test("second order: stuck new clinics, valued at one order carried to a year", (
   assert.equal(d.source, "supporting");
 });
 
-test("cross-sell and whitespace come from the scorecard's own indicators", () => {
+test("FZ targets: Gut on its own row, the other Zoomers on another, each from the open results", () => {
   const i = inputs();
-  i.crossSell = { n: 10, up: 5000, ids: ["1"] };
-  i.whitespace = { pairs: 6, ids: ["1", "2"], valuePerPair: 3000 };
+  i.fz = {
+    clinics: [
+      { clinic: "1", products: [{ area: "Gut", open: 2, low: 920, high: 1100, likely: 300 }, { area: "Neural", open: 1, low: 450, high: 450, likely: 90 }] },
+      { clinic: "2", products: [{ area: "Neural", open: 1, low: 450, high: 450, likely: 90 }] },
+      { clinic: "3", products: [{ area: "Hormone", open: 0, low: 0, high: 0, likely: 0 }] },
+    ],
+  };
   const ds = discover(i);
-  const xs = ds.find(x => x.id === "cross-sell")!;
-  assert.equal(xs.source, "scorecard");
-  assert.ok(Math.abs(xs.n * xs.value - 5000 * annualFactor(182)) < 1e-6);
-  const ws = ds.find(x => x.id === "whitespace")!;
+  const gut = ds.find(x => x.id === "gut-fz")!;
+  assert.deepEqual(gut.clinicIds, ["1"]);
+  assert.equal(gut.source, "supporting");
+  assert.ok(Math.abs(resolve(gut).incr - 300) < 1); // the default target rate is likely / low (to 0.1%), so the row matches the scorecard's likely revenue
+  const other = ds.find(x => x.id === "fz-targets")!;
+  assert.deepEqual(other.clinicIds, ["1", "2"]);
+  assert.equal(other.source, "scorecard");
+  assert.ok(Math.abs(resolve(other).incr - 180) < 1e-6);
+  assert.equal(ds.find(x => x.id === "cross-sell"), undefined);
+});
+
+test("whitespace comes from the scorecard's own indicator", () => {
+  const i = inputs();
+  i.whitespace = { pairs: 6, ids: ["1", "2"], valuePerPair: 3000 };
+  const ws = discover(i).find(x => x.id === "whitespace")!;
   assert.equal(ws.unit, "pairs");
   assert.equal(ws.clinicIds.length, 2);
   assert.equal(resolve(ws).incr, 6 * 0.12 * 3000);
   assert.equal(ws.ready, "partial");
+});
+
+test("a rejected opportunity gets the lowest probability score", () => {
+  const d = discover(inputs()).find(x => x.id === "at-risk")!;
+  assert.equal(resolve(d, { status: "Rejected" }).scores.prob, 1);
+  assert.equal(resolve(d, { status: "Scaling" }).scores.prob, 5);
 });
 
 test("providers: clinics with 3+ providers in two years where 2+ stopped and the clinic still orders", () => {
