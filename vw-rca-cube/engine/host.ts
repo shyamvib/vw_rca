@@ -32,6 +32,7 @@ export const SERVED_MODULES = [
   "newClinicTouches",
   "families",
   "familyTrend",
+  "growth",
   "clinicalTouch",
   "plan",
   "familyLaunch",

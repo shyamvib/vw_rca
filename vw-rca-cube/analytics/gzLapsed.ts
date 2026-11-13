@@ -31,6 +31,7 @@ const rowSpec = {
   otherOrders: v.number(),
   revenue: v.optional(v.number()),
   revenueThis: v.optional(v.number()),
+  gzRevenue: v.optional(v.number()),
 };
 
 export const replaceAll = internalMutation({
@@ -77,6 +78,10 @@ export const rebuild = internalAction({
         lastYear.push({ clinic: String(r[`${TABLE}[clinic_id]`] ?? ""), date: String(r[`${TABLE}[order_date]`] ?? "").slice(0, 10), n: Number(r["[n]"] ?? 0) });
       s = addDays(e, 1);
     }
+    // Revenue of last year's orders that contained Gut Zoomer, per clinic (the size of what was lost).
+    const gzRev = new Map<string, number>();
+    for (const r of await ordersRows({ by: ["clinic_id"], start: prevStart, end: prevEnd, m: { rev: "revenue" }, filters: [gzFilter] }))
+      gzRev.set(String(r[`${TABLE}[clinic_id]`] ?? ""), Number(r["[rev]"] ?? 0));
     // Clinics with a Gut Zoomer order this year so far.
     const thisYear = new Set<string>();
     for (const r of await ordersRows({ by: ["clinic_id"], start: yearStart, end: dataEnd, m: { n: "orders" }, filters: [gzFilter] }))
@@ -110,6 +115,7 @@ export const rebuild = internalAction({
         otherOrders: other.get(l.clinic)?.orders ?? 0,
         revenue: Math.round(lastRev.get(l.clinic) ?? 0),
         revenueThis: Math.round(other.get(l.clinic)?.revenue ?? 0),
+        gzRevenue: Math.round(gzRev.get(l.clinic) ?? 0),
       };
     });
     for (let i = 0; i < Math.max(rows.length, 1); i += 1000) await ctx.runMutation(internal.gzLapsed.replaceAll, { rows: rows.slice(i, i + 1000), clear: i === 0 });

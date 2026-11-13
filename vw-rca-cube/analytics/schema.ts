@@ -689,6 +689,8 @@ const schema = defineSchema({
     revenue: v.optional(v.number()),
     /** The clinic's total revenue so far this year, all products. */
     revenueThis: v.optional(v.number()),
+    /** Revenue last year of the orders that contained Gut Zoomer (a combo order counts whole). */
+    gzRevenue: v.optional(v.number()),
     builtAt: v.number(),
   }).index("by_clinic", ["clinic"]),
 
