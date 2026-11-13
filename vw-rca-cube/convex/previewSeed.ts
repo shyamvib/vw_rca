@@ -11,7 +11,9 @@ import { internalMutation } from "./_generated/server";
 export const seed = internalMutation({
   args: {},
   handler: async ctx => {
-    const raw = (process.env.PREVIEW_ENGINE_URL ?? "").trim().replace(/\/+$/, "");
+    // Read through globalThis: the front end's TypeScript build also checks this folder and has no Node types.
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+    const raw = (env?.PREVIEW_ENGINE_URL ?? "").trim().replace(/\/+$/, "");
     if (!/^https:\/\/[^\s]+$/.test(raw)) return { seeded: false as const, reason: "PREVIEW_ENGINE_URL is not set to an https address" };
     const row = await ctx.db.query("appMeta").withIndex("by_key", q => q.eq("key", "serviceUrl")).unique();
     if (row) await ctx.db.patch(row._id, { value: raw, updatedAt: Date.now() });
